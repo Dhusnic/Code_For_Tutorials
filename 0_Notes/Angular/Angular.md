@@ -158,7 +158,7 @@ ng build
 ![[angular web package management.png]]
 
 ---
-![[angular MVW concept.png]]
+![[Assests/angular MVW concept.png]]
 
 
 ---
