@@ -1,0 +1,8 @@
+tuple_data=(1,2,3,4,5,6,7,8,9,2,3,5)
+tuple_data2=(1)
+print(tuple_data.count(2))
+print(tuple_data[1])
+print(tuple_data.index(6))
+print(max(tuple_data))
+print(min(tuple_data))
+del(tuple_data)
