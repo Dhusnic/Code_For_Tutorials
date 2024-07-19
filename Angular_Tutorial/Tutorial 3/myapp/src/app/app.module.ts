@@ -3,15 +3,23 @@ import { BrowserModule } from '@angular/platform-browser';
 import {FormsModule} from "@angular/forms"
 import { AppRoutingModule } from './app-routing.module';
 import { AppComponent } from './app.component';
-
+import { ContactComp } from "./Contact/Contact.component";
+import { HomeComp} from "./Home/Home.component";
+import {SupplierComp} from "./Supplier/Supplier.component";
+import { RouterModule } from '@angular/router';
+import { MainRoutes } from './Routing/App.routing';
 @NgModule({
   declarations: [
-    AppComponent
+    AppComponent,
+    HomeComp,
+    ContactComp,
+    SupplierComp,
   ],
   imports: [
     BrowserModule,
     AppRoutingModule,
-    FormsModule
+    FormsModule,
+    RouterModule.forRoot(MainRoutes),
 
   ],
   providers: [],

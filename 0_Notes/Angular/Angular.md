@@ -144,6 +144,25 @@ The work flow (or) code flow of Angular:
 
 ![[angular work flow.png]]
 
+
+### `HTML` - UI 
+
+### `model` - functional component or Object
+
+### `Component` - which adds both UI and Functional component
+
+`[]` ->    receives data from UI to Object
+`()` -> sends data  from UI to object
+`[()]` -> send and receive data b/w the UI and Object
+
+![[single way and two way.png]]
+
+
+### `Module` - 
+
+
+
+
 ---
 
 web package Management while running :  
@@ -162,6 +181,13 @@ ng build
 
 
 ---
-In ngModel
-()-> send data from UI to the Object
-[]-> recives data from UI to Object
+
+![[angular ui.png]]
+
+___
+
+### Package-lock.jason
+
+
+
+![[jason package lock version.png]]
