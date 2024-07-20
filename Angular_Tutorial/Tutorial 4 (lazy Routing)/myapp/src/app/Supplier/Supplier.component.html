@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title></title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+    </head>
+    <body>
+        coustemer code : <input [(ngModel)]="CustomerModel.CustomerCode" type="text" name=""><br/>
+        coustemer Name : <input [(ngModel)]="CustomerModel.CustomerName" type="text" name="" value=""><br/>
+        coustemer Amount : <input [(ngModel)]="CustomerModel.CustomerAmount" type="number" name="" value=""><br/>
+        <button (click)="Add()" type="">Add</button>
+        <button (click)="Delete()" type="">Delete</button>
+        <h1>{{CustomerModel.CustomerCode}}</h1>
+        <table>
+            <tr>
+        
+                <th>Code</th>
+                <th>Name</th>
+                <th>Amount</th>
+            </tr>
+            <tr *ngFor="let Cust of CustomerModels">
+                <td>{{Cust.CustomerCode}}</td>
+                <td>{{Cust.CustomerName}}</td>
+                <td>{{Cust.CustomerAmount}}</td>
+        
+            </tr>
+        </table>
+    </body>
+</html>

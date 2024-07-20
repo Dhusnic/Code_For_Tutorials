@@ -191,3 +191,19 @@ ___
 
 
 ![[jason package lock version.png]]
+
+
+### Routing
+
+![[routing-architecture-angular.png]]
+
+link in .html--->routing URL ---> app.Route.ts ---> loading Component file ---> display area of rout in Html.
+
+
+Bootstrap is where first page or Master Page which is to be load
+
+
+### Lazy Routing
+
+![[lazy route.jpeg]]
+

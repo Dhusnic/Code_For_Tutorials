@@ -13,7 +13,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Angular/Angular.md",
+                "file": "Everest_IMS/Designing.md",
                 "mode": "source",
                 "source": false
               }
@@ -86,7 +86,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Angular/Angular.md",
+                "file": "Everest_IMS/Designing.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +103,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Angular/Angular.md",
+                "file": "Everest_IMS/Designing.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -126,7 +126,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Angular/Angular.md"
+                "file": "Everest_IMS/Designing.md"
               }
             }
           }
@@ -149,8 +149,13 @@
   },
   "active": "58499230c21b2b8d",
   "lastOpenFiles": [
-    "Everest_IMS/Infinity.md",
     "Angular/Angular.md",
+    "Everest_IMS/Designing.md",
+    "Everest_IMS/Everest  IMS Tech Stack.md",
+    "Assests/lazy route.jpeg",
+    "Assests/WhatsApp Image 2024-07-19 at 4.30.37 PM.jpeg",
+    "Everest_IMS/Infinity.md",
+    "Assests/routing-architecture-angular.png",
     "Assests/jason package lock version.png",
     "Assests/single way and two way.png",
     "Assests/angular ui.png",
@@ -160,7 +165,6 @@
     "Assests/Screenshot 2024-07-18 115955.png",
     "Assests",
     "Django/Django.md",
-    "Everest_IMS/Everest  IMS Tech Stack.md",
     "Django/Welcome.md",
     "Angular/Welcome.md",
     "create a link.md"
