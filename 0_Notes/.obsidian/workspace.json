@@ -13,7 +13,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Everest_IMS/Designing.md",
+                "file": "Angular/Angular.md",
                 "mode": "source",
                 "source": false
               }
@@ -86,7 +86,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Everest_IMS/Designing.md",
+                "file": "Angular/Angular.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +103,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Everest_IMS/Designing.md",
+                "file": "Angular/Angular.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -126,7 +126,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Everest_IMS/Designing.md"
+                "file": "Angular/Angular.md"
               }
             }
           }
@@ -149,8 +149,8 @@
   },
   "active": "58499230c21b2b8d",
   "lastOpenFiles": [
-    "Angular/Angular.md",
     "Everest_IMS/Designing.md",
+    "Angular/Angular.md",
     "Everest_IMS/Everest  IMS Tech Stack.md",
     "Assests/lazy route.jpeg",
     "Assests/WhatsApp Image 2024-07-19 at 4.30.37 PM.jpeg",

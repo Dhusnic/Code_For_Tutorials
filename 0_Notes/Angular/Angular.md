@@ -207,3 +207,11 @@ Bootstrap is where first page or Master Page which is to be load
 
 ![[lazy route.jpeg]]
 
+Validation in Angular
+1. Create - create validation in object model
+2. Connect - connect validation to the UI
+3. Check - IsValid or IsDirty
+
+1. Form Group
+		Form Controlee
+			validation
