@@ -1,0 +1,10 @@
+body
+{
+  background-color: aqua;
+  margin: 0px;
+  padding: 0px;
+}
+table{
+  row-gap: 20rem;
+  column-gap: 3rem;
+}
