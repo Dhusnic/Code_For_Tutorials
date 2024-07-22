@@ -1,3 +1,4 @@
+### Basics Of Angular
 Sure, here’s a comparison between React and Angular in a tabular format:
 
 | Feature                 | React                                         | Angular                                          |
@@ -145,11 +146,11 @@ The work flow (or) code flow of Angular:
 ![[angular work flow.png]]
 
 
-### `HTML` - UI 
+#### `HTML` - UI 
 
-### `model` - functional component or Object
+#### `model` - functional component or Object
 
-### `Component` - which adds both UI and Functional component
+#### `Component` - which adds both UI and Functional component
 
 `[]` ->    receives data from UI to Object
 `()` -> sends data  from UI to object
@@ -158,7 +159,7 @@ The work flow (or) code flow of Angular:
 ![[single way and two way.png]]
 
 
-### `Module` - 
+#### `Module` - 
 
 
 
@@ -186,7 +187,7 @@ ng build
 
 ___
 
-### Package-lock.jason
+#### Package-lock.jason
 
 
 
@@ -207,11 +208,201 @@ Bootstrap is where first page or Master Page which is to be load
 
 ![[lazy route.jpeg]]
 
-Validation in Angular
+### Validation in Angular
 1. Create - create validation in object model
 2. Connect - connect validation to the UI
 3. Check - IsValid or IsDirty
 
 1. Form Group
 		Form Controlee
-			validation
+			validators
+
+dirty - indicates user has changed values
+pristine - opposite of dirty flag
+touched - indicates field is touched by user
+untouched - opposite of touched
+valid - checks whether all validations are passed 
+invalid - opposite of valid
+
+In Angular, form validation is crucial for ensuring data integrity and providing a good user experience. Angular provides a powerful mechanism for handling form validation through its `ReactiveFormsModule` and `FormsModule`. Here’s a detailed explanation of form validators and the various state properties associated with form controls:
+
+#### Form Validators in Angular
+
+Validators are used to ensure that form controls adhere to specified rules. Angular provides built-in validators, and you can also create custom validators.
+
+#### Built-in Validators
+
+- `Validators.required`: Ensures the control has a non-empty value.
+- `Validators.min`: Ensures the control's value is greater than or equal to the specified minimum.
+- `Validators.max`: Ensures the control's value is less than or equal to the specified maximum.
+- `Validators.minLength`: Ensures the control's value meets the minimum length requirement.
+- `Validators.maxLength`: Ensures the control's value does not exceed the maximum length.
+- `Validators.email`: Ensures the control's value is a valid email address.
+- `Validators.pattern`: Ensures the control's value matches a given pattern.
+
+#### Form Control State Properties
+
+Each form control in Angular has several state properties that provide information about the control’s current state. Here are some key properties:
+
+|Property|Description|
+|---|---|
+|`valid`|A boolean indicating if the control’s value meets all its validation criteria (true if valid, false otherwise).|
+|`invalid`|A boolean indicating if the control’s value does not meet one or more of its validation criteria.|
+|`dirty`|A boolean indicating if the control’s value has been changed by the user.|
+|`pristine`|A boolean indicating if the control’s value has not been changed by the user (initial state).|
+|`touched`|A boolean indicating if the control has been blurred (focus lost).|
+|`untouched`|A boolean indicating if the control has not been blurred (focus never lost).|
+|`pending`|A boolean indicating if the control’s validation is in progress.|
+|`errors`|An object containing any validation errors for the control.|
+
+
+### Dependency Injection (DI) :
+
+Certainly! Here's a table with definitions and an example demonstrating loose coupling, tight coupling, concrete components, providers, centralized dependency injection, and conditional dependency injection in Angular.
+
+| Term                           | Definition                                                                                                                                     | Example                                                                                          |
+|--------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| **Loose Coupling**             | A design principle that minimizes dependencies between components, making them easier to replace or modify independently.                      | Using an interface and dependency injection for the logger in Angular.                           |
+| **Tight Coupling**             | A design principle where components are highly dependent on each other, making it difficult to modify one without affecting the other.        | Directly instantiating the logger class inside a component.                                      |
+| **Concrete Components**        | Actual implementations of interfaces or abstract classes.                                                                                      | `Filelogger` and `DbLogger` classes implementing the `ILogger` interface.                        |
+| **Providers**                  | Mechanisms in Angular that define how to create instances of a dependency.                                                                     | Specifying `Filelogger` as a provider for `ILogger` in the Angular module.                       |
+| **Centralized Dependency Injection** | A pattern where dependencies are managed and injected at a central point, usually the module level, making them available application-wide. | Providing `ILogger` in the root module of the Angular application.                               |
+| **Conditional Dependency Injection** | A pattern where the dependency injected depends on certain conditions or configurations.                                                    | Injecting `Filelogger` or `DbLogger` based on environment settings.                              |
+
+#### Example
+
+#### 1. Define the Logger Interface
+
+```typescript
+// ILogger.ts
+export interface ILogger {
+  log(): void;
+}
+```
+
+#### 2. Concrete Components: Implementing the Logger Interface
+
+```typescript
+// Filelogger.ts
+import { Injectable } from '@angular/core';
+import { ILogger } from './ILogger';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class Filelogger implements ILogger {
+  log() {
+    console.log("Using File Logger");
+  }
+}
+
+// DbLogger.ts
+import { Injectable } from '@angular/core';
+import { ILogger } from './ILogger';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class DbLogger implements ILogger {
+  log() {
+    console.log("Using Db Logger");
+  }
+}
+```
+
+#### 3. Centralized Dependency Injection: Providing the Logger in the Module
+
+```typescript
+// app.module.ts
+import { NgModule } from '@angular/core';
+import { BrowserModule } from '@angular/platform-browser';
+import { AppComponent } from './app.component';
+import { ContactComp } from './Contact/contact.component';
+import { Filelogger } from './Utility/Filelogger';
+import { DbLogger } from './Utility/DbLogger';
+import { ILogger } from './Utility/ILogger';
+
+@NgModule({
+  declarations: [
+    AppComponent,
+    ContactComp
+  ],
+  imports: [
+    BrowserModule
+  ],
+  providers: [
+    { provide: ILogger, useClass: Filelogger } // Centralized Dependency Injection
+  ],
+  bootstrap: [AppComponent]
+})
+export class AppModule { }
+```
+
+#### 4. Conditional Dependency Injection: Changing the Logger Based on Environment
+
+```typescript
+// app.module.ts
+import { NgModule } from '@angular/core';
+import { BrowserModule } from '@angular/platform-browser';
+import { AppComponent } from './app.component';
+import { ContactComp } from './Contact/contact.component';
+import { Filelogger } from './Utility/Filelogger';
+import { DbLogger } from './Utility/DbLogger';
+import { ILogger } from './Utility/ILogger';
+
+@NgModule({
+  declarations: [
+    AppComponent,
+    ContactComp
+  ],
+  imports: [
+    BrowserModule
+  ],
+  providers: [
+    { 
+      provide: ILogger, 
+      useClass: environment.production ? Filelogger : DbLogger // Conditional Dependency Injection
+    }
+  ],
+  bootstrap: [AppComponent]
+})
+export class AppModule { }
+```
+
+#### 5. Using the Logger in a Component
+
+```typescript
+// Contact.component.ts
+import { Component } from '@angular/core';
+import { ILogger } from '../Utility/ILogger';
+
+@Component({
+  selector: 'app-contact',
+  templateUrl: './Contact.component.html',
+  styleUrls: ['./Contact.component.css']
+})
+export class ContactComp {
+  title = 'myapp';
+  logobj: ILogger;
+
+  constructor(logger: ILogger) {
+    this.logobj = logger;
+    this.logobj.log();
+  }
+}
+```
+
+#### Summary
+
+- **Tight Coupling**: Direct instantiation inside `ContactComp`.
+- **Loose Coupling**: Using `ILogger` interface and dependency injection.
+- **Concrete Components**: `Filelogger` and `DbLogger`.
+- **Providers**: Specified in `app.module.ts` with `{ provide: ILogger, useClass: Filelogger }`.
+- **Centralized Dependency Injection**: Defined in the module for application-wide use.
+- **Conditional Dependency Injection**: Using different loggers based on the environment configuration.
+
+This example demonstrates how to design Angular applications with different coupling strategies and dependency injection techniques.
+
+Centralized Dependency injection - organization Decides which logger to be used
+Conditional Dependency injection - Client Decides which logger to be used
+### Input, Output, Event Emmiter
