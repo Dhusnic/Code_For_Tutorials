@@ -405,4 +405,7 @@ This example demonstrates how to design Angular applications with different coup
 
 Centralized Dependency injection - organization Decides which logger to be used
 Conditional Dependency injection - Client Decides which logger to be used
-### Input, Output, Event Emmiter
+### Input, Output, Event Emitter
+
+User Control , reusable UI , reusable components 
+Event Emitters - input and output b/w which the data travels

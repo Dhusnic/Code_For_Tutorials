@@ -8,7 +8,6 @@ import { AppComponent } from "../App/app.component";
 import { Baselogger,Dblogger } from "../Utility/app.Logger";
 @NgModule({
   declarations: [
-    AppComponent,
     HomeComp,
   ],
   imports: [

@@ -7,6 +7,8 @@
 https://chatgpt.com/share/251e915d-282b-4fcd-87e3-6064e2842963 - link for ecommerce Modal
 https://github.com/Dhusnic/Django_Tutorial/tree/main - git link for tutorial
 
+### Environment Setup
+
 #creation_of_virtual_Enviroinment
 
 ```
@@ -62,7 +64,7 @@ myproject/
     venv/
 ```
 
-### Explanation of Files and Directories
+#### Explanation of Files and Directories
 
 #### Project-Level Files
 - **`manage.py`**:
@@ -126,15 +128,159 @@ myproject/
 - **`venv/`**:
   - The directory containing the virtual environment for the project. This directory is typically not included in version control. It contains the installed packages and dependencies for the project.
 
-### Summary
+#### Summary
 This structure helps you keep your project organized. The `myproject` directory contains global configurations and settings, while each app (like `myapp`) contains its own models, views, templates, and static files. This modular approach makes Django projects scalable and easier to manage.
 
 
-#DTL-Django_Template_Language
+### MVT Structure
+
+MVT (Model-View-Template) is a design pattern used by Django to structure its applications. It is similar to the Model-View-Controller (MVC) pattern but with a slight variation in terminology and the way components interact.
+
+Here's a detailed explanation of each component in MVT along with an example and a flow diagram:
+
+#### Components of MVT
+
+1. **Model**: 
+   - Represents the data or the database. It is responsible for maintaining the data logic. In Django, models are defined using Python classes and are mapped to database tables.
+   
+2. **View**:
+   - Contains the logic that is executed in response to a user request. It interacts with the model to fetch data and sends it to the template.
+   
+3. **Template**:
+   - Responsible for rendering the data to be presented to the user. It contains the HTML code mixed with Django Template Language (DTL).
+
+#### Example Application: Simple Blog
+
+#### Step-by-Step Implementation
+
+1. **Model**:
+    - Define a model for a blog post.
+    ```python
+    from django.db import models
+
+    class Post(models.Model):
+        title = models.CharField(max_length=100)
+        content = models.TextField()
+        created_at = models.DateTimeField(auto_now_add=True)
+
+        def __str__(self):
+            return self.title
+    ```
+
+2. **View**:
+    - Create a view to list all blog posts.
+    ```python
+    from django.shortcuts import render
+    from .models import Post
+
+    def post_list(request):
+        posts = Post.objects.all()
+        return render(request, 'blog/post_list.html', {'posts': posts})
+    ```
+
+3. **Template**:
+    - Create an HTML template to display the blog posts.
+    ```html
+    <!-- blog/templates/blog/post_list.html -->
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Blog Posts</title>
+    </head>
+    <body>
+        <h1>Blog Posts</h1>
+        <ul>
+            {% for post in posts %}
+                <li>{{ post.title }} - {{ post.created_at }}</li>
+                <p>{{ post.content }}</p>
+            {% endfor %}
+        </ul>
+    </body>
+    </html>
+    ```
+
+4. **URL Configuration**:
+    - Map the view to a URL.
+    ```python
+    # blog/urls.py
+    from django.urls import path
+    from .views import post_list
+
+    urlpatterns = [
+        path('', post_list, name='post_list'),
+    ]
+    ```
+
+5. **Main URL Configuration**:
+    - Include the blog URL configuration in the main `urls.py`.
+    ```python
+    # myproject/urls.py
+    from django.contrib import admin
+    from django.urls import path, include
+
+    urlpatterns = [
+        path('admin/', admin.site.urls),
+        path('blog/', include('blog.urls')),
+    ]
+    ```
+
+#### Flow Diagram
+
+
+![[MVT dijango.png]]
+Here’s a flow diagram illustrating the MVT architecture in Django:
+
+```plaintext
++-------------------+
+|  User Request     |
+|  (HTTP Request)   |
++-------------------+
+        |
+        v
++-------------------+
+|     URLConf       |-----\
++-------------------+     |
+        |                |
+        v                |
++-------------------+     |
+|       View        |     |
++-------------------+     |
+        |                |
+        v                |
++-------------------+     |
+|       Model       |     |
+|   (Database ORM)  |     |
++-------------------+     |
+        |                |
+        v                |
++-------------------+     |
+|      Template     |<----/
+|  (HTML + DTL)     |
++-------------------+
+        |
+        v
++-------------------+
+|  User Response    |
+|  (HTTP Response)  |
++-------------------+
+```
+
+#### Detailed Flow
+
+1. **User Request**: A user makes an HTTP request to a Django application.
+2. **URLConf**: The request is routed to the appropriate view based on the URL configuration.
+3. **View**: The view processes the request, interacts with the model to retrieve or manipulate data, and prepares the context for the template.
+4. **Model**: The model represents the data structure and handles data operations.
+5. **Template**: The view renders the data into the template, which generates the final HTML to be sent back to the user.
+6. **User Response**: The generated HTML is sent back to the user as an HTTP response.
+
+This is a high-level overview of the MVT pattern in Django with an example of a simple blog application.
+
+### DTL-Django Template Language
 
 Django Template Language (DTL) is a powerful feature of Django that allows you to create dynamic HTML templates. Here's an overview of its syntax and uses:
 
-### 1. **Variables**
+#### 1. **Variables**
 
 - **Syntax:** `{{ variable_name }}`
 - **Use:** To output the value of a variable.
@@ -143,7 +289,7 @@ Django Template Language (DTL) is a powerful feature of Django that allows you t
   <p>Hello, {{ user.username }}!</p>
   ```
 
-### 2. **Filters**
+#### 2. **Filters**
 
 - **Syntax:** `{{ value|filter_name:arg1:arg2 }}`
 - **Use:** To modify or format the value.
@@ -154,7 +300,7 @@ Django Template Language (DTL) is a powerful feature of Django that allows you t
   <p>{{ number|floatformat:2 }}</p>  <!-- Formats number to 2 decimal places -->
   ```
 
-### 3. **Tags**
+#### 3. **Tags**
 
 #### **Control Flow Tags**
 
@@ -261,7 +407,7 @@ Django Template Language (DTL) is a powerful feature of Django that allows you t
   <a href="{% url 'profile' user.id %}">Profile</a>
   ```
 
-### 4. **Comments**
+#### 4. **Comments**
 
 - **Syntax:**
   ```html
@@ -269,7 +415,7 @@ Django Template Language (DTL) is a powerful feature of Django that allows you t
   ```
 - **Use:** To add comments in templates.
 
-### 5. **Inheritance**
+#### 5. **Inheritance**
 
 - **Syntax:**
   ```html
@@ -280,7 +426,7 @@ Django Template Language (DTL) is a powerful feature of Django that allows you t
   ```
 - **Use:** To use a base template and override specific blocks.
 
-### 6. **Custom Tags and Filters**
+#### 6. **Custom Tags and Filters**
 
 - **Syntax:** Custom tags and filters require creating Python functions and registering them with Django's template system.
 
@@ -307,3 +453,54 @@ Django Template Language (DTL) is a powerful feature of Django that allows you t
    ```
 
 These are the basics of Django Template Language. The flexibility of DTL allows for creating dynamic and reusable templates effectively.
+
+
+
+
+### HTTP request method  in Django
+
+#### 1. GET
+
+#### 2. POST
+#### 3. PUT
+#### 4. Delete
+
+
+### ORM - Object Relational Mapping
+
+PostgreSQL
+
+PostgreSQL  Credentials
+
+* User Name :- 
+* Password :-
+
+#driver_to_connect_with_python
+
+```
+pip install psycopg2
+```
+
+```
+#For Saving Images in sql DataBase
+pip install pillow
+```
+
+```
+python manage.py makemigrations
+```
+
+* new files created in app migration folders
+```
+python manage.py sqlmigrate travello 0001
+#sqlmigrate App_Name 0001
+```
+
+```
+python manage.py migrate
+```
+
+
+### Admin Panel in Django
+
+* Registration
