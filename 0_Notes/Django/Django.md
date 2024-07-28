@@ -9,6 +9,8 @@ https://github.com/Dhusnic/Django_Tutorial/tree/main - git link for tutorial
 
 ### Environment Setup
 
+### Environment Setup
+
 #creation_of_virtual_Enviroinment
 
 ```
@@ -453,54 +455,3 @@ Django Template Language (DTL) is a powerful feature of Django that allows you t
    ```
 
 These are the basics of Django Template Language. The flexibility of DTL allows for creating dynamic and reusable templates effectively.
-
-
-
-
-### HTTP request method  in Django
-
-#### 1. GET
-
-#### 2. POST
-#### 3. PUT
-#### 4. Delete
-
-
-### ORM - Object Relational Mapping
-
-PostgreSQL
-
-PostgreSQL  Credentials
-
-* User Name :- 
-* Password :-
-
-#driver_to_connect_with_python
-
-```
-pip install psycopg2
-```
-
-```
-#For Saving Images in sql DataBase
-pip install pillow
-```
-
-```
-python manage.py makemigrations
-```
-
-* new files created in app migration folders
-```
-python manage.py sqlmigrate travello 0001
-#sqlmigrate App_Name 0001
-```
-
-```
-python manage.py migrate
-```
-
-
-### Admin Panel in Django
-
-* Registration

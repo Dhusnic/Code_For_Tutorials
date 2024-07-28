@@ -13,7 +13,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Everest_IMS/Everest  IMS Tech Stack.md",
+                "file": "Django/Django.md",
                 "mode": "source",
                 "source": false
               }
@@ -86,7 +86,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Everest_IMS/Everest  IMS Tech Stack.md",
+                "file": "Django/Django.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +103,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Everest_IMS/Everest  IMS Tech Stack.md",
+                "file": "Django/Django.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -126,7 +126,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Everest_IMS/Everest  IMS Tech Stack.md"
+                "file": "Django/Django.md"
               }
             }
           }
@@ -149,16 +149,14 @@
   },
   "active": "ef89970a009731fe",
   "lastOpenFiles": [
-    "Everest_IMS/Designing.md",
-    "GIT COMMANDS/GIT Commands.md",
-    "Django/Django.md",
-    "GIT COMMANDS",
     "Linux Commands/Linux Commands.md",
+    "Django/Django.md",
     "Linux Commands",
     "Assests/MVT dijango.png",
     "Everest_IMS/Testing.md",
     "Angular/Angular.md",
     "Untitled.md",
+    "Everest_IMS/Designing.md",
     "Everest_IMS/Everest  IMS Tech Stack.md",
     "Assests/lazy route.jpeg",
     "Assests/WhatsApp Image 2024-07-19 at 4.30.37 PM.jpeg",
