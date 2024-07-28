@@ -8,12 +8,12 @@
         "type": "tabs",
         "children": [
           {
-            "id": "58499230c21b2b8d",
+            "id": "ef89970a009731fe",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Angular/Angular.md",
+                "file": "Django/Django.md",
                 "mode": "source",
                 "source": false
               }
@@ -49,7 +49,7 @@
             "state": {
               "type": "search",
               "state": {
-                "query": "",
+                "query": "tag:#DTL-Django_Template_Language",
                 "matchingCase": false,
                 "explainSearch": false,
                 "collapseAll": false,
@@ -86,7 +86,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Angular/Angular.md",
+                "file": "Django/Django.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +103,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Angular/Angular.md",
+                "file": "Django/Django.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -126,7 +126,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Angular/Angular.md"
+                "file": "Django/Django.md"
               }
             }
           }
@@ -147,10 +147,16 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "58499230c21b2b8d",
+  "active": "ef89970a009731fe",
   "lastOpenFiles": [
-    "Everest_IMS/Designing.md",
+    "Linux Commands/Linux Commands.md",
+    "Django/Django.md",
+    "Linux Commands",
+    "Assests/MVT dijango.png",
+    "Everest_IMS/Testing.md",
     "Angular/Angular.md",
+    "Untitled.md",
+    "Everest_IMS/Designing.md",
     "Everest_IMS/Everest  IMS Tech Stack.md",
     "Assests/lazy route.jpeg",
     "Assests/WhatsApp Image 2024-07-19 at 4.30.37 PM.jpeg",
@@ -162,9 +168,7 @@
     "Assests/angular MVW concept.png",
     "Assests/angular web package management.png",
     "Assests/angular work flow.png",
-    "Assests/Screenshot 2024-07-18 115955.png",
     "Assests",
-    "Django/Django.md",
     "Django/Welcome.md",
     "Angular/Welcome.md",
     "create a link.md"
