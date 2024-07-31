@@ -1,5 +1,7 @@
 {%load static%}
 {% static "img" as baseUrl%}
+{% csrf_token %}
+
 <!doctype html>
 <html class="no-js" lang="zxx">
 
@@ -72,6 +74,7 @@
                                             </li>
                                             <li><a href="contact">Contact</a></li>
                                             <li><a href="accounts/register">Register</a></li>
+                                            <li><a href="accounts/login">login</a></li>
                                         </ul>
                                     </nav>
                                 </div>
