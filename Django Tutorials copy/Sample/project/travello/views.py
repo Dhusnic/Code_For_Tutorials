@@ -24,3 +24,7 @@ def index(request):
 
    dests=Destination.objects.all()
    return render(request,"index.html",{"dests":dests})
+
+
+def contact(request):
+   return render(request,"contact.html")

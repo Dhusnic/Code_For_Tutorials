@@ -455,3 +455,9 @@ Django Template Language (DTL) is a powerful feature of Django that allows you t
    ```
 
 These are the basics of Django Template Language. The flexibility of DTL allows for creating dynamic and reusable templates effectively.
+
+### Django Credentials
+
+admin Username: dhusnicinfantdm
+admin webpage: http://127.0.0.1:8000/admin/login/?next=/admin/
+admin password: Dhusnic#2003
