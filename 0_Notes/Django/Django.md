@@ -134,6 +134,10 @@ myproject/
 This structure helps you keep your project organized. The `myproject` directory contains global configurations and settings, while each app (like `myapp`) contains its own models, views, templates, and static files. This modular approach makes Django projects scalable and easier to manage.
 
 
+### FILE Flow or Work Architecture
+
+![[Django.png]]
+
 ### MVT Structure
 
 MVT (Model-View-Template) is a design pattern used by Django to structure its applications. It is similar to the Model-View-Controller (MVC) pattern but with a slight variation in terminology and the way components interact.
@@ -461,3 +465,18 @@ These are the basics of Django Template Language. The flexibility of DTL allows 
 admin Username: dhusnicinfantdm
 admin webpage: http://127.0.0.1:8000/admin/login/?next=/admin/
 admin password: Dhusnic#2003
+
+
+### Django rest framework
+
+#environs
+
+```
+pip install django-environ
+```
+
+#django_rest_Framework
+
+```
+pip install djangorestframework
+```

@@ -49,7 +49,7 @@
             "state": {
               "type": "search",
               "state": {
-                "query": "tag:#DTL-Django_Template_Language",
+                "query": "tag:#environs",
                 "matchingCase": false,
                 "explainSearch": false,
                 "collapseAll": false,
@@ -66,7 +66,8 @@
               "state": {}
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "horizontal",
@@ -147,8 +148,9 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "ef89970a009731fe",
+  "active": "32fe32662db9c1f7",
   "lastOpenFiles": [
+    "Assests/Django.png",
     "Linux Commands/Linux Commands.md",
     "Django/Django.md",
     "Linux Commands",

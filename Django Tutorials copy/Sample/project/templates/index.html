@@ -73,8 +73,13 @@
                                                 </ul>
                                             </li>
                                             <li><a href="contact">Contact</a></li>
-                                            <li><a href="accounts/register">Register</a></li>
-                                            <li><a href="accounts/login">login</a></li>
+                                            {% if user.is_authenticated %}
+                                                <li><b><i>Hello,{{user.first_name}}</i></b></li>
+                                                <li><h3><a href="accounts/logout">Logout</a></h3></li>
+                                            {%else%}
+                                                <li><a href="accounts/register">Register</a></li>
+                                                <li><a href="accounts/login">login</a></li>
+                                            {% endif %}
                                         </ul>
                                     </nav>
                                 </div>
