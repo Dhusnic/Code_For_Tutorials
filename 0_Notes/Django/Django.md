@@ -480,3 +480,13 @@ pip install django-environ
 ```
 pip install djangorestframework
 ```
+
+#create_api_app
+
+```
+python manage.py startapp api
+```
+
+
+Serializers -> used to convert python data to JSON Data
+Generics -> used to create , update , delete any type of modal

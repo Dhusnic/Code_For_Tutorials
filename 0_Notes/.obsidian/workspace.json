@@ -13,7 +13,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Django/Django.md",
+                "file": "video Tutorial/Video Editing.md",
                 "mode": "source",
                 "source": false
               }
@@ -49,7 +49,7 @@
             "state": {
               "type": "search",
               "state": {
-                "query": "tag:#environs",
+                "query": "",
                 "matchingCase": false,
                 "explainSearch": false,
                 "collapseAll": false,
@@ -87,7 +87,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Django/Django.md",
+                "file": "video Tutorial/Video Editing.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Django/Django.md",
+                "file": "video Tutorial/Video Editing.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -127,7 +127,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Django/Django.md"
+                "file": "video Tutorial/Video Editing.md"
               }
             }
           }
@@ -148,18 +148,37 @@
       "command-palette:Open command palette": false
     }
   },
-  "active": "32fe32662db9c1f7",
+  "active": "ef89970a009731fe",
   "lastOpenFiles": [
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/Mongo DB.md",
+    "Full Stack/FULL STACK/FULL STACK (MERN).md",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/State Maintained in react.md",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React.md",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/Life Cycle Of a Component React 35d3fd1d97544139a92d82ff01861ddd.md",
+    "Full Stack/FULL STACK.md",
+    "Machine Learning/Machine Learning.md",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/Life Cycle Of a Component React 35d3fd1d97544139a92d82ff01861ddd",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/Npm and Npx 5c45f11fba684bf7a782bf07c837a820.md",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/Java Script 84d9bc90ae964120b87b3dd98b00bf46.md",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/CSS 39d0142e462042a78224ee1d599b82ba.md",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/HTML 03605663c14149af80b00d4c5e27a956.md",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/Node Js de4705a065a9482da772218d136b2ad5.md",
+    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341",
+    "Full Stack/FULL STACK",
+    "Full Stack",
+    "Full Stack 2.zip",
+    "Machine Learning/Supervised Learning.md",
+    "Django/Django.md",
+    "Untitled.md",
+    "Everest_IMS/Everest  IMS Tech Stack.md",
     "Assests/Django.png",
     "Linux Commands/Linux Commands.md",
-    "Django/Django.md",
     "Linux Commands",
     "Assests/MVT dijango.png",
     "Everest_IMS/Testing.md",
     "Angular/Angular.md",
-    "Untitled.md",
     "Everest_IMS/Designing.md",
-    "Everest_IMS/Everest  IMS Tech Stack.md",
     "Assests/lazy route.jpeg",
     "Assests/WhatsApp Image 2024-07-19 at 4.30.37 PM.jpeg",
     "Everest_IMS/Infinity.md",
@@ -169,7 +188,6 @@
     "Assests/angular ui.png",
     "Assests/angular MVW concept.png",
     "Assests/angular web package management.png",
-    "Assests/angular work flow.png",
     "Assests",
     "Django/Welcome.md",
     "Angular/Welcome.md",

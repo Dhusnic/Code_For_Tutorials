@@ -1,3 +1,5 @@
 {
-  "defaultViewMode": "preview"
+  "defaultViewMode": "preview",
+  "alwaysUpdateLinks": true,
+  "vimMode": false
 }
