@@ -490,3 +490,22 @@ python manage.py startapp api
 
 Serializers -> used to convert python data to JSON Data
 Generics -> used to create , update , delete any type of modal
+
+
+Connect Django to FrontEnd Framework 
+
+```q
+pip install django-cors-headers
+```
+
+```q
+pip install djangorestframework
+```
+
+```q
+pip install dj-database-url
+```
+
+```q
+pip install mysqlclient
+```
