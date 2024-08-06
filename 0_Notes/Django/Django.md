@@ -492,20 +492,17 @@ Serializers -> used to convert python data to JSON Data
 Generics -> used to create , update , delete any type of modal
 
 
-Connect Django to FrontEnd Framework 
+Connect Django to Mongo DB
 
-```q
-pip install django-cors-headers
+1. Djongo
+```
+pip install djongo
 ```
 
-```q
-pip install djangorestframework
+2. pymongo :-
+
+```
+pip install pymongo==3.12.1 --upgrade
 ```
 
-```q
-pip install dj-database-url
-```
 
-```q
-pip install mysqlclient
-```

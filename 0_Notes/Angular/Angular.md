@@ -36,8 +36,10 @@ This table highlights the primary differences between React and Angular, helping
 2. 
 ```
 npm i @angular/cli -g
-ng new myapp
+```
 
+```
+ng new myapp --no-standalone --routing --ssr=false
 ```
 
 
@@ -409,3 +411,10 @@ Conditional Dependency injection - Client Decides which logger to be used
 
 User Control , reusable UI , reusable components 
 Event Emitters - input and output b/w which the data travels
+
+### Services
+Used to connect backend and angular
+
+```
+ng generate service <Service-Name>
+```

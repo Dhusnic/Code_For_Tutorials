@@ -259,18 +259,18 @@ print(f"Memory Usage: {memory_usage}%")
 
 ## Tech Stack
 
-| Tech                         | Useage |
-| ---------------------------- | ------ |
-| Python                       |        |
-| Angular                      |        |
-| NodeJS/Npm                   |        |
-| Mongo DB                     |        |
-| Postgre Sql                  |        |
-| Kafka                        |        |
-| RabbitMq                     |        |
-| Redis                        |        |
-| Nginx                        |        |
-| Mobile Development Framework |        |
+| Tech                         | Useage               |
+| ---------------------------- | -------------------- |
+| Python                       |                      |
+| Angular                      |                      |
+| NodeJS/Npm                   |                      |
+| Mongo DB                     | Crud operations      |
+| Postgre Sql                  | time series dataBase |
+| Kafka                        | messaging queue      |
+| RabbitMq                     |                      |
+| Redis                        |                      |
+| Nginx                        |                      |
+| Mobile Development Framework |                      |
 
 
 
