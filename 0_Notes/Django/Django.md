@@ -506,3 +506,9 @@ pip install pymongo==3.12.1 --upgrade
 ```
 
 
+3. pytz :-
+
+```
+pip install pytz
+```
+

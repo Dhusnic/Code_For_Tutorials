@@ -13,7 +13,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Angular/Angular.md",
+                "file": "Django/Django.md",
                 "mode": "source",
                 "source": false
               }
@@ -86,7 +86,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Angular/Angular.md",
+                "file": "Django/Django.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +103,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Angular/Angular.md",
+                "file": "Django/Django.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -126,7 +126,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Angular/Angular.md"
+                "file": "Django/Django.md"
               }
             }
           }
@@ -149,20 +149,30 @@
   },
   "active": "ef89970a009731fe",
   "lastOpenFiles": [
-    "Everest_IMS/Everest  IMS Tech Stack.md",
-    "Everest_IMS/Infinity.md",
-    "Everest_IMS/Testing.md",
-    "Everest_IMS/Designing.md",
-    "Everest_IMS/DCIM Data (Data Center Infrastructure Management).md",
-    "Angular/Angular.md",
-    "Django/Django.md",
-    "video Tutorial/Video Editing.md",
+    "Networking/3_Protocols.md",
+    "Networking/1_Addresses of Devices.md",
+    "Untitled",
+    "Networking/0_OSI Modal.md",
+    "Networking/2_Networking Devices.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/Mongo DB.md",
     "Full Stack/FULL STACK/FULL STACK (MERN).md",
+    "Full Stack/FULL STACK.md",
+    "Django/Django.md",
+    "Angular/Angular.md",
+    "Assests/OSI work flow.png.~tmp",
+    "Assests/OSI work flow.png",
+    "Assests/protocols of each layers.png",
+    "Assests/networking layer.png",
+    "Everest_IMS/DCIM Data (Data Center Infrastructure Management).md",
+    "Networking",
+    "Everest_IMS/Everest  IMS Tech Stack.md",
+    "Everest_IMS/Designing.md",
+    "Everest_IMS/Infinity.md",
+    "Everest_IMS/Testing.md",
+    "video Tutorial/Video Editing.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/State Maintained in react.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/Life Cycle Of a Component React 35d3fd1d97544139a92d82ff01861ddd.md",
-    "Full Stack/FULL STACK.md",
     "Machine Learning/Machine Learning.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/Life Cycle Of a Component React 35d3fd1d97544139a92d82ff01861ddd",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/Npm and Npx 5c45f11fba684bf7a782bf07c837a820.md",
@@ -178,20 +188,12 @@
     "Machine Learning/Supervised Learning.md",
     "Untitled.md",
     "Assests/Django.png",
-    "Linux Commands/Linux Commands.md",
     "Linux Commands",
     "Assests/MVT dijango.png",
     "Assests/lazy route.jpeg",
     "Assests/WhatsApp Image 2024-07-19 at 4.30.37 PM.jpeg",
     "Assests/routing-architecture-angular.png",
     "Assests/jason package lock version.png",
-    "Assests/single way and two way.png",
-    "Assests/angular ui.png",
-    "Assests/angular MVW concept.png",
-    "Assests/angular web package management.png",
-    "Assests",
-    "Django/Welcome.md",
-    "Angular/Welcome.md",
-    "create a link.md"
+    "Assests/single way and two way.png"
   ]
 }
