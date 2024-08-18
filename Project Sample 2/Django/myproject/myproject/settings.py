@@ -40,9 +40,8 @@ INSTALLED_APPS = [
     'myapp',
     'rest_framework',
     'corsheaders',
-    'djongo'
-    
-
+    'djongo',
+    'csvApp'
 ]
 
 MIDDLEWARE = [
@@ -54,6 +53,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
 ]
 
 ROOT_URLCONF = 'myproject.urls'
@@ -143,3 +144,5 @@ CSV_ROOT=os.path.join(MEDIA_ROOT,'csvs/')
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CORS_ORIGIN_ALLOW_ALL = True
+
+CSRF_TRUSTED_ORIGINS = ['http://localhost:4200']

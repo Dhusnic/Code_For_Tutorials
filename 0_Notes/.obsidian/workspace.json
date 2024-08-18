@@ -13,7 +13,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Django/Django.md",
+                "file": "Story/Story.md",
                 "mode": "source",
                 "source": false
               }
@@ -86,7 +86,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Django/Django.md",
+                "file": "Story/Story.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +103,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Django/Django.md",
+                "file": "Story/Story.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -126,7 +126,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Django/Django.md"
+                "file": "Story/Story.md"
               }
             }
           }
@@ -149,16 +149,21 @@
   },
   "active": "ef89970a009731fe",
   "lastOpenFiles": [
-    "Networking/3_Protocols.md",
-    "Networking/1_Addresses of Devices.md",
+    "Networking/05_IOS (Internetwork Operating System).md",
+    "Story/Story.md",
+    "Story",
+    "Networking/04_Protocols.md",
+    "Networking/01_OSI Modal.md",
+    "Networking/00_Networking.md",
+    "Networking/03_Networking Devices.md",
+    "Networking/02_Addresses of Devices.md",
+    "Untitled 1.md",
+    "Angular/Angular.md",
+    "Django/Django.md",
     "Untitled",
-    "Networking/0_OSI Modal.md",
-    "Networking/2_Networking Devices.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/Mongo DB.md",
     "Full Stack/FULL STACK/FULL STACK (MERN).md",
     "Full Stack/FULL STACK.md",
-    "Django/Django.md",
-    "Angular/Angular.md",
     "Assests/OSI work flow.png.~tmp",
     "Assests/OSI work flow.png",
     "Assests/protocols of each layers.png",
@@ -179,16 +184,11 @@
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/Java Script 84d9bc90ae964120b87b3dd98b00bf46.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/CSS 39d0142e462042a78224ee1d599b82ba.md",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/HTML 03605663c14149af80b00d4c5e27a956.md",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/Node Js de4705a065a9482da772218d136b2ad5.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341",
     "Full Stack/FULL STACK",
     "Full Stack",
     "Full Stack 2.zip",
-    "Machine Learning/Supervised Learning.md",
-    "Untitled.md",
     "Assests/Django.png",
-    "Linux Commands",
     "Assests/MVT dijango.png",
     "Assests/lazy route.jpeg",
     "Assests/WhatsApp Image 2024-07-19 at 4.30.37 PM.jpeg",

@@ -10,7 +10,7 @@ export interface person{
   providedIn: 'root'
 })
 export class AppService {
-  private apiurl='http://127.0.0.1:8000/api/persons/'
+  private apiurl='http://127.0.0.1:8001/api/persons/'
   constructor(private http:HttpClient) { }
   getPersons():Observable<person[]>
   {

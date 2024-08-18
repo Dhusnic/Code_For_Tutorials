@@ -1,1 +1,38 @@
-<p>grid works!</p>
+<style>
+ 
+</style>
+<div>
+  <button type="" (click)="getDataUI()">get Data</button>
+  <input type="text"placeholder="Seach items" (change)="onSearchQueryChange()" [(ngModel)]="searchQuery">
+  <select [(ngModel)]="selectedCategory" (change)="onCategoryChange()">
+    <option value="all">All Categories</option>
+    <option value="true">Selected</option>
+    <option value="false">Not Selected</option>
+  </select>
+
+  <button (click)="filterItems()">Filter</button>
+    <ul>
+        <table>
+            <tr>
+            <th>S.no</th>
+            <th>Name</th>
+            <th>Selected</th>
+            <th>PDF</th>
+            <th>Photo</th>
+            <th>data</th>
+            <th>Options</th>
+            </tr>
+            <tr *ngFor="let data of filterdata,let i=index">
+                <td>{{i+1}}</td>     
+                <td>{{data.text_input}}</td>  
+                <td>{{data.bool_input}}</td> 
+                <td><a [href]="data.pdf_input">{{data.pdf_input}}</a></td>
+                <td><img [src]="data.photo_input" alt=""></td>
+                <td><a [href]="data.csv_input">{{data.csv_input}}</a></td>
+                <td><button type="" id="Edit">Edit</button><br><button type="" (click)=" deleteData(data.id)"id="Delete">Delete</button>
+                </td>
+            </tr>
+        </table>
+        
+    </ul>
+</div>
