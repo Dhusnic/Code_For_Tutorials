@@ -1,3 +1,22 @@
+The Comman Types of Protocols
+1. [[00_Inventory_Protocols]] 
+2. [[00_Discovery_protocols]]
+3. [[00_Data_Transfer_Protocols]]
+
+| **Category**                         | **Protocols/Concepts**                                                                                                                                     |
+|--------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Application Layer Protocols**      | HTTP, HTTPS, FTP, SMTP, DNS, POP3, IMAP, Telnet, SNMP, DHCP, NTP, LDAP, SIP, RTSP, NNTP, WMI, SSH                                                            |
+| **Transport Layer Protocols**        | TCP, UDP, SCTP, DCCP                                                                                                                                       |
+| **Internet/Network Layer Protocols** | IP (IPv4, IPv6), ICMP, IGMP, ARP, RARP, OSPF, BGP, EIGRP, IPsec, Ping, Traceroute, IP Route, IP Forwarding, IP Tunnel, Subnet                               |
+| **Data Link Layer Protocols**        | Ethernet, PPP, Frame Relay, MPLS, ATM, HDLC, SLIP, STP, ARP (functions at both the Network and Data Link layers), LLDP, CDP                                |
+| **Network Access/Physical Layer**    | Wi-Fi (IEEE 802.11), Ethernet (IEEE 802.3), DSL, ISDN, Bluetooth, Token Ring, GSM, CDMA, LTE, FDDI, Zigbee                                                 |
+| **Routing Protocols**                | OSPF, BGP, EIGRP, RIP, IS-IS, IGRP                                                                                                                         |
+| **Security Protocols**               | SSL/TLS, IPSec, SSH, HTTPS, Kerberos, PGP, S/MIME, PAP, CHAP, 802.1X                                                                                       |
+| **Session Layer Protocols**          | PPTP, L2TP, NetBIOS, RPC, RTCP, H.245                                                                                                                      |
+| **Presentation Layer Protocols**     | SSL/TLS (also used in Security), MIME, XDR, ASN.1, X.25                                                                                                    |
+
+This table now includes LLDP, CDP, OSPF, IP Route, IP Forwarding, IP Tunnel, and Subnet within their respective categories.
+
 Certainly! Here’s the list of protocols ordered by their OSI layer in ascending order, including their details:
 
 ### 1. **ICMP (Internet Control Message Protocol)**
@@ -144,3 +163,52 @@ Certainly! Here’s the list of protocols ordered by their OSI layer in ascendin
 - **Speed:** Generally fast for small to medium-sized emails.
 
 This ordering reflects the OSI model layers from the Network Layer to the Application Layer.
+
+
+
+
+Here’s the updated table including the additional protocols and concepts:
+
+| **Category**                         | **Protocols/Concepts**                  |
+|--------------------------------------|-----------------------------------------|
+| **Data Link Layer Protocols**        | LLDP (Link Layer Discovery Protocol), CDP (Cisco Discovery Protocol) |
+| **Routing Protocols (Network Layer)**| OSPF (Open Shortest Path First)         |
+| **Internet/Network Layer Protocols** | Traceroute, Ping, IP Route, IP Forwarding, IP Tunnel, Subnet |
+| **Application Layer Protocols**      | SNMP (Simple Network Management Protocol), WMI (Windows Management Instrumentation), SSH (Secure Shell) |
+
+This table now includes LLDP, CDP, OSPF, IP Route, IP Forwarding, IP Tunnel, Subnet, SNMP, WMI, SSH, Traceroute, and Ping within their respective categories.
+
+
+
+
+
+
+Here’s the categorization for each of the specified protocols and concepts:
+
+1. **LLDP (Link Layer Discovery Protocol)**
+   - **Category:** **Data Link Layer Protocol**
+   - **Purpose:** Used by network devices to advertise their identity and capabilities to directly connected devices on the same network.
+
+2. **CDP (Cisco Discovery Protocol)**
+   - **Category:** **Data Link Layer Protocol**
+   - **Purpose:** A Cisco proprietary protocol used for discovering and sharing information about directly connected Cisco devices.
+
+3. **OSPF (Open Shortest Path First)**
+   - **Category:** **Routing Protocol (Network Layer)**
+   - **Purpose:** A link-state routing protocol used to find the best path for data through a network.
+
+4. **IP Route**
+   - **Category:** **Routing/Internet Layer Concept**
+   - **Purpose:** Refers to the path that IP packets take from the source to the destination. It's a part of the network layer routing process.
+
+5. **IP Forwarding**
+   - **Category:** **Internet Layer Concept**
+   - **Purpose:** The process used by routers to pass packets from one network interface to another, based on the destination IP address.
+
+6. **IP Tunnel**
+   - **Category:** **Internet/Network Layer Concept**
+   - **Purpose:** A method used to encapsulate packets inside another packet, enabling them to traverse incompatible networks or provide VPN functionality.
+
+7. **Subnet**
+   - **Category:** **Network Layer Concept**
+   - **Purpose:** A logical subdivision of an IP network. Subnetting divides a large network into smaller, more manageable sections.

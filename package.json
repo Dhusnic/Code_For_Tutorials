@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@angular/cli": "^17.3.0",
     "ngx": "^2.4.0",
     "ngx-papaparse": "^8.0.0"
   }
