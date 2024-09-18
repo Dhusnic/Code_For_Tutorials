@@ -13,7 +13,7 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Testing/Playwright Testing.md",
+                "file": "Product/Angular UI.md",
                 "mode": "source",
                 "source": false
               }
@@ -86,7 +86,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Testing/Playwright Testing.md",
+                "file": "Product/Angular UI.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +103,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Testing/Playwright Testing.md",
+                "file": "Product/Angular UI.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -126,7 +126,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Testing/Playwright Testing.md"
+                "file": "Product/Angular UI.md"
               }
             }
           }
@@ -149,8 +149,17 @@
   },
   "active": "ef89970a009731fe",
   "lastOpenFiles": [
-    "Networking/05_IOS (Internetwork Operating System).md",
+    "Product/UI_TREE.md",
     "Untitled.md",
+    "Product/UI_tree_structure.md.txt",
+    "Untitled (2).md",
+    "Untitled 1.md",
+    "Product/Angular UI.md",
+    "Product/UI_tree_structure 1.txt",
+    "Product/UI_tree_structure.txt",
+    "Testing/Playwright Testing.md",
+    "Product",
+    "Networking/05_IOS (Internetwork Operating System).md",
     "Networking/02_Addresses of Devices.md",
     "Networking/Topology Discover Protocols/03_OSPF (Open Shortest Path First).md",
     "Networking/Topology Discover Protocols/00_Discovery_protocols.md",
@@ -171,11 +180,6 @@
     "Networking/Data Collecting Prototcols/02_WMI_Protocol.md",
     "Networking/Data Collecting Prototcols/01_SSH_Protocol.md",
     "Networking/Data Collecting Prototcols/00_SNMP_Protocol.md",
-    "Networking/Data Collecting Prototcols/10_Inventory_Protocols.md",
-    "Networking/Data Collecting Prototcols/09_Trace_Routes.md",
-    "Networking/Data Collecting Prototcols/08_WMI_Protocol.md",
-    "Networking/Data Collecting Prototcols/07_SSH_Protocol.md",
-    "Networking/Data Collecting Prototcols/06_SNMP_Protocol.md",
     "Networking/Data Collecting Prototcols",
     "Networking/Topology Discover Protocols",
     "Testing",
@@ -184,10 +188,6 @@
     "Assests/OSI work flow.png",
     "Assests/protocols of each layers.png",
     "Assests/networking layer.png",
-    "Networking",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/Life Cycle Of a Component React 35d3fd1d97544139a92d82ff01861ddd",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341",
     "Assests/Django.png",
     "Assests/MVT dijango.png",
     "Assests/lazy route.jpeg",
