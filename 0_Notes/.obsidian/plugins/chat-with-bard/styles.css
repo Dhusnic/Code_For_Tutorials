@@ -1,0 +1,445 @@
+.chat-modal-content {
+    height: 60vh;
+    display: flex;
+    flex-direction: row;
+    position: relative;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.chat-messages {
+    overflow-y: auto;
+    margin: 10px 0;
+    padding: 10px;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 10px;
+    /* Spacing between messages */
+}
+
+.chat-input {
+    display: flex;
+    gap: 10px;
+    /* Spacing between input and button */
+}
+
+.chat-input input {
+    flex: 1 1 auto;
+    padding: 10px;
+}
+
+.chat-input button {
+    flex: 0 0 auto;
+    padding: 10px 20px;
+}
+
+.message {
+    max-width: 80%;
+    /* Ensure messages don't span the entire width for readability */
+    padding: 5px 10px;
+    word-wrap: break-word;
+    border-radius: 5px;
+}
+
+.user-message {
+    align-self: flex-end;
+    background-color: var(--background-secondary);
+}
+
+.bot-message {
+    align-self: flex-start;
+    background-color: var(--background-secondary);
+    ;
+}
+
+.typing-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.typing-indicator span {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin: 0 2px;
+    background-color: var(--color-purple);
+    /* Change this to your desired color */
+    border-radius: 50%;
+    opacity: 0.4;
+    animation: pulsate 1.4s infinite;
+}
+
+.typing-indicator span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes pulsate {
+
+    0%,
+    100% {
+        opacity: 0.4;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+.hidden {
+    display: none !important;
+}
+
+.conversation-button {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    padding: 5px 15px;
+    background-color: var(--background-primary-alt);
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    font-size: 1rem;
+    white-space: nowrap;
+}
+
+.conversation-button:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.conversation-list-item {
+    position: relative;
+    display: block;
+    padding: 8px 12px;
+    margin: 2px 0;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    color: var(--text-normal);
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.conversation-list-item:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.conversation-list-item.active {
+    background-color: var(--background-modifier-active-hover);
+    border-color: #90c2ff;
+}
+
+.conversation-list-item {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.delete-button {
+    display: none;
+}
+
+.conversation-list-item:hover .delete-button {
+    display: flex;
+    position: absolute;
+    right: 10px;
+    z-index: 5px;
+}
+
+.chat-interface {
+    flex-grow: 1;
+    border-width: 4px;
+    border-color: white;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.conversation-list {
+    z-index: 2;
+}
+
+.panel {
+    position: absolute;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    transition: transform 0.3s ease-in-out;
+    z-index: 1;
+    box-sizing: border-box;
+    overflow-x: hidden;
+}
+
+.panel-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.fadein {
+    animation: fadein;
+    animation-duration: 0.3s;
+    animation-timing-function: ease-in-out;
+}
+
+.fadeout {
+    animation: fadeout;
+    animation-duration: 0.3s;
+    animation-timing-function: ease-in-out;
+
+}
+
+@keyframes fadein {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes fadeout {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0;
+    }
+}
+
+.newChatButton {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: block;
+    padding: 8px 12px;
+    margin: 2px 0;
+    background-color: var(--background-secondary);
+    border: 4px dashed var(--background-modifier-border);
+    border-radius: 4px;
+    color: var(--text-normal);
+    text-decoration: none;
+    cursor: pointer;
+    justify-content: center;
+    text-align: center;
+}
+
+.newChatButton:hover {
+    background-color: var(--background-secondary-alt);
+    transition: 0.3s;
+}
+
+.insertTextModalContent {
+    height: 20vh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.insertTextModalInput {
+    flex: 1;
+    margin-bottom: 10px;
+    resize: none;
+    box-shadow: none !important;
+}
+
+.insertTextModalResponse {
+    display: flex;
+    flex-direction: column-reverse;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+}
+
+/*.modal-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%; 
+    overflow: hidden; 
+}
+*/
+
+.parent-element {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    /* This should be the height of the container in which the chat is placed */
+}
+
+.messages-container {
+    /* Container for chat messages */
+    flex-grow: 1;
+    /* Takes up all available space */
+    overflow-y: auto;
+    /* Only this part is scrollable */
+    flex-direction: column-reverse;
+    display: flex;
+    padding: 20px;
+}
+
+.gemini-chat-display {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: hidden;
+    padding-bottom: 10px;
+    /* Space at the bottom inside the chat display */
+    height: 100%;
+}
+
+.input-container {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px;
+    box-sizing: border-box;
+}
+
+.gemini-chat-input {
+    flex-grow: 1;
+    margin-right: 5px;
+    /* Spacing between input and button */
+}
+
+.send-button {
+    padding: 5px 10px;
+    cursor: pointer;
+}
+
+/* The rest remains unchanged */
+
+
+.user-message {
+    /* Align user messages to the right */
+    background-color: var(--background-secondary-alt);
+    align-self: flex-end;
+    justify-self: flex-start;
+}
+
+.ai-message {
+    /* Align AI messages to the left */
+    background-color: var(--background-secondary-alt);
+    align-self: flex-start;
+    justify-self: flex-start;
+}
+
+.message-button-panel {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    outline: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-direction: row;
+    display: flex;
+    width: auto;
+    height: auto;
+}
+
+.message-button {
+    margin: 0;
+    height: fit-content;
+    padding: 0;
+    display: flex;
+    font-size: 10px;
+    border: none;
+    background: none;
+    outline: none;
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+
+.message-button:hover {
+    background: none;
+    border: none;
+    outline: none;
+    background-color: transparent;
+    box-shadow: none;
+}
+
+.chat-root {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-top-bar {
+    padding: 8px;
+    border-bottom: solid;
+    display: flex;
+    justify-content: space-between;
+    flex-direction: row;
+}
+
+.chat-title-text {
+    font-size: xx-large;
+    width: 100%;
+    height: fit-content;
+    overflow: hidden;
+    background: none;
+    border: none;
+    outline: none;
+    border: none;
+    resize: none;
+}
+.chat-title-text:focus{
+    box-shadow: none;
+}
+
+.chat-message {
+    margin: 5px;
+    padding: 10px;
+    border-radius: 5px;
+    max-width: 70%;
+    word-wrap: break-word;
+    align-items: end;
+}
+
+.typing-indicator {
+    align-self: flex-start;
+    display: flex;
+    justify-content: center;
+    margin: 5px;
+}
+
+.typing-indicator span {
+    margin: 0 2px;
+    animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+    50% {
+        opacity: 0;
+    }
+}
+
+.newChatBase{
+    flex-direction: column;
+    display: flex;
+    flex-wrap: nowrap;
+    height: 100%;
+    justify-content: flex-start;
+}
+.newChatButton{
+    margin: 5%;
+    border: 0;
+}
+.newChatHeader{
+    font-size: xx-large;
+    text-align: center;
+    margin: 10%;
+}

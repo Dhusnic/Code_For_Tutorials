@@ -4,18 +4,16 @@
     "type": "split",
     "children": [
       {
-        "id": "c38f1694a1f94346",
+        "id": "a9801fd5d7c1ba6b",
         "type": "tabs",
         "children": [
           {
-            "id": "ef89970a009731fe",
+            "id": "20cd2d5192717d06",
             "type": "leaf",
             "state": {
-              "type": "markdown",
+              "type": "gemini-chat-view",
               "state": {
-                "file": "Story/Story.md",
-                "mode": "source",
-                "source": false
+                "file": "Gemini Chats/New Chat.gemini"
               }
             }
           }
@@ -86,7 +84,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Story/Story.md",
+                "file": "Gemini Chats/New Chat.gemini",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -103,7 +101,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Story/Story.md",
+                "file": "Gemini Chats/New Chat.gemini",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -126,7 +124,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Story/Story.md"
+                "file": "Gemini Chats/New Chat.gemini"
               }
             }
           }
@@ -144,20 +142,32 @@
       "canvas:Create new canvas": false,
       "daily-notes:Open today's daily note": false,
       "templates:Insert template": false,
-      "command-palette:Open command palette": false
+      "command-palette:Open command palette": false,
+      "obsidian-git:Open Git source control": false,
+      "chat-with-bard:New Gemini Chat": false
     }
   },
-  "active": "ef89970a009731fe",
+  "active": "20cd2d5192717d06",
   "lastOpenFiles": [
+    "Networking/Tasks.md",
+    "Gemini Chats/New Chat.gemini",
+    "Gemini Chats",
+    "video Tutorial/Video Editing.md",
+    "Networking/03_Networking Devices.md",
+    "Networking/04_Protocols.md",
     "Networking/05_IOS (Internetwork Operating System).md",
+    "CDP (Cisco Discover Protocol).md",
+    "LLDP (Link Layer Discovery Protocol).md",
+    "OSPF(Open Shortest Path First).md",
+    "OSPF (Open Shortest Path First).md",
+    "Networking/01_OSI Modal.md",
+    "Untitled.canvas",
+    "2024-08-23.md",
+    "Untitled.md",
     "Story/Story.md",
     "Story",
-    "Networking/04_Protocols.md",
-    "Networking/01_OSI Modal.md",
     "Networking/00_Networking.md",
-    "Networking/03_Networking Devices.md",
     "Networking/02_Addresses of Devices.md",
-    "Untitled 1.md",
     "Angular/Angular.md",
     "Django/Django.md",
     "Untitled",
@@ -174,20 +184,10 @@
     "Everest_IMS/Designing.md",
     "Everest_IMS/Infinity.md",
     "Everest_IMS/Testing.md",
-    "video Tutorial/Video Editing.md",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/State Maintained in react.md",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React.md",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/Life Cycle Of a Component React 35d3fd1d97544139a92d82ff01861ddd.md",
-    "Machine Learning/Machine Learning.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/Life Cycle Of a Component React 35d3fd1d97544139a92d82ff01861ddd",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e/Npm and Npx 5c45f11fba684bf7a782bf07c837a820.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/React fbd6724a183c4cc78e524081942b1e8e",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/Java Script 84d9bc90ae964120b87b3dd98b00bf46.md",
-    "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341/CSS 39d0142e462042a78224ee1d599b82ba.md",
     "Full Stack/FULL STACK/FULL STACK (MERN) 3be6db690f4b455ebc4a863c6f013341",
     "Full Stack/FULL STACK",
-    "Full Stack",
-    "Full Stack 2.zip",
     "Assests/Django.png",
     "Assests/MVT dijango.png",
     "Assests/lazy route.jpeg",
