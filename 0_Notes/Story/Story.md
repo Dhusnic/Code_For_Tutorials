@@ -1,2 +1,0 @@
-
-A young man who is get depressed of is life and at apoint of breaking time he saws a man how is successfull and enjoying his crazy life when they both travel together with diffrent reason and later that young man finds the succesfull man is about to die have cancer or something and through out his life he was decipeint and strict and to came to do crazy things and one more he want to coorect his last wish and complete the bucket list before he passed away.
