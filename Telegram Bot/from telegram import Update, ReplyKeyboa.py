@@ -7,20 +7,22 @@ import os
 from forex_python.converter import CurrencyRates
 
 
+
+
 class TelegramBot:
     # Define conversation states
     SELECT_STOCK, SHOW_MARKET = range(2)
     
     def __init__(self):
         self.stock_list = stock_list().stock_list
-        self.currency_converter = CurrencyRates()
+        currency_converter = CurrencyRates()
         self.TOKEN = os.getenv("TELEGRAM_TOKEN")  # Use environment variable for security
-        self.symbol_to_name_map = self.create_symbol_to_name_map(self.stock_list)
+        symbol_to_name_map = self.create_symbol_to_name_map(stock_list)
         
     async def start(self, update: Update, context: CallbackContext):
         await update.message.reply_text(
             "Hey there! 👋 Welcome to the Financial Advice Bot! 💰\n\n"
-            "Here's what I can do for you:\n"
+            "Here’s what I can do for you:\n"
             "💹 /investment - Investment Tips\n"
             "💵 /savings - Smart Savings Advice\n"
             "🏛 /schemes - Latest Govt Schemes\n"
@@ -60,7 +62,7 @@ class TelegramBot:
             await update.message.reply_text("⚠ Oops! Couldn't fetch government schemes. Try again later.")
 
     async def stock_index(self, update: Update, context: CallbackContext) -> int:
-        keyboard = [["Sensex"], ["NIFTY 50"]]
+        keyboard = [["NASDAQ", "S&P 500"], ["Dow Jones", "NIFTY 50"]]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
         await update.message.reply_text("📊 Choose a stock index:", reply_markup=reply_markup)
         return self.SELECT_STOCK
@@ -78,18 +80,8 @@ class TelegramBot:
             return ConversationHandler.END
 
     async def market(self, update: Update, context: CallbackContext) -> int:
-        stock_name = update.message.text
-        # Find the symbol for the selected stock name
-        stock_symbol = None
-        for symbol, name in self.symbol_to_name_map.items():
-            if name == stock_name:
-                stock_symbol = symbol
-                break
-                
-        if not stock_symbol:
-            await update.message.reply_text("❌ Stock symbol not found.")
-            return ConversationHandler.END
-            
+        stock_symbol = update.message.text.upper()
+        stock_symbol=symbol_to_name_map.get(stock_symbol, "Symbol not found")
         api_key = os.getenv("ALPHAVANTAGE_API_KEY")  # Store API key securely
         url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={stock_symbol}&apikey={api_key}"
         try:
@@ -98,50 +90,18 @@ class TelegramBot:
             if stock_price == "N/A":
                 raise ValueError("Invalid stock symbol or API error.")
             else:
-                stock_price = float(stock_price)
-                # inr_amount = self.convert_currency("USD", "INR", stock_price)
-                message = f"📈 {stock_name} ({stock_symbol}) Stock Price: ₹{stock_price:.2f}"
-                await update.message.reply_text(message)
-        except Exception as e:
-            await update.message.reply_text(f"⚠ Couldn't fetch stock data: {str(e)}")
+                currency_converter=CurrencyRates()
+                inr_amount = currency_converter.convert('USD', 'INR', stock_price)
+            print(f"${stock_price} is approximately ₹{inr_amount:.2f}")
+            message = f"📈 {stock_symbol} Stock Price: ₹ {inr_amount}"
+            await update.message.reply_text(message)
+        except Exception:
+            await update.message.reply_text("⚠ Couldn't fetch stock data. Please try again later.")
         return ConversationHandler.END
 
     async def cancel(self, update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("Action canceled. Let me know if you need anything else! 😊")
         return ConversationHandler.END
-
-    def create_symbol_to_name_map(self, data):
-        """
-        Creates a dictionary for quick lookup of stock names based on symbols.
-        """
-        symbol_to_name = {}
-        for index_name, stocks in data.items():
-            for pair in stocks:
-                for stock in pair:
-                    symbol_to_name[stock["symbol"]] = stock["name"]
-        return symbol_to_name
-    
-    def convert_currency(self,from_currency, to_currency, amount):
-        params = {
-            "function": "CURRENCY_EXCHANGE_RATE",
-            "from_currency": from_currency,
-            "to_currency": to_currency,
-            "apikey": os.getenv("ALPHAVANTAGE_API_KEY")
-        }
-        BASE_URL = "https://www.alphavantage.co/query"
-        try:
-            response = requests.get(BASE_URL, params=params)
-            data = response.json()
-            
-            if "Realtime Currency Exchange Rate" in data:
-                exchange_rate = float(data["Realtime Currency Exchange Rate"]["5. Exchange Rate"])
-                converted_amount = exchange_rate * amount
-                return converted_amount
-            else:
-                return "⚠ Error: Invalid API response. Check your API key or request limit."
-
-        except Exception as e:
-            return f"⚠ Error fetching exchange rate: {e}"
 
     def run(self):
         app = Application.builder().token(self.TOKEN).build()
@@ -162,6 +122,17 @@ class TelegramBot:
 
         print("📊 Financial Advice Bot is running...")
         app.run_polling()
+        
+    def create_symbol_to_name_map(data):
+        """
+        Creates a dictionary for quick lookup of stock names based on symbols.
+        """
+        symbol_to_name = {}
+        for stocks in data.values():
+            for pair in stocks:
+                for stock in pair:
+                    symbol_to_name[stock["symbol"]] = stock["name"]
+        return symbol_to_name
     
 if __name__ == "__main__":
     bot = TelegramBot()
