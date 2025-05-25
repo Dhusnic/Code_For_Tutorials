@@ -1,8 +1,0 @@
-<div>
-    <app-form *ngIf="selectedPerson" [newPerson]="selectedPerson" (update)="handleUpdate()" (cancel)="clearSelection()"></app-form>
-    <h2>Persons</h2>
-    <button type="" (click)="loadPersons()">Get Data</button>
-    <ul>
-        <div *ngFor="let person of persons"><br>{{ person.name }} - {{ person.age }}<button type="" (click)="editPerson(person)">Edit</button>  <button type="" (click)="deletePerson(person.id)" >Delete</button><br></div>
-    </ul>
-</div>

@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Telegram Bot Debug",
+            "type": "python",
+            "request": "launch",
+            "program": "d:/EIMS_Courses/Telegram Bot/bot.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "d:/EIMS_Courses/Telegram Bot/.venv/Scripts/python.exe"
+            }
+        }
+    ]
+}
