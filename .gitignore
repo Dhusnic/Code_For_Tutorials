@@ -1,0 +1,18 @@
+# Virtual environment folders
+.venv/
+venv/
+env/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Model files
+*.pkl
+*.pth
+
+# Jupyter Notebook checkpoints (optional)
+.ipynb_checkpoints/
+
+# VS Code settings (optional)
+.vscode/
