@@ -1,0 +1,10 @@
+Model,Type,Accuracy,Precision,Recall,F1 Score,Mean Squared Error,Mean Absolute Error,Classification Report
+GenericModel,Classifier,1.0,1.0,1.0,1.0,0.0,0.0,"              precision    recall  f1-score   support
+
+         0.0       1.00      1.00      1.00       104
+         1.0       1.00      1.00      1.00       101
+
+    accuracy                           1.00       205
+   macro avg       1.00      1.00      1.00       205
+weighted avg       1.00      1.00      1.00       205
+"

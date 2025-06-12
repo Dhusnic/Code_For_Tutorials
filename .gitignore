@@ -3,6 +3,9 @@
 venv/
 env/
 
+# Local environment files
+.env
+
 # Python bytecode
 __pycache__/
 *.py[cod]
