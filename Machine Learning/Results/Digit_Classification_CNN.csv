@@ -1,0 +1,18 @@
+Model,Type,Accuracy,Precision,Recall,F1 Score,Mean Squared Error,Mean Absolute Error,Classification Report
+GenericModel,Classifier,0.9688542825361512,0.9696092010839529,0.9688542825361512,0.9686644837258652,0.60734149054505,0.12680756395995552,"              precision    recall  f1-score   support
+
+           0       1.00      0.99      0.99        88
+           1       0.99      0.97      0.98        91
+           2       0.99      0.99      0.99        86
+           3       0.98      0.87      0.92        91
+           4       0.99      0.96      0.97        92
+           5       0.95      0.97      0.96        91
+           6       0.99      0.99      0.99        91
+           7       0.96      0.99      0.97        89
+           8       0.94      1.00      0.97        88
+           9       0.93      0.98      0.95        92
+
+    accuracy                           0.97       899
+   macro avg       0.97      0.97      0.97       899
+weighted avg       0.97      0.97      0.97       899
+"

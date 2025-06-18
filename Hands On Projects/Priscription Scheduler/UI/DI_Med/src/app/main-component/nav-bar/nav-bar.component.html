@@ -1,0 +1,44 @@
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow sticky-top px-3">
+    <div class="container-fluid">
+        <a class="navbar-brand fw-bold text-info" routerLink="/">💊 MediCare</a>
+
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarMain">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <li class="nav-item" *ngFor="let link of navLinks">
+                    <a class="nav-link nav-underline" [routerLink]="link.path" routerLinkActive="active"
+                        [routerLinkActiveOptions]="{ exact: true }">{{ link.label }}</a>
+                </li>
+            </ul>
+            <button class="btn btn-outline-light me-2" (click)="toggleTheme()">
+                {{ theme === 'dark' ? '☀ Light' : '🌙 Dark' }}
+            </button>
+            <div class="d-flex align-items-center">
+                <ng-container *ngIf="isLoggedIn; else guestBtns">
+                    <div class="dropdown">
+                        <a class="btn btn-outline-info dropdown-toggle" href="#" id="userDropdown" role="button"
+                            data-bs-toggle="dropdown" aria-expanded="false">
+                            👤 {{ userName }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li><a class="dropdown-item" href="#">Profile</a></li>
+                            <li><a class="dropdown-item" href="#">Settings</a></li>
+                            <li>
+                                <hr class="dropdown-divider" />
+                            </li>
+                            <li><a class="dropdown-item" href="#" (click)="logout()">Logout</a></li>
+                        </ul>
+                    </div>
+                </ng-container>
+
+                <ng-template #guestBtns>
+                    <button class="btn btn-outline-light me-2">Login</button>
+                    <button class="btn btn-info">Sign Up</button>
+                </ng-template>
+            </div>
+        </div>
+    </div>
+</nav>

@@ -1,0 +1,6 @@
+<div [ngClass]="currentTheme">
+  <app-nav-bar *ngIf="!router.url.includes('login')"></app-nav-bar>
+  <main class="p-4">
+    <router-outlet></router-outlet>
+  </main>
+</div>
