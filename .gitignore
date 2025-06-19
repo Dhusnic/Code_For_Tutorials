@@ -45,3 +45,6 @@ yarn-error.log*
 # Environment files
 src/environments/*.ts
 !src/environments/environment.prod.ts
+
+#Large Datasets
+large_datasets/
