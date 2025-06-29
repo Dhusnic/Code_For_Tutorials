@@ -15,7 +15,6 @@ export class LoginComponent implements OnInit {
   ) { }
 
   ngOnInit(): void {
-    debugger
   }
 
   username = '';
@@ -24,15 +23,15 @@ export class LoginComponent implements OnInit {
 
 
   onLogin() {
-    // this.loading = true;
-    // this.auth.login(this.username, this.password).subscribe(success => {
-    //   this.loading = false;
-    //   if (success) {
-    //     this.router.navigate(['/']); // redirect to dashboard or home
-    //   } else {
-    //     alert('Invalid credentials');
-    //   }
-    // });
+    this.loading = true;
+    this.auth.login(this.username, this.password).subscribe(success => {
+      this.loading = false;
+      if (success) {
+        this.router.navigate(['/']); // redirect to dashboard or home
+      } else {
+        alert('Invalid credentials');
+      }
+    });
   }
 
 }
