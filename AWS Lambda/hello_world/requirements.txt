@@ -1,0 +1,19 @@
+requests
+
+
+Dear Taxpayer,
+
+It is seen that you have opted to Revise your Return in response to e mail / SMS communication sent for the re-confirmation of claim of refund made in the Income Tax Return <Acknowledgement No> for <Assessment Year> filed by you on <Date>.
+
+To submit your revised return, please login to e-Filing portal, Go to e-File ->Income Tax Return. Please ensure to E-verify your revised return immediately. Submission is not treated as complete until receipt of E-verification.
+
+Please submit your revised return within 5 days of receipt of this e-mail.
+
+Please ignore this mail, if you have already revised your return post submission of response to refund claim re- confirmation.
+
+
+Regards,
+Compliance Management Team
+Income Tax Department
+
+Note:
