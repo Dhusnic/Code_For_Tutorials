@@ -16,7 +16,6 @@ from langchain_anthropic import ChatAnthropic
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_huggingface import HuggingFaceEmbeddings
 from sentence_transformers import SentenceTransformer
-
 model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")  # or "cuda" if you have GPU
 
 embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2",  encode_kwargs={"normalize_embeddings": True})
@@ -49,33 +48,55 @@ def vector_store(text_chunks):
     vector_store.save_local("faiss_db")
     
 
-def get_conversational_chain(tools,ques):
-    #os.environ["ANTHROPIC_API_KEY"]=os.getenv["ANTHROPIC_API_KEY"]
-    #llm = ChatAnthropic(model="claude-3-sonnet-20240229", temperature=0, api_key=os.getenv("ANTHROPIC_API_KEY"),verbose=True)
+def get_conversational_chain(tools, ques):
     llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0.3, google_api_key=os.getenv("GEMINI_API_KEY"))
+    
     prompt = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            """You are a helpful assistant. Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in
-    provided context just say, "answer is not available in the context", don't provide the wrong answer""",
-        ),
-        ("placeholder", "{chat_history}"),
-        ("human", "{input}"),
-        ("placeholder", "{agent_scratchpad}"),
-    ])
-    tool=[tools]
+        [
+            (
+                "system",
+                """You are a helpful assistant. Answer the question as detailed as possible from the provided context. If the answer is not in the context, just say, "answer is not available in the context".""",
+            ),
+            ("placeholder", "{chat_history}"),
+            ("human", "{input}"),
+            ("placeholder", "{agent_scratchpad}"),
+        ]
+    )
+    
+    tool = [tools]
     agent = create_tool_calling_agent(llm, tool, prompt)
     agent_executor = AgentExecutor(agent=agent, tools=tool, verbose=True)
-    response=agent_executor.invoke({"input": ques})
-    print(response)
-    return response['output']
+    
+    response = agent_executor.invoke({"input": ques})
+    
+    used_tool = response.get("intermediate_steps", [])[0][0].tool if "intermediate_steps" in response else None
+    print(f"Used tool: {used_tool}")
+    
+    return {
+        "output": response["output"],
+        "source": "PDF" if used_tool == "pdf_extractor" else "General"
+    }
+
     
 def user_input(user_question):
-    new_db = FAISS.load_local("faiss_db", embeddings,allow_dangerous_deserialization=True)
-    retriever=new_db.as_retriever()
-    retrieval_chain= create_retriever_tool(retriever,"pdf_extractor","This tool is to give answer to queries from the pdf")
-    return get_conversational_chain(retrieval_chain,user_question)
+    faiss_exists = os.path.exists("faiss_db") and os.path.isfile("faiss_db/index.pkl")
+
+    if faiss_exists:
+        new_db = FAISS.load_local("faiss_db", embeddings, allow_dangerous_deserialization=True)
+        retriever = new_db.as_retriever()
+        retrieval_tool = create_retriever_tool(retriever, "pdf_extractor", "This tool is to give answer to queries from the PDF")
+        
+        result = get_conversational_chain(retrieval_tool, user_question)
+        return result
+    else:
+        # fallback to general chat
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0.5, google_api_key=os.getenv("GEMINI_API_KEY"))
+        response = llm.invoke(user_question)
+        return {
+            "output": response.content,
+            "source": "General"
+        }
+
     
     
 def main():
@@ -120,19 +141,29 @@ def main():
             
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                # response = st.session_state.conversation.predict(input=user_question)
-                # print(response)
-                # message = response
-                # st.write(message)
-                AI_msg = user_input(user_question)
-                st.write("Reply: ", AI_msg)
+                result = user_input(user_question)
+                AI_msg = result["output"]
+                source = result["source"]
+                
+                if source == "PDF":
+                    st.write("📄 **From PDF**")
+                elif source == "General":
+                    st.write("🤖 **General Response**")
+                elif source == "Error":
+                    st.write("⚠️ " + AI_msg)
+                else:
+                    st.write("💬 Response:")
+
+                st.write(AI_msg)
+
 
 
         st.session_state.chat_history.append(AIMessage(content=AI_msg))
         
     with st.sidebar:
         st.title("Options")
-        
+        if not os.path.exists("faiss_db") or not os.path.isfile("faiss_db/index.pkl"):
+            st.info("You can chat normally or upload PDFs for document-based answers.")
         if st.button("Clear Chat"):
             st.session_state.chat_history = []
         
