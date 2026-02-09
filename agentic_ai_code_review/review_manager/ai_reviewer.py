@@ -2,7 +2,6 @@ from comman import CommonUtils
 import time 
 from openai import OpenAI
 import os
-
 class AIReviewer(CommonUtils):
     def __init__(self, model_name: str = "gpt-4", max_tokens: int = 2048, env_path: str = ".env"):
         self.model_name = model_name
@@ -43,7 +42,7 @@ class AIReviewer(CommonUtils):
         model: str,
         max_output_tokens: int = 1024,
         temperature: float = 0.0,
-        timeout: int = 30,
+        timeout: int = 60,
         retries: int = 2
     ) -> str:
         """
@@ -72,6 +71,7 @@ class AIReviewer(CommonUtils):
 
         for attempt in range(1, retries + 1):
             try:
+                request_tokens = self.estimate_tokens(str(conversation), model=model)
                 print(f"The tokken estimation for the input is : {self.estimate_tokens(str(conversation),model=model)}")
                 print(f"OpenAI call attempt {attempt}...")
                 response = client.responses.create(
@@ -88,7 +88,7 @@ class AIReviewer(CommonUtils):
                 )
                 print("OpenAI call successful.")
                 print(f"The tokken estimation for the output is : {self.estimate_tokens(str(response),model=model)}")
-
+                response_tokens = self.estimate_tokens(str(response), model=model)
                 # Extract text safely
                 output_text = []
                 if isinstance(response.output_text, str):
@@ -103,7 +103,7 @@ class AIReviewer(CommonUtils):
                 if not output_text:
                     raise RuntimeError("Empty response from OpenAI")
 
-                return "\n".join(output_text)
+                return response_tokens+request_tokens, "\n".join(output_text)
 
             except Exception as exc:
                 last_error = exc
@@ -139,10 +139,12 @@ class AIReviewer(CommonUtils):
         for msg in conversation:
             if "role" not in msg or "content" not in msg:
                 raise ValueError("Each message must have 'role' and 'content'")
-
-        return self.call_openai(
+        token_used , response = self.call_openai(
             conversation=conversation,
             model=model,
-            max_output_tokens=max_output_tokens,
-            temperature=0.0  # deterministic for PR / CI usage
-        )
+            max_output_tokens=max_output_tokens
+        ) 
+        return {
+            "response": response,
+            "tokens_used": token_used
+        }

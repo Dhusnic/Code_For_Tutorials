@@ -209,6 +209,7 @@ class AzureDevOpsClient:
             repository_name=repository_name,
             oid=target_object_id,
         )
+        excluded_files = [".DS_Store", "thumbs.db",".env",".db",".sqlite3",".log",".pyc",".json",".ini","environment.instance.ts","requirements.txt",".png",".feature"]
 
         base_lines = base_content.splitlines()
         target_lines = target_content.splitlines()
@@ -218,7 +219,8 @@ class AzureDevOpsClient:
         hunks = []
 
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == "equal":
+            avoid = any(file_path.endswith(f) for f in excluded_files)
+            if tag == "equal" or avoid:
                 continue
 
             hunk = {
@@ -226,7 +228,10 @@ class AzureDevOpsClient:
                 "hunk": {
                     "old_start": i1 + 1 if i1 < len(base_lines) else None,
                     "new_start": j1 + 1 if j1 < len(target_lines) else None,
-                    "context": base_lines[max(0, i1 - 5):i1] if i1 > 0 else [],
+                    "context": base_lines[
+                        max(0, i1 - 5) :
+                        min(len(base_lines), i2 + 5)
+                    ] if i1 > 0 else [],
                     "removed": [],
                     "added": [],
                 },
@@ -415,6 +420,8 @@ class AzureDevOpsClient:
         for thread in data.get("value", []):
             comments = []
             for comment in thread.get("comments", []):
+                if comment.get("commentType","") == "system" :
+                    continue  # Skip system comments
                 comments.append(
                     {
                         "id": comment.get("id"),
@@ -424,7 +431,8 @@ class AzureDevOpsClient:
                         "commentType": comment.get("commentType"),
                     }
                 )
-
+            if thread.get("isDeleted", False) or thread.get("status") != "active" or not comments:
+                continue  # Skip deleted or closed threads
             threads.append(
                 {
                     "threadId": thread.get("id"),

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Agentic AI Code Review</title>
+
+        <link rel="stylesheet" href="styles.css" />
+        <script
+            src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    </head>
+    <body>
+
+        <div class="app">
+
+            <header>
+                <h1>🤖 Agentic AI Code Review</h1>
+                <p>AI-powered Pull Request Reviewer</p>
+            </header>
+
+            <!-- CONFIG PANEL -->
+            <section class="card">
+                <h2>⚙️ Configuration</h2>
+
+                <div class="grid">
+                    <div>
+                        <label>Repository Path</label>
+                        <input id="repoPath" value="D:\Product\Infraon" />
+                    </div>
+
+                    <div>
+                        <label>AI Model</label>
+                        <input id="aiModel" value="gpt-4o-mini" />
+                    </div>
+
+                    <div>
+                        <label>Max Tokens</label>
+                        <input type="number" id="maxTokens" value="30000" />
+                    </div>
+
+                    <div>
+                        <label>Organization</label>
+                        <input id="organization" value="infraon" />
+                    </div>
+
+                    <div>
+                        <label>Project</label>
+                        <input id="project" value="Infraon" />
+                    </div>
+
+                    <div>
+                        <label>Repository Name</label>
+                        <input id="repository" value="Infraon" />
+                    </div>
+
+                    <div>
+                        <label>Pull Request ID</label>
+                        <input id="prId" value="" required/>
+                    </div>
+
+                    <div>
+                        <label>Azure PAT</label>
+                        <input id="password"
+                            type="password"
+                            value="Azure_access_token" />
+                        <small>Hidden for security</small>
+                    </div>
+                </div>
+
+                <div class="toggle-wrapper">
+                    <label class="toggle-label">Take Local Changes</label>
+
+                    <label class="switch">
+                        <input type="checkbox" id="isLocal">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <button class="primary" onclick="runReview()">🚀 Run Code
+                    Review</button>
+            </section>
+
+            <!-- AI REVIEW -->
+            <section class="card">
+                <div class="card-header">
+                    <h2>🧠 AI Review</h2>
+                    <button onclick="copyText('aiReview')">📋 Copy</button>
+                </div>
+                <div id="aiReview" class="markdown"></div>
+            </section>
+
+            <!-- CODE CHANGES -->
+            <!-- <section class="card">
+    <div class="card-header">
+      <h2>🛠 Code Change Suggestions</h2>
+      <button onclick="copyText('codeChanges')">📋 Copy</button>
+    </div>
+    <pre id="codeChanges" class="json-viewer"></pre>
+  </section> -->
+            <section id="codeChangesContainer" class="card">
+                <div class="card-header">
+                    <h2>🛠 Code Change Suggestions</h2>
+                    <button onclick="copyAllChanges()">📋 Copy All</button>
+                </div>
+                <div id="codeChanges"></div>
+                <!-- Changed from <pre> to <div> -->
+            </section>
+
+            <!-- LOG OUTPUT -->
+            <section class="card">
+                <div class="card-header">
+                    <h2>📜 Execution Logs</h2>
+                    <button onclick="copyText('logs')">📋 Copy</button>
+                </div>
+                <pre id="logs" class="console"></pre>
+            </section>
+
+        </div>
+
+        <script src="script.js"></script>
+    </body>
+</html>
