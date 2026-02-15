@@ -1,28 +1,28 @@
+"""Azure DevOps REST client with retry, logging, and structured diff extraction."""
+
+from __future__ import annotations
+
 import base64
+import difflib
 import logging
-from typing import Dict, List, Optional, Any
-from venv import logger
+from typing import Any, Dict, List, Optional
+
 import requests
+from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 from requests import Response, Session
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 from requests.exceptions import RequestException
-import json
-import difflib
+from urllib3.util.retry import Retry
+
+LOGGER = logging.getLogger(__name__)
 
 
-
-class AzureDevOpsError(Exception):
-    """Base exception for Azure DevOps API errors."""
+class AzureDevOpsError(RuntimeError):
+    """Raised when an Azure DevOps API call fails."""
 
 
 class AzureDevOpsClient:
-    """
-    Azure DevOps REST API client with PAT authentication,
-    retries, and structured error handling.
-    """
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
+    """Thin typed wrapper over Azure DevOps Git pull request APIs."""
 
     def __init__(
         self,
@@ -31,259 +31,278 @@ class AzureDevOpsClient:
         pat_token: str,
         timeout: int = 30,
     ) -> None:
+        """
+        Initialize API client.
+
+        Args:
+            organization: Azure DevOps organization.
+            project: Azure DevOps project.
+            pat_token: Personal access token.
+            timeout: Default API timeout in seconds.
+        """
         self.organization = organization
         self.project = project
-        self.base_url = f"https://dev.azure.com/{organization}/{project}"
         self.timeout = timeout
-        token = f"{self.organization}:{pat_token}".encode("utf-8")
-        self._auth_header = base64.b64encode(token).decode("utf-8")
-        self.session = self._create_session(pat_token)
+        self.base_url = f"https://dev.azure.com/{organization}/{project}"
+        self._auth_header = self._build_auth_header(pat_token)
+        self.session = self._create_session()
+        self._repository_id_cache: Dict[str, str] = {}
+        self._excluded_suffixes = {
+            ".ds_store",
+            "thumbs.db",
+            ".env",
+            ".db",
+            ".sqlite3",
+            ".log",
+            ".pyc",
+            ".json",
+            ".ini",
+            "environment.instance.ts",
+            "requirements.txt",
+            ".png",
+            ".feature",
+        }
 
-    @staticmethod
-    def _create_session(pat_token: str) -> Session:
+    def _build_auth_header(self, pat_token: str) -> str:
+        """Build HTTP Basic auth header for Azure DevOps PAT."""
+        if not pat_token or not pat_token.strip():
+            raise AzureDevOpsError(
+                "Azure DevOps PAT is missing. Provide `azure_pat` in request or set AZURE_DEVOPS_PAT."
+            )
+        token = base64.b64encode(f":{pat_token}".encode("utf-8")).decode("utf-8")
+        return f"Basic {token}"
+
+    def _create_session(self) -> Session:
+        """Create a `requests` session with retry behavior."""
         session = requests.Session()
-
-        auth_token = base64.b64encode(f":{pat_token}".encode()).decode()
         session.headers.update(
             {
-                "Authorization": f"Basic {auth_token}",
-                "Content-Type": "application/json",
+                "Authorization": self._auth_header,
                 "Accept": "application/json",
+                "User-Agent": "agentic-ai-code-review/2.0",
             }
         )
 
         retries = Retry(
             total=3,
+            read=3,
+            connect=3,
             backoff_factor=0.5,
             status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET"],
+            allowed_methods=frozenset(["GET", "POST"]),
         )
 
         adapter = HTTPAdapter(max_retries=retries)
         session.mount("https://", adapter)
-
         return session
+
+    def _get(self, url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Execute GET request and decode JSON response."""
+        return self._request_json("GET", url, params=params)
+
     def _post(
         self,
         url: str,
         payload: Dict[str, Any],
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Execute POST request and decode JSON response."""
+        return self._request_json("POST", url, params=params, json_payload=payload)
+
+    def _request_json(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        json_payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """
-        Performs a POST request to Azure DevOps REST API.
+        Execute an API request and parse JSON body.
 
         Args:
-            url: API path (relative) or full URL
-            payload: JSON body
-            params: Optional query params
+            method: HTTP method.
+            url: Relative Azure API path or full URL.
+            params: Query params.
+            json_payload: Optional JSON body for POST.
 
         Returns:
-            Parsed JSON response
-
-        Raises:
-            AzureDevOpsError: On any HTTP or API failure
+            JSON-decoded response dictionary.
         """
-
         full_url = url if url.startswith("http") else f"{self.base_url}{url}"
-
-        headers = {
-            "Authorization": f"Basic {self._auth_header}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-
         try:
-            self.logger.debug(
-                "Azure DevOps POST %s | params=%s | payload=%s",
+            LOGGER.debug(
+                "Azure request method=%s url=%s params=%s",
+                method,
                 full_url,
                 params,
-                json.dumps(payload, indent=2),
             )
-
-            response: Response = requests.post(
-                full_url,
-                headers=headers,
+            response = self.session.request(
+                method=method,
+                url=full_url,
                 params=params,
-                json=payload,
+                json=json_payload,
                 timeout=self.timeout,
             )
+            self._raise_for_status(response, method, full_url)
+            if response.status_code == 204 or not response.text.strip():
+                return {}
 
-        except RequestException as exc:
-            self.logger.exception("Network error calling Azure DevOps POST %s", full_url)
-            raise AzureDevOpsError(f"Network error: {exc}") from exc
+            content_type = response.headers.get("Content-Type", "").lower()
+            if "application/json" not in content_type and "text/json" not in content_type:
+                body = self._truncate_text(response.text)
+                LOGGER.error(
+                    "Azure API returned non-JSON response method=%s status=%s content_type=%s url=%s body=%s",
+                    method,
+                    response.status_code,
+                    content_type,
+                    full_url,
+                    body,
+                )
+                raise AzureDevOpsError(
+                    "Azure DevOps returned a non-JSON response. "
+                    f"status={response.status_code}, content_type={content_type or 'unknown'}. "
+                    "This usually indicates invalid organization/project URL, missing permission, or auth challenge."
+                )
 
-        # Handle non-2xx responses
-        if not response.ok:
             try:
-                error_body = response.json()
-            except ValueError:
-                error_body = response.text
+                return response.json()
+            except (ValueError, RequestsJSONDecodeError) as exc:
+                body = self._truncate_text(response.text)
+                LOGGER.error(
+                    "Azure API returned invalid JSON method=%s status=%s url=%s body=%s",
+                    method,
+                    response.status_code,
+                    full_url,
+                    body,
+                )
+                raise AzureDevOpsError(
+                    "Azure DevOps returned malformed JSON response. "
+                    f"status={response.status_code}, body_snippet={body}"
+                ) from exc
+        except RequestException as exc:
+            LOGGER.exception("Azure request failed method=%s url=%s", method, full_url)
+            raise AzureDevOpsError(f"Network failure calling Azure DevOps: {exc}") from exc
+        except AzureDevOpsError:
+            raise
 
-            self.logger.error(
-                "Azure DevOps POST failed [%s] %s | response=%s",
-                response.status_code,
-                full_url,
-                error_body,
-            )
-
-            raise AzureDevOpsError(
-                f"API call failed ({response.status_code}): {error_body}"
-            )
-
-        # Parse JSON safely
+    def _raise_for_status(self, response: Response, method: str, full_url: str) -> None:
+        """Raise `AzureDevOpsError` on non-success status codes."""
+        if response.ok:
+            return
         try:
-            return response.json()
-        except ValueError as exc:
-            self.logger.exception("Invalid JSON response from Azure DevOps")
-            raise AzureDevOpsError("Invalid JSON response") from exc
-    def _get(self, url: str, params: Optional[Dict] = None) -> Dict:
-        logger.debug("GET %s params=%s", url, params)
+            error_details: Any = response.json()
+        except ValueError:
+            error_details = self._truncate_text(response.text)
 
-        response: Response = self.session.get(
-            url, params=params, timeout=self.timeout
+        LOGGER.error(
+            "Azure API failure method=%s status=%s url=%s body=%s",
+            method,
+            response.status_code,
+            full_url,
+            error_details,
+        )
+        if response.status_code == 401:
+            raise AzureDevOpsError(
+                "Azure DevOps authentication failed (401). Check PAT value and token scopes."
+            )
+        if response.status_code == 403:
+            raise AzureDevOpsError(
+                "Azure DevOps authorization failed (403). PAT may lack repo/PR read permissions."
+            )
+        if response.status_code == 404:
+            raise AzureDevOpsError(
+                "Azure DevOps endpoint not found (404). Verify organization, project, and repository names."
+            )
+        raise AzureDevOpsError(
+            f"Azure DevOps API call failed ({response.status_code}): {error_details}"
         )
 
-        if not response.ok:
-            logger.error(
-                "Azure DevOps API failed [%s]: %s",
-                response.status_code,
-                response.text,
-            )
-            raise AzureDevOpsError(
-                f"API call failed ({response.status_code}): {response.text}"
-            )
+    def _truncate_text(self, value: str, limit: int = 600) -> str:
+        """Truncate large response body snippets used in error diagnostics."""
+        if len(value) <= limit:
+            return value
+        return value[:limit] + "...[truncated]"
 
-        return response.json()
-
-    def get_pr_changes(
-        self,
-        repository_name: str,
-        pull_request_id: int,
-    ) -> List[Dict]:
+    def get_repository_id(self, repository_name: str) -> str:
         """
-        Fetch all file-level changes for a pull request.
+        Resolve repository ID by repository name.
+
+        Args:
+            repository_name: Repository display name.
 
         Returns:
-            List of changes with file paths and change types.
+            Repository GUID.
         """
-        repository_id = self.get_repository_id(repository_name=repository_name)
-        url = (
-            f"{self.base_url}/_apis/git/repositories/"
-            f"{repository_id}/pullRequests/{pull_request_id}/iterations"
-        )
+        if repository_name in self._repository_id_cache:
+            return self._repository_id_cache[repository_name]
 
-        url = url+f"/{self.get_last_iteration_id(repository_name, pull_request_id)}/changes"
-        params = {"api-version": "7.1-preview.1",
-                  "$top":5000,
-                  "includeContent": "true",
-                }
+        data = self._get("/_apis/git/repositories", params={"api-version": "7.1"})
+        for repository in data.get("value", []):
+            if repository.get("name") == repository_name:
+                repository_id = repository.get("id", "")
+                self._repository_id_cache[repository_name] = repository_id
+                return repository_id
 
-        data = self._get(url, params)
-        
+        raise AzureDevOpsError(f"Repository not found: {repository_name}")
 
-        logger.info(
-            "Fetched %d file changes for PR %s",
-            len(data.get("changeEntries", [])),
-            pull_request_id,
-        )
-        return data.get("changeEntries", [])
-
-    def get_file_diff(
-        self,
-        repository_name: str,
-        base_object_id: str,
-        target_object_id: str,
-        file_path: str,
-    ) -> List[Dict]:
+    def get_last_iteration_id(self, repository_name: str, pull_request_id: int) -> int:
         """
-        Fetch file contents using blob OIDs, compute diff using difflib,
-        and return structured hunks with line numbers.
+        Get the latest iteration ID for a pull request.
+
+        Args:
+            repository_name: Repository name.
+            pull_request_id: PR ID.
+
+        Returns:
+            Latest iteration integer ID.
         """
-
-        # Fetch file contents by OID
-        base_content = self.get_file_by_oid(
-            repository_name=repository_name,
-            oid=base_object_id,
+        repository_id = self.get_repository_id(repository_name)
+        data = self._get(
+            f"/_apis/git/repositories/{repository_id}/pullRequests/{pull_request_id}/iterations",
+            params={"api-version": "7.1-preview.1"},
         )
-        target_content = self.get_file_by_oid(
-            repository_name=repository_name,
-            oid=target_object_id,
-        )
-        excluded_files = [".DS_Store", "thumbs.db",".env",".db",".sqlite3",".log",".pyc",".json",".ini","environment.instance.ts","requirements.txt",".png",".feature"]
+        iterations = data.get("value", [])
+        if not iterations:
+            raise AzureDevOpsError(f"No iterations found for PR {pull_request_id}")
+        return int(iterations[-1]["id"])
 
-        base_lines = base_content.splitlines()
-        target_lines = target_content.splitlines()
-
-        matcher = difflib.SequenceMatcher(None, base_lines, target_lines)
-
-        hunks = []
-
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            avoid = any(file_path.endswith(f) for f in excluded_files)
-            if tag == "equal" or avoid:
-                continue
-
-            hunk = {
-                "file": file_path,
-                "hunk": {
-                    "old_start": i1 + 1 if i1 < len(base_lines) else None,
-                    "new_start": j1 + 1 if j1 < len(target_lines) else None,
-                    "context": base_lines[
-                        max(0, i1 - 5) :
-                        min(len(base_lines), i2 + 5)
-                    ] if i1 > 0 else [],
-                    "removed": [],
-                    "added": [],
-                },
-            }
-
-            # Removed lines
-            if tag in ("replace", "delete"):
-                for idx, line in enumerate(base_lines[i1:i2], start=i1 + 1):
-                    hunk["hunk"]["removed"].append(
-                        {
-                            "line": line,
-                            "old_line": idx,
-                        }
-                    )
-
-            # Added lines
-            if tag in ("replace", "insert"):
-                for idx, line in enumerate(target_lines[j1:j2], start=j1 + 1):
-                    hunk["hunk"]["added"].append(
-                        {
-                            "line": line,
-                            "new_line": idx,
-                        }
-                    )
-
-            if hunk["hunk"]["added"] or hunk["hunk"]["removed"]:
-                hunks.append(hunk)
-
-        return hunks
-    
-    def get_file_by_oid(
-        self,
-        repository_name: str,
-        oid: str,
-    ) -> str:
+    def get_pr_changes(self, repository_name: str, pull_request_id: int) -> List[Dict[str, Any]]:
         """
-        Fetch raw file content from Azure DevOps Git blob API using OID.
+        Fetch file-level change entries for the latest PR iteration.
+
+        Args:
+            repository_name: Repository name.
+            pull_request_id: PR ID.
+
+        Returns:
+            List of Azure change entries.
         """
-
-        repository_id = self.get_repository_id(repository_name=repository_name)
-
-        url = (
-            f"{self.base_url}/_apis/git/repositories/"
-            f"{repository_id}/blobs/{oid}"
+        repository_id = self.get_repository_id(repository_name)
+        iteration_id = self.get_last_iteration_id(repository_name, pull_request_id)
+        data = self._get(
+            f"/_apis/git/repositories/{repository_id}/pullRequests/{pull_request_id}/iterations/{iteration_id}/changes",
+            params={"api-version": "7.1-preview.1", "$top": 5000, "includeContent": "true"},
         )
+        changes = data.get("changeEntries", [])
+        LOGGER.info("Fetched %s PR change entries for PR %s", len(changes), pull_request_id)
+        return changes
 
-        params = {
-            "api-version": "7.0",
-        }
+    def get_file_by_oid(self, repository_name: str, oid: str) -> str:
+        """
+        Fetch a file blob by object ID.
 
+        Args:
+            repository_name: Repository name.
+            oid: Blob object ID.
+
+        Returns:
+            Text content decoded as UTF-8 (best-effort).
+        """
+        repository_id = self.get_repository_id(repository_name)
+        url = f"{self.base_url}/_apis/git/repositories/{repository_id}/blobs/{oid}"
         headers = {
-            "Authorization": f"Basic {self._auth_header}",
+            "Authorization": self._auth_header,
             "Accept": "application/octet-stream",
         }
 
@@ -291,188 +310,226 @@ class AzureDevOpsClient:
             response = requests.get(
                 url,
                 headers=headers,
-                params=params,
+                params={"api-version": "7.0"},
                 timeout=self.timeout,
             )
             response.raise_for_status()
-            return response.text
+            return response.content.decode("utf-8", errors="ignore")
+        except RequestException as exc:
+            LOGGER.exception("Failed to fetch blob by oid=%s", oid)
+            raise AzureDevOpsError(f"Failed to fetch blob {oid}: {exc}") from exc
 
-        except requests.RequestException as exc:
-            raise AzureDevOpsError(
-                f"Failed to fetch blob {oid}: {exc}"
-            ) from exc
+    def get_file_diff(
+        self,
+        repository_name: str,
+        base_object_id: str,
+        target_object_id: str,
+        file_path: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Compute per-hunk line-level diff between old and new blob contents.
+
+        Args:
+            repository_name: Repository name.
+            base_object_id: Source blob object ID.
+            target_object_id: Target blob object ID.
+            file_path: Changed file path.
+
+        Returns:
+            Structured list of hunks.
+        """
+        try:
+            if self._is_excluded_file(file_path):
+                return []
+
+            base_content = self.get_file_by_oid(repository_name, base_object_id)
+            target_content = self.get_file_by_oid(repository_name, target_object_id)
+
+            base_lines = base_content.splitlines()
+            target_lines = target_content.splitlines()
+            matcher = difflib.SequenceMatcher(None, base_lines, target_lines)
+
+            hunks: List[Dict[str, Any]] = []
+            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                if tag == "equal":
+                    continue
+
+                hunk = {
+                    "file": file_path,
+                    "hunk": {
+                        "old_start": i1 + 1 if i1 < len(base_lines) else None,
+                        "new_start": j1 + 1 if j1 < len(target_lines) else None,
+                        "context": base_lines[max(0, i1 - 3) : min(len(base_lines), i2 + 3)],
+                        "removed": [],
+                        "added": [],
+                    },
+                }
+
+                if tag in ("replace", "delete"):
+                    for index, removed_line in enumerate(base_lines[i1:i2], start=i1 + 1):
+                        hunk["hunk"]["removed"].append({"line": removed_line, "old_line": index})
+
+                if tag in ("replace", "insert"):
+                    for index, added_line in enumerate(target_lines[j1:j2], start=j1 + 1):
+                        hunk["hunk"]["added"].append({"line": added_line, "new_line": index})
+
+                if hunk["hunk"]["removed"] or hunk["hunk"]["added"]:
+                    hunks.append(hunk)
+            return hunks
+        except Exception as exc:
+            LOGGER.exception("Failed to compute file diff for %s", file_path)
+            raise AzureDevOpsError(f"Failed to compute file diff for {file_path}") from exc
 
     def get_pr_content_changes(
         self,
         repository_name: str,
         pull_request_id: int,
         instruction: str,
-    ) -> list:
+    ) -> List[Dict[str, Any]]:
         """
-        Returns full PR content changes with line numbers and hunks.
+        Build normalized list of content changes for all edited files.
+
+        Args:
+            repository_name: Repository name.
+            pull_request_id: PR ID.
+            instruction: Unused placeholder retained for compatibility.
+
+        Returns:
+            Flattened list of structured hunks.
         """
-        changes = self.get_pr_changes(repository_name=repository_name, pull_request_id=pull_request_id)
-        results = []
+        del instruction
+        changes = self.get_pr_changes(repository_name, pull_request_id)
+        results: List[Dict[str, Any]] = []
 
         for change in changes:
-            item = change.get("item")
-            if not item or change["changeType"] != "edit":
-                continue
+            try:
+                item = change.get("item", {})
+                change_type = (change.get("changeType") or "").lower()
+                if change_type != "edit":
+                    continue
 
-            diff = self.get_file_diff(
-                repository_name=repository_name,
-                base_object_id=item["originalObjectId"],
-                target_object_id=item["objectId"],
-                file_path=item["path"],
-            )
-            results.extend(diff)
+                file_path = item.get("path", "")
+                original_object_id = item.get("originalObjectId")
+                object_id = item.get("objectId")
+                if not original_object_id or not object_id:
+                    continue
 
+                results.extend(
+                    self.get_file_diff(
+                        repository_name=repository_name,
+                        base_object_id=original_object_id,
+                        target_object_id=object_id,
+                        file_path=file_path,
+                    )
+                )
+            except Exception:
+                LOGGER.exception("Skipping invalid change entry: %s", change)
+
+        LOGGER.info("Computed %s diff hunks for PR %s", len(results), pull_request_id)
         return results
 
-    def normalize_change_entries(self, change_entries: list) -> list:
-        normalized = []
+    def normalize_change_entries(self, change_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Normalize Azure diff payloads from alternate APIs into local schema.
 
+        Args:
+            change_entries: Raw change entries.
+
+        Returns:
+            Normalized list compatible with downstream reviewers.
+        """
+        normalized: List[Dict[str, Any]] = []
         for entry in change_entries:
-            file_path = entry["item"]["path"]
-
+            file_path = entry.get("item", {}).get("path", "")
             for diff in entry.get("diffs", []):
                 for hunk in diff.get("hunks", []):
-                    context, added, removed = [], [], []
+                    context: List[str] = []
+                    added: List[Dict[str, Any]] = []
+                    removed: List[Dict[str, Any]] = []
 
-                    for line in hunk["lines"]:
-                        if line["lineType"] == "context":
-                            context.append(line["content"])
-                        elif line["lineType"] == "add":
-                            added.append({
-                                "line": line["content"],
-                                "new_line": line["newLineNumber"]
-                            })
-                        elif line["lineType"] == "remove":
-                            removed.append({
-                                "line": line["content"],
-                                "old_line": line["oldLineNumber"]
-                            })
+                    for line in hunk.get("lines", []):
+                        line_type = line.get("lineType")
+                        if line_type == "context":
+                            context.append(line.get("content", ""))
+                        elif line_type == "add":
+                            added.append(
+                                {
+                                    "line": line.get("content", ""),
+                                    "new_line": line.get("newLineNumber"),
+                                }
+                            )
+                        elif line_type == "remove":
+                            removed.append(
+                                {
+                                    "line": line.get("content", ""),
+                                    "old_line": line.get("oldLineNumber"),
+                                }
+                            )
 
-                    normalized.append({
-                        "file": file_path.split("/")[-1],
-                        "hunk": {
-                            "old_start": hunk["oldStartLine"],
-                            "new_start": hunk["newStartLine"],
-                            "context": context,
-                            "removed": removed,
-                            "added": added
+                    normalized.append(
+                        {
+                            "file": file_path,
+                            "hunk": {
+                                "old_start": hunk.get("oldStartLine"),
+                                "new_start": hunk.get("newStartLine"),
+                                "context": context,
+                                "removed": removed,
+                                "added": added,
+                            },
                         }
-                    })
-
+                    )
         return normalized
 
-
-    def get_last_iteration_id(
-        self,
-        repository_name: str,
-        pull_request_id: int,
-    ) -> int:
+    def get_pr_comments(self, repository_name: str, pull_request_id: int) -> List[Dict[str, Any]]:
         """
-        Fetch the last iteration ID for a pull request.
+        Fetch active non-system comment threads for a pull request.
+
+        Args:
+            repository_name: Repository name.
+            pull_request_id: PR ID.
 
         Returns:
-            Last iteration ID as an integer.
+            List of active comment threads.
         """
-        repository_id = self.get_repository_id(repository_name=repository_name)
-        url = (
-            f"{self.base_url}/_apis/git/repositories/"
-            f"{repository_id}/pullRequests/{pull_request_id}/iterations"
+        repository_id = self.get_repository_id(repository_name)
+        data = self._get(
+            f"/_apis/git/repositories/{repository_id}/pullRequests/{pull_request_id}/threads",
+            params={"api-version": "7.1-preview.1"},
         )
 
-        params = {"api-version": "7.1-preview.1"}
-
-        data = self._get(url, params)
-        iterations = data.get("value", [])
-        if not iterations:
-            raise AzureDevOpsError(f"No iterations found for PR {pull_request_id}")
-
-        last_iteration = iterations[-1]
-        return last_iteration.get("id")
-
-    def get_pr_comments(
-        self,
-        repository_name: str,
-        pull_request_id: int,
-    ) -> List[Dict]:
-        """
-        Fetch all comment threads and comments for a pull request.
-
-        Returns:
-            List of threads with comments and metadata.
-        """
-        
-        repository_id = self.get_repository_id(repository_name=repository_name)
-        url = (
-            f"{self.base_url}/_apis/git/repositories/"
-            f"{repository_id}/pullRequests/{pull_request_id}/threads"
-        )
-
-        params = {"api-version": "7.1-preview.1"}
-
-        data = self._get(url, params)
-        threads = []
-
+        threads: List[Dict[str, Any]] = []
         for thread in data.get("value", []):
-            comments = []
+            if thread.get("isDeleted") or thread.get("status") != "active":
+                continue
+
+            comments: List[Dict[str, Any]] = []
             for comment in thread.get("comments", []):
-                if comment.get("commentType","") == "system" :
-                    continue  # Skip system comments
+                if comment.get("commentType") == "system":
+                    continue
                 comments.append(
                     {
                         "id": comment.get("id"),
-                        "content": comment.get("content"),
+                        "content": comment.get("content", ""),
                         "author": comment.get("author", {}).get("displayName"),
                         "publishedDate": comment.get("publishedDate"),
                         "commentType": comment.get("commentType"),
                     }
                 )
-            if thread.get("isDeleted", False) or thread.get("status") != "active" or not comments:
-                continue  # Skip deleted or closed threads
-            threads.append(
-                {
-                    "threadId": thread.get("id"),
-                    "status": thread.get("status"),
-                    "isDeleted": thread.get("isDeleted"),
-                    "comments": comments,
-                }
-            )
 
-        logger.info(
-            "Fetched %d comment threads for PR %s",
-            len(threads),
-            pull_request_id,
-        )
+            if comments:
+                threads.append(
+                    {
+                        "threadId": thread.get("id"),
+                        "status": thread.get("status"),
+                        "isDeleted": thread.get("isDeleted"),
+                        "comments": comments,
+                    }
+                )
+
+        LOGGER.info("Fetched %s active comment threads for PR %s", len(threads), pull_request_id)
         return threads
 
-    def get_repository_id(
-        self,
-        repository_name: str,
-    ) -> str:
-        """
-        Fetch repository ID (GUID) by repository name.
-
-        Args:
-            client: AzureDevOpsClient instance
-            repository_name: Repo name as seen in Azure DevOps
-
-        Returns:
-            Repository ID (GUID)
-
-        Raises:
-            ValueError if repository is not found
-        """
-        url = f"{self.base_url}/_apis/git/repositories"
-        params = {"api-version": "7.1"}
-
-        data = self._get(url, params)
-
-        for repo in data.get("value", []):
-            if repo.get("name") == repository_name:
-                return repo["id"]
-
-        raise ValueError(f"Repository '{repository_name}' not found")
+    def _is_excluded_file(self, file_path: str) -> bool:
+        """Determine if file path should be excluded from diff processing."""
+        lowered = file_path.lower()
+        return any(lowered.endswith(suffix) for suffix in self._excluded_suffixes)

@@ -1,48 +1,70 @@
+"""Prompt templates and standards loading for AI review workflows."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any, Dict
+
 import yaml
 
-Review_prompt ="""
-You are a senior Angular + Django engineer.
-Your task is to generate a high-level summary of changes, NOT a code review.
-SCOPE
-Analyze ONLY the provided git diff.
-Use ONLY the lines listed under:
-"CHANGED LINES WITH TRUE LINE NUMBERS"
-Do NOT:
-Review unchanged code
-Suggest improvements
-Identify bugs, security issues, or refactors
-Repeat code or explain logic in detail
-Infer behavior outside the diff
-OUTPUT FORMAT (STRICT)
-Return output in Markdown using the following structure:
-## <file path>
-**Change Level:** Low | Medium | High
-**Summary:**
-- <bullet point 1>
-- <bullet point 2>
-CHANGE LEVEL DEFINITION
-Choose exactly ONE per file:
-Low
-Cosmetic changes, renaming, logging updates, comments, formatting, non-functional refactors
-Medium
-Behavior changes, conditional logic updates, API handling changes, UI interaction updates, data flow changes
-High
-New features, authentication or permission logic, database writes or deletes, business-critical workflows, state changes
-SUMMARY RULES
-The summary MUST:
-Be concise and neutral
-Describe what changed, not why
-Avoid implementation details
-Avoid line numbers
-The summary MUST NOT:
-Mention bugs, risks, or correctness
-Mention rules or policies
-Contain opinions or suggestions
-Include code snippets
-FINAL RULE
-This is a change summary, not a review.
-Return ONLY the Markdown output.
+LOGGER = logging.getLogger(__name__)
+CONFIG_DIR = Path(__file__).resolve().parent
+STANDARDS_FILE = CONFIG_DIR / "standards.yaml"
+
+Review_prompt = """
+You are a Principal Angular + Django Architect performing enterprise-grade code review.
+
+Scope:
+- Analyze only changed lines from provided diff payload.
+- Do not review unchanged code.
+- Do not infer missing implementation details.
+
+Objective:
+- Identify correctness, security, reliability, performance, and maintainability issues.
+- Provide concrete, production-grade replacement code for each finding.
+- Keep reasoning concise and technical.
+
+Output format:
+- Return ONLY valid GitHub-flavored Markdown.
+- Do not return JSON, XML, HTML, or plain text outside Markdown structure.
+- Group findings by file using `## File: <path>`.
+- For each finding include exactly these fields:
+  - **Severity**
+  - **Category**
+  - **Issue**
+  - **Current Code**
+  - **Enterprise Correction**
+  - **Rationale**
+- Use fenced code blocks with language tags for code snippets.
+- Keep formatting consistent and readable for direct UI rendering.
 """
-with open("agentic_ai_code_review/config/standards.yaml", "r", encoding="utf-8") as f:
-    standards = yaml.safe_load(f)
-Code_corrections_prompt ="""Structured code corrections based on the following standards and the output format format is should be json"""+str(standards["standards"]) 
+
+
+def load_standards() -> Dict[str, Any]:
+    """
+    Load standards configuration used in correction prompts.
+
+    Returns:
+        Parsed standards dictionary.
+    """
+    try:
+        with STANDARDS_FILE.open("r", encoding="utf-8") as standards_file:
+            return yaml.safe_load(standards_file) or {}
+    except FileNotFoundError:
+        LOGGER.warning("Standards file not found at %s", STANDARDS_FILE)
+        return {}
+    except Exception:
+        LOGGER.exception("Failed to load standards configuration")
+        return {}
+
+
+_standards = load_standards()
+Code_corrections_prompt = (
+    "Provide structured code corrections based on the standards below. "
+    "Output must be valid JSON.\n"
+    "Each `diff.new_content` must be a complete, syntactically valid replacement block "
+    "for the specified old range, and must preserve correct line boundaries "
+    "(avoid inline concatenation with neighboring code).\n\n"
+    f"{_standards.get('standards', {})}"
+)

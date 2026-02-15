@@ -1,264 +1,261 @@
-import os
+"""Shared utility helpers for configuration, JSON extraction, and diff normalization."""
+
+from __future__ import annotations
+
 import json
+import logging
 import re
-from typing import List, Dict
+from pathlib import Path
+from typing import Any, Dict, List, Sequence
+
+LOGGER = logging.getLogger(__name__)
+
+
 class CommonUtils:
-    def get_env_value(self, env_path: str, key: str, default=None):
+    """Collection of reusable helper methods used across the review pipeline."""
+
+    class JSONExtractionError(ValueError):
+        """Raised when valid JSON cannot be extracted from AI output."""
+
+    class ConfigurationError(RuntimeError):
+        """Raised when required runtime configuration cannot be loaded."""
+
+    def get_env_value(
+        self,
+        env_path: str,
+        key: str,
+        default: Any = None,
+        *,
+        required: bool = False,
+    ) -> Any:
         """
-        Load a .env file from the given path and return the value for a key.
+        Read a key from a `.env` file.
+
         Args:
-            env_path (str): Absolute or relative path to the .env file
-            key (str): Environment variable key to retrieve
-            default: Value to return if key is not found
+            env_path: Path to `.env`.
+            key: Variable key to read.
+            default: Value to return if key is absent.
+            required: Whether absence should raise `ConfigurationError`.
+
         Returns:
-            str | None: Value for the key or default if not found
-        Raises:
-            FileNotFoundError: If the .env file does not exist
-            ValueError: If the .env file is malformed
+            The value from the env file or `default`.
         """
+        try:
+            path = Path(env_path).expanduser()
+            if not path.exists():
+                message = f"Environment file not found: {path}"
+                if required:
+                    raise self.ConfigurationError(message)
+                LOGGER.warning(message)
+                return default
 
-        if not os.path.isfile(env_path):
-            raise FileNotFoundError(f".env file not found at: {env_path}")
+            with path.open("r", encoding="utf-8") as env_file:
+                for line_number, raw_line in enumerate(env_file, start=1):
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
 
-        value = None
+                    if "=" not in line:
+                        raise self.ConfigurationError(
+                            f"Malformed .env line {line_number} in {path}: {line}"
+                        )
 
-        with open(env_path, "r", encoding="utf-8") as env_file:
-            for line_no, line in enumerate(env_file, start=1):
-                line = line.strip()
+                    parsed_key, parsed_value = line.split("=", 1)
+                    if parsed_key.strip() == key:
+                        return parsed_value.strip().strip("\"'")
+        except Exception as exc:
+            LOGGER.exception("Failed to read environment value '%s'", key)
+            if isinstance(exc, self.ConfigurationError):
+                raise
+            raise self.ConfigurationError(
+                f"Unable to read environment value '{key}' from {env_path}"
+            ) from exc
 
-                # Skip comments and empty lines
-                if not line or line.startswith("#"):
-                    continue
+        if required:
+            raise self.ConfigurationError(
+                f"Required environment key '{key}' not found in {env_path}"
+            )
+        return default
 
-                if "=" not in line:
-                    raise ValueError(
-                        f"Invalid line in .env file at line {line_no}: {line}"
-                    )
+    def extract_json_from_ai_output(self, text: str) -> Dict[str, Any]:
+        """
+        Extract the first valid JSON object from free-form AI output.
 
-                k, v = line.split("=", 1)
-                k = k.strip()
-                v = v.strip().strip('"').strip("'")
+        Args:
+            text: Raw AI output text.
 
-                if k == key:
-                    value = v
-                    break
-
-        return value if value is not None else default
-    
-    class JSONExtractionError(Exception):
-        pass
-    # def extract_json_from_ai_output(self, text: str):
-    #     """
-    #     Extract valid JSON (dict or list) from ANY AI output.
-
-    #     Handles:
-    #     - Raw JSON
-    #     - ```json fenced blocks
-    #     - JSON embedded in text
-    #     - Multiple JSONs (returns the most complete one)
-    #     - Smart quotes, trailing commas
-    #     - Extra text before/after JSON
-
-    #     Returns:
-    #         dict | list
-
-    #     Raises:
-    #         JSONExtractionError
-    #     """
-
-    #     if not text or not isinstance(text, str):
-    #         raise self.JSONExtractionError("Invalid input")
-
-    #     import json
-    #     import re
-
-    #     text = text.strip()
-
-    #     # ---------- Normalization ----------
-    #     def normalize(s: str) -> str:
-    #         s = (
-    #             s.replace("“", '"')
-    #             .replace("”", '"')
-    #             .replace("‘", "'")
-    #             .replace("’", "'")
-    #             .replace("\u00a0", " ")
-    #         )
-    #         s = re.sub(r",\s*([}\]])", r"\1", s)  # remove trailing commas
-    #         return s.strip()
-
-    #     # ---------- 1. Direct parse ----------
-    #     try:
-    #         return json.loads(normalize(text))
-    #     except Exception:
-    #         pass
-
-    #     # ---------- 2. Markdown fenced blocks ----------
-    #     fence_regex = re.compile(
-    #         r"```(?:json)?\s*(.*?)\s*```",
-    #         re.DOTALL | re.IGNORECASE
-    #     )
-
-    #     for block in fence_regex.findall(text):
-    #         try:
-    #             return json.loads(normalize(block))
-    #         except Exception:
-    #             continue
-
-    #     # ---------- 3. String-aware brace matching ----------
-    #     candidates = []
-    #     stack = []
-    #     start = None
-    #     in_string = False
-    #     escape = False
-
-    #     for i, ch in enumerate(text):
-    #         if ch == '"' and not escape:
-    #             in_string = not in_string
-
-    #         elif not in_string:
-    #             if ch in "{[":
-    #                 if not stack:
-    #                     start = i
-    #                 stack.append(ch)
-
-    #             elif ch in "}]":
-    #                 if stack:
-    #                     stack.pop()
-    #                     if not stack and start is not None:
-    #                         candidates.append(text[start:i + 1])
-    #                         start = None
-
-    #         escape = (ch == "\\" and not escape)
-
-    #     # ---------- 4. Normalize & parse candidates ----------
-    #     parsed = []
-
-    #     for c in candidates:
-    #         try:
-    #             parsed.append(json.loads(normalize(c)))
-    #         except Exception:
-    #             continue
-
-    #     if parsed:
-    #         # Prefer dicts over lists, then larger structures
-    #         def score(x):
-    #             base = len(json.dumps(x))
-    #             return base + (1000 if isinstance(x, dict) else 0)
-
-    #         return max(parsed, key=score)
-
-    #     # ---------- 5. Last-resort extraction ----------
-    #     start = min(
-    #         (text.find("{") if "{" in text else float("inf")),
-    #         (text.find("[") if "[" in text else float("inf")),
-    #     )
-    #     end = max(text.rfind("}"), text.rfind("]"))
-
-    #     if start != float("inf") and end != -1 and end > start:
-    #         try:
-    #             return json.loads(normalize(text[start:end + 1]))
-    #         except Exception:
-    #             pass
-
-    #     raise self.JSONExtractionError("No valid JSON found in AI output")
-
-    
-    
-    def extract_json_from_ai_output(self, text: str) -> dict:
-        if not text or not isinstance(text, str):
+        Returns:
+            Parsed JSON object.
+        """
+        if not isinstance(text, str) or not text.strip():
             raise self.JSONExtractionError("Empty or invalid AI output")
 
-        text = text.strip()
+        candidates = [text.strip()]
+        candidates.extend(self._extract_fenced_json_blocks(text))
+        candidates.extend(self._extract_brace_candidates(text))
 
-        # Remove surrounding quotes
-        if (text.startswith("'") and text.endswith("'")) or \
-           (text.startswith('"') and text.endswith('"')):
-            text = text[1:-1].strip()
+        for candidate in candidates:
+            normalized = self._sanitize_invalid_json_escapes(candidate.strip())
+            try:
+                parsed = json.loads(normalized)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                continue
 
-        # Extract JSON from ```json ... ```
-        fenced = re.search(
-            r"```(?:json)?\s*(\{.*?\})\s*```",
-            text,
-            re.DOTALL
-        )
-        if fenced:
-            json_str = fenced.group(1)
-        else:
-            # Fallback: first {...}
-            brace = re.search(r"(\{.*\})", text, re.DOTALL)
-            if not brace:
-                raise self.JSONExtractionError("No JSON object found")
-            json_str = brace.group(1)
+        raise self.JSONExtractionError("No valid JSON object found in AI output")
 
-        # 🔧 CRITICAL FIX: sanitize invalid JSON escapes
-        json_str = self._sanitize_invalid_json_escapes(json_str)
-
-        try:
-            return json.loads(json_str)
-        except json.JSONDecodeError as e:
-            raise self.JSONExtractionError(
-                f"JSON parsing failed after sanitization: {e}"
-            )
-
-    def _sanitize_invalid_json_escapes(self, s: str) -> str:
+    def merge_consecutive_diffs(self, diffs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Fixes invalid JSON escape sequences commonly produced by LLMs.
+        Merge consecutive diff suggestions targeting adjacent line ranges.
+
+        Args:
+            diffs: List of AI generated diff recommendations.
+
+        Returns:
+            Merged diff list with contiguous items combined.
         """
-        # Replace \' with '
-        s = s.replace("\\'", "'")
-
-        # OPTIONAL: fix other rare AI mistakes
-        s = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', s)
-
-        return s
-    def merge_consecutive_diffs(self, diffs: List[Dict]) -> List[Dict]:
         if not diffs:
             return []
 
-        merged = []
-        current = diffs[0]
+        merged: List[Dict[str, Any]] = []
+        current = dict(diffs[0])
+        current["diff"] = dict(current.get("diff", {}))
 
-        def is_consecutive(prev, curr):
-            same_file = prev["diff"]["file_path"] == curr["diff"]["file_path"]
-            consecutive_line = curr["diff"]["new_start_line_number"] == prev["diff"]["new_start_line_number"] + prev["diff"]["number_of_lines_added_in_new"]
-            return same_file and consecutive_line
-
-        for i in range(1, len(diffs)):
-            prev = current
-            curr = diffs[i]
-
-            if is_consecutive(prev, curr):
-                prev_diff = current["diff"]
-                curr_diff = curr["diff"]
-
-                prev_diff["new_start_line_number"] = curr_diff["new_start_line_number"]
-
-                prev_diff["new_content"] = (
-                    prev_diff["new_content"] + "\n" + curr_diff["new_content"]
-                    if prev_diff["new_content"] and curr_diff["new_content"]
-                    else prev_diff["new_content"] or curr_diff["new_content"]
-                )
-
-                prev_diff["old_content"] = (
-                    prev_diff["old_content"] + "\n" + curr_diff["old_content"]
-                    if prev_diff["old_content"] and curr_diff["old_content"]
-                    else prev_diff["old_content"] or curr_diff["old_content"]
-                )
-
-                current["categories"] = sorted(
-                    set(current["categories"] + curr["categories"]),
-                    key=["critical", "high", "medium", "low"].index
-                )
-
-                if curr.get("explanation"):
-                    current["explanation"] += " " + curr["explanation"]
-
-                if curr.get("comments"):
-                    current["comments"] += "\n" + curr["comments"] if current["comments"] else curr["comments"]
-
+        for candidate in diffs[1:]:
+            if self._are_consecutive(current, candidate):
+                current = self._merge_single_diff(current, candidate)
             else:
                 merged.append(current)
-                current = curr
+                current = dict(candidate)
+                current["diff"] = dict(current.get("diff", {}))
 
         merged.append(current)
         return merged
+
+    def _extract_fenced_json_blocks(self, text: str) -> List[str]:
+        """Extract fenced markdown blocks that might contain JSON."""
+        pattern = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.IGNORECASE | re.DOTALL)
+        return [block for block in pattern.findall(text) if block.strip()]
+
+    def _extract_brace_candidates(self, text: str) -> List[str]:
+        """Extract balanced `{...}` candidates from text."""
+        candidates: List[str] = []
+        stack: List[str] = []
+        start_index: int | None = None
+        in_string = False
+        escape = False
+
+        for index, char in enumerate(text):
+            if char == '"' and not escape:
+                in_string = not in_string
+            elif not in_string and char == "{":
+                if not stack:
+                    start_index = index
+                stack.append(char)
+            elif not in_string and char == "}":
+                if stack:
+                    stack.pop()
+                    if not stack and start_index is not None:
+                        candidates.append(text[start_index : index + 1])
+                        start_index = None
+            escape = char == "\\" and not escape
+
+        return candidates
+
+    def _sanitize_invalid_json_escapes(self, value: str) -> str:
+        """
+        Normalize invalid escape sequences commonly produced by LLM output.
+
+        Args:
+            value: Potential JSON string.
+
+        Returns:
+            Sanitized string safe for `json.loads`.
+        """
+        value = value.strip()
+        if (value.startswith("'") and value.endswith("'")) or (
+            value.startswith('"') and value.endswith('"')
+        ):
+            value = value[1:-1].strip()
+
+        value = value.replace("\\'", "'")
+        value = re.sub(r"\\(?![\"\\/bfnrtu])", r"\\\\", value)
+        return value
+
+    def _are_consecutive(self, previous: Dict[str, Any], current: Dict[str, Any]) -> bool:
+        """Check whether two diff objects can be safely merged."""
+        prev_diff = previous.get("diff", {})
+        curr_diff = current.get("diff", {})
+
+        same_file = prev_diff.get("file_path") == curr_diff.get("file_path")
+        prev_new_start = int(prev_diff.get("new_start_line_number", 0))
+        prev_new_count = int(prev_diff.get("number_of_lines_added_in_new", 0))
+        curr_new_start = int(curr_diff.get("new_start_line_number", -1))
+
+        prev_old_start = int(prev_diff.get("old_start_line_number", 0))
+        prev_old_count = int(prev_diff.get("number_of_lines_removed_from_old", 0))
+        curr_old_start = int(curr_diff.get("old_start_line_number", -1))
+
+        return (
+            same_file
+            and curr_new_start == prev_new_start + max(prev_new_count, 0)
+            and curr_old_start == prev_old_start + max(prev_old_count, 0)
+        )
+
+    def _merge_single_diff(
+        self,
+        previous: Dict[str, Any],
+        current: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Merge one candidate diff into the current accumulated diff."""
+        merged = dict(previous)
+        prev_diff = dict(merged.get("diff", {}))
+        curr_diff = dict(current.get("diff", {}))
+
+        prev_diff["number_of_lines_added_in_new"] = int(
+            prev_diff.get("number_of_lines_added_in_new", 0)
+        ) + int(curr_diff.get("number_of_lines_added_in_new", 0))
+        prev_diff["number_of_lines_removed_from_old"] = int(
+            prev_diff.get("number_of_lines_removed_from_old", 0)
+        ) + int(curr_diff.get("number_of_lines_removed_from_old", 0))
+
+        prev_diff["new_content"] = self._merge_content_blocks(
+            prev_diff.get("new_content", ""),
+            curr_diff.get("new_content", ""),
+        )
+        prev_diff["old_content"] = self._merge_content_blocks(
+            prev_diff.get("old_content", ""),
+            curr_diff.get("old_content", ""),
+        )
+
+        merged["diff"] = prev_diff
+        merged["categories"] = self._merge_categories(
+            previous.get("categories", []),
+            current.get("categories", []),
+        )
+        merged["explanation"] = " ".join(
+            segment.strip()
+            for segment in [previous.get("explanation", ""), current.get("explanation", "")]
+            if segment and segment.strip()
+        ).strip()
+        merged["comments"] = "\n".join(
+            segment.strip()
+            for segment in [previous.get("comments", ""), current.get("comments", "")]
+            if segment and segment.strip()
+        ).strip()
+        return merged
+
+    def _merge_content_blocks(self, first: str, second: str) -> str:
+        """Join two optional multiline text blocks."""
+        first = first or ""
+        second = second or ""
+        if first and second:
+            return f"{first.rstrip()}\n{second.lstrip()}"
+        return first or second
+
+    def _merge_categories(self, first: Sequence[str], second: Sequence[str]) -> List[str]:
+        """Merge and sort severity categories with deterministic priority."""
+        priority = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        unique_values = set(first or []).union(second or [])
+        return sorted(unique_values, key=lambda value: priority.get(value, 99))

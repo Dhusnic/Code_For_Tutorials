@@ -1,26 +1,115 @@
+"""FastAPI application entry point for the Agentic AI code review service."""
+
+from __future__ import annotations
+
+import os
+import logging
+import threading
+import time
+from collections import deque
+from pathlib import Path
+from typing import Any, Optional
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
-import os
-import sys
-
-# Add parent directory to path to import your modules
-sys.path.append(os.path.abspath(".."))
-
-from git_manager.diff_collector import DiffCollector
-from review_manager.ai_reviewer import AIReviewer
-from azure_manager.azure_manager import AzureDevOpsClient
-from comman import CommonUtils
-from config import prompts
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from cli import AgenticAICodeReviewCLI
+from git_manager.patch_applier import PatchApplier, PatchApplyRequest
+from review_manager.static_checks import StaticCheckRunner
 
-app = FastAPI(title="Agentic AI Code Review API")
 
-# CORS middleware
+def configure_logging() -> None:
+    """Configure process-wide logging."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+
+
+configure_logging()
+LOGGER = logging.getLogger(__name__)
+
+BASE_DIR = Path(__file__).resolve().parent
+UI_DIR = BASE_DIR / "ui"
+patch_applier = PatchApplier()
+
+
+class UsageTracker:
+    """In-memory AI usage tracker for token and estimated cost monitoring."""
+
+    MODEL_ESTIMATED_COST_PER_MILLION = {
+        "gpt-4o-mini": 0.375,  # blended estimate (USD / 1M tokens)
+        "gpt-4.1-mini": 0.8,
+        "gpt-4.1": 6.0,
+    }
+
+    def __init__(self) -> None:
+        self.token_budget = int(os.getenv("USAGE_TOKEN_BUDGET", "5000000"))
+        self.cost_budget_usd = float(os.getenv("USAGE_COST_BUDGET_USD", "25"))
+        self._lock = threading.Lock()
+        self._total_tokens = 0
+        self._total_cost_usd = 0.0
+        self._request_count = 0
+        self._recent = deque(maxlen=100)
+
+    def _cost_for(self, model: str, tokens: int) -> float:
+        model_key = (model or "").strip().lower()
+        rate = self.MODEL_ESTIMATED_COST_PER_MILLION.get(model_key, 0.5)
+        return (max(tokens, 0) / 1_000_000.0) * rate
+
+    def record(self, *, endpoint: str, model: str, tokens_used: int) -> dict:
+        """Record one request usage and return request-level usage payload."""
+        tokens = max(int(tokens_used or 0), 0)
+        estimated_cost = self._cost_for(model, tokens)
+        event = {
+            "timestamp": int(time.time()),
+            "endpoint": endpoint,
+            "model": model,
+            "tokens_used": tokens,
+            "estimated_cost_usd": round(estimated_cost, 6),
+        }
+        with self._lock:
+            self._total_tokens += tokens
+            self._total_cost_usd += estimated_cost
+            self._request_count += 1
+            self._recent.appendleft(event)
+        return event
+
+    def snapshot(self) -> dict:
+        """Return current usage metrics and remaining budget."""
+        with self._lock:
+            total_tokens = self._total_tokens
+            total_cost = round(self._total_cost_usd, 6)
+            request_count = self._request_count
+            recent = list(self._recent)
+
+        remaining_tokens = max(self.token_budget - total_tokens, 0)
+        remaining_cost = max(self.cost_budget_usd - total_cost, 0.0)
+        token_percent = min((total_tokens / self.token_budget) * 100, 100.0) if self.token_budget > 0 else 0.0
+        cost_percent = min((total_cost / self.cost_budget_usd) * 100, 100.0) if self.cost_budget_usd > 0 else 0.0
+
+        return {
+            "summary": {
+                "request_count": request_count,
+                "total_tokens_used": total_tokens,
+                "total_estimated_cost_usd": total_cost,
+                "token_budget": self.token_budget,
+                "cost_budget_usd": self.cost_budget_usd,
+                "token_budget_remaining": remaining_tokens,
+                "cost_budget_remaining_usd": round(remaining_cost, 6),
+                "token_budget_used_percent": round(token_percent, 2),
+                "cost_budget_used_percent": round(cost_percent, 2),
+            },
+            "recent_requests": recent,
+        }
+
+
+usage_tracker = UsageTracker()
+
+app = FastAPI(title="Agentic AI Code Review API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,26 +117,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.mount("/static", StaticFiles(directory=str(UI_DIR)), name="static")
 
-# Mount static files
-# app.mount("D:\\Code for tutorials\\agentic_ai_code_review\\ui", StaticFiles(directory="ui"), name="ui")
-
-# Global instance
-review_service = None
 
 class ConfigModel(BaseModel):
-    repo_path: str
-    ai_model: str = "gpt-4o-mini"
-    max_tokens: int = 30000
+    """Request model for review configuration."""
+
+    repo_path: str = Field(..., description="Repository root path")
+    ai_model: str = Field(default="gpt-4o-mini")
+    max_tokens: int = Field(default=30000, ge=1, le=120000)
     organization: str
     project: str
     repository_name: str
     pull_request_id: str
     azure_pat: Optional[str] = None
     is_local: Optional[bool] = False
-    review : Optional[str] = ""
+    review: Optional[str] = ""
+
 
 class ApplyChangesModel(BaseModel):
+    """Request model for applying a single AI generated change block."""
+
     file_path: str
     new_content: str
     repo_path: str
@@ -58,263 +148,217 @@ class ApplyChangesModel(BaseModel):
     old_start_line_number: int
     old_content: str
 
-# class ReviewService(CommonUtils):
-#     def __init__(self, config: ConfigModel):
-#         self.repo_path = os.path.abspath(config.repo_path)
-#         self.ai_model = config.ai_model
-#         self.max_tokens = config.max_tokens
-#         self.env_path = os.path.abspath("agentic_ai_code_review/config/.env")
-        
-#         self.organization = config.organization
-#         self.project = config.project
-#         self.repository_name = config.repository_name
-#         self.pull_request_id = config.pull_request_id
-#         self.azure_pat = config.azure_pat or self.get_env_value(
-#             env_path=self.env_path, 
-#             key="AZURE_DEVOPS_PAT", 
-#             default=""
-#         )
-        
-#         self.diff_collector = DiffCollector(self.repo_path, env_path=self.env_path)
-#         self.ai_reviewer = AIReviewer(
-#             model_name=self.ai_model, 
-#             max_tokens=self.max_tokens, 
-#             env_path=self.env_path
-#         )
-#         self.azure_manager = AzureDevOpsClient(
-#             organization=self.organization, 
-#             project=self.project, 
-#             pat_token=self.azure_pat
-#         )
-        
-#         self.diffs = None
-#         self.review = None
-#         self.code_changes = None
-#         self.token_estimate = 0
 
-#     def collect_diffs(self):
-#         """Collect diffs from Azure DevOps PR"""
-#         self.diffs = self.azure_manager.get_pr_content_changes(
-#             repository_name=self.repository_name,
-#             pull_request_id=int(self.pull_request_id),
-#             instruction="Get full diff with line numbers and hunks."
-#         )
-#         self.token_estimate = self.ai_reviewer.estimate_tokens(str(self.diffs))
-#         return self.diffs
+class StaticChecksRequestModel(BaseModel):
+    """Request model for command-based static checks."""
 
-#     def perform_review(self):
-#         """Perform AI code review"""
-#         if not self.diffs:
-#             self.collect_diffs()
-        
-#         conversation = [
-#             {"role": "system", "content": "You are a code review assistant."},
-#             {"role": "user", "content": prompts.Review_prompt + f"\n\nDiffs to review:\n{self.diffs}"}
-#         ]
-        
-#         self.review = self.ai_reviewer.get_ai_response(
-#             conversation=conversation,
-#             model=self.ai_model,
-#             max_output_tokens=512
-#         )
-#         return self.review
+    repo_path: str = Field(..., description="Repository root path")
+    scope: str = Field(default="repo", description="Either 'repo' or 'changed'")
+    organization: Optional[str] = None
+    project: Optional[str] = None
+    repository_name: Optional[str] = None
+    pull_request_id: Optional[str] = None
+    azure_pat: Optional[str] = None
+    is_local: Optional[bool] = False
+    file_paths: Optional[list[str]] = None
 
-#     def generate_code_changes(self):
-#         """Generate code change suggestions"""
-#         if not self.review:
-#             self.perform_review()
-        
-#         conversation_code_change = [
-#             {"role": "system", "content": "You are a senior Angular + Django developer."},
-#             {"role": "user", "content": prompts.Code_corrections_prompt + 
-#                 f"\n\nDiffs:\n{self.diffs}\n\nReview Comment:\n{self.review}"}
-#         ]
-        
-#         code_change = self.ai_reviewer.get_ai_response(
-#             conversation=conversation_code_change,
-#             model=self.ai_model,
-#             max_output_tokens=512
-#         )
-        
-#         try:
-#             self.code_changes = self.extract_json_from_ai_output(code_change)
-#         except Exception as e:
-#             self.code_changes = {"error": str(e), "raw_output": code_change}
-        
-#         self.ai_reviewer.last_review = self.review
-#         self.ai_reviewer.last_code_change = self.code_changes
-        
-#         return self.code_changes
 
 @app.get("/")
-async def read_root():
-    return FileResponse("D:\\Code for tutorials\\agentic_ai_code_review\\ui\\index.html")
+async def read_root() -> FileResponse:
+    """Serve the web UI index page."""
+    index_file = UI_DIR / "index.html"
+    if not index_file.exists():
+        raise HTTPException(status_code=404, detail="UI index file not found")
+    return FileResponse(index_file)
 
-# @app.post("/api/initialize")
-# async def initialize(config: ConfigModel):
-#     """Initialize the review service with configuration"""
-#     global review_service
-#     try:
-#         review_service = ReviewService(config)
-#         return {
-#             "status": "success",
-#             "message": "Service initialized successfully",
-#             "config": {
-#                 "repo_path": config.repo_path,
-#                 "ai_model": config.ai_model,
-#                 "max_tokens": config.max_tokens,
-#                 "organization": config.organization,
-#                 "project": config.project,
-#                 "repository_name": config.repository_name,
-#                 "pull_request_id": config.pull_request_id
-#             }
-#         }
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-# @app.get("/api/config/defaults")
-# async def get_default_config():
-#     """Get default configuration values"""
-#     return {
-#         "repo_path": "D:\\Product\\Infraon",
-#         "ai_model": "gpt-4o-mini",
-#         "max_tokens": 30000,
-#         "organization": "infraon",
-#         "project": "Infraon",
-#         "repository_name": "Infraon",
-#         "pull_request_id": "17070"
-#     }
 
 @app.post("/api/review-diffs")
-async def review_diffs(config: ConfigModel):
-    """Collect diffs from the PR"""
-    # if not review_service:
-    #     raise HTTPException(status_code=400, detail="Service not initialized. Please configure first.")
-    
-    try:
-        controller = AgenticAICodeReviewCLI(config)
-        diffs = controller.review_diffs()
-        return diffs
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-@app.post("/api/generate-changes")
-async def generate_changes(config: ConfigModel):
-    """Generate code change suggestions"""
-    controller = AgenticAICodeReviewCLI(config=config)
-    
-    try:
-        code_changes = controller.generate_changes(review=config.review)
-        return code_changes
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def review_diffs(config: ConfigModel) -> dict:
+    """
+    Collect pull-request diffs and produce review comments.
 
-@app.post("/api/review")
-async def perform_review():
-    """Perform AI code review"""
-    if not review_service:
-        raise HTTPException(status_code=400, detail="Service not initialized. Please configure first.")
-    
+    Args:
+        config: Review configuration payload.
+
+    Returns:
+        Review details and token metrics.
+    """
     try:
-        review = review_service.perform_review()
-        return {
-            "status": "success",
-            "review": review
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        LOGGER.info("API request /api/review-diffs repo=%s", config.repository_name)
+        controller = AgenticAICodeReviewCLI(config)
+        result = controller.review_diffs()
+        usage = usage_tracker.record(
+            endpoint="/api/review-diffs",
+            model=config.ai_model,
+            tokens_used=int(result.get("tokens_used", 0)),
+        )
+        result["usage"] = usage
+        return result
+    except Exception as exc:
+        LOGGER.exception("Review diff request failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/generate-changes")
+async def generate_changes(config: ConfigModel) -> dict:
+    """
+    Generate code changes from review feedback and PR diff.
+
+    Args:
+        config: Review configuration payload.
+
+    Returns:
+        Suggested code changes.
+    """
+    try:
+        LOGGER.info("API request /api/generate-changes repo=%s", config.repository_name)
+        controller = AgenticAICodeReviewCLI(config=config)
+        result = controller.generate_changes(review=config.review or "")
+        usage = usage_tracker.record(
+            endpoint="/api/generate-changes",
+            model=config.ai_model,
+            tokens_used=int(result.get("tokens_used", 0)),
+        )
+        result["usage"] = usage
+        return result
+    except Exception as exc:
+        LOGGER.exception("Generate changes request failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/run-full-review")
-async def run_full_review():
-    """Run complete review process"""
-    if not review_service:
-        raise HTTPException(status_code=400, detail="Service not initialized. Please configure first.")
-    
+async def run_full_review(config: ConfigModel) -> dict:
+    """
+    Execute full review in one API call.
+
+    Args:
+        config: Review configuration payload.
+
+    Returns:
+        End-to-end review result.
+    """
     try:
-        # Collect diffs
-        diffs = review_service.collect_diffs()
-        
-        # Perform review
-        review = review_service.perform_review()
-        
-        # Generate code changes
-        code_changes = review_service.generate_code_changes()
-        
-        return {
-            "status": "success",
-            "diffs": diffs,
-            "token_estimate": review_service.token_estimate,
-            "review": review,
-            "code_changes": code_changes
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-@app.post("/api/apply-changes")
-async def apply_changes(change: ApplyChangesModel):
-    try:
-        file_path = change.file_path.lstrip("/\\")
-        repo_path = os.path.abspath(change.repo_path)
-        file_path = (
-            os.path.join(repo_path, file_path)
-            if not os.path.isabs(file_path) else file_path
+        LOGGER.info("API request /api/run-full-review repo=%s", config.repository_name)
+        controller = AgenticAICodeReviewCLI(config=config)
+        result = controller.run_full_review()
+        usage = usage_tracker.record(
+            endpoint="/api/run-full-review",
+            model=config.ai_model,
+            tokens_used=int(result.get("tokens_used", 0)),
         )
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="File not found")
+        result["usage"] = usage
+        return result
+    except Exception as exc:
+        LOGGER.exception("Run full review request failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-        with open(file_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
 
-        backup_path = file_path + ".backup"
-        with open(backup_path, "w", encoding="utf-8") as f:
-            f.writelines(lines)
+@app.post("/api/apply-changes")
+async def apply_changes(change: ApplyChangesModel) -> dict:
+    """
+    Apply a generated patch to a file and create a backup snapshot.
 
-        old_start = change.old_start_line_number - 1
-        old_end = old_start + change.number_of_lines_removed_from_old
+    Args:
+        change: Patch application payload.
 
-        if old_start < 0 or old_end > len(lines):
-            raise HTTPException(status_code=400, detail="Invalid line range")
-
-        # old_block = "".join(lines[old_start:old_end]).rstrip("\n")
-        # expected_old = change.old_content.rstrip("\n")
-        # def normalize(s: str) -> str:
-        #     return " ".join(s.split())
-
-        # if normalize(old_block) != normalize(expected_old):
-        #     raise HTTPException(
-        #         status_code=409,
-        #         detail="Old content mismatch; file may have changed"
-        #     )
-
-        new_lines = [
-            line + "\n" if not line.endswith("\n") else line
-            for line in change.new_content.splitlines()
-        ]
-
-        lines[old_start:old_end] = new_lines
-
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.writelines(lines)
-
-        return {
-            "status": "success",
-            "message": f"Changes applied at line {change.old_start_line_number}",
-            "backup_path": backup_path
-        }
-
+    Returns:
+        Status and backup details.
+    """
+    try:
+        request = PatchApplyRequest(
+            repo_path=change.repo_path,
+            file_path=change.file_path,
+            old_start_line_number=change.old_start_line_number,
+            number_of_lines_removed_from_old=change.number_of_lines_removed_from_old,
+            new_content=change.new_content,
+            old_content=change.old_content,
+        )
+        LOGGER.info("API request /api/apply-changes file=%s", change.file_path)
+        result = patch_applier.apply_change(request)
+        if not result.get("success", False):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("diagnostics")
+                or {"message": result.get("message", "Patch failed")},
+            )
+        return result
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        LOGGER.exception("Apply changes request failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
 
 @app.get("/api/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "service_initialized": review_service is not None
-    }
+async def health_check() -> dict:
+    """Return basic service health data."""
+    return {"status": "healthy", "service": "agentic-ai-code-review"}
+
+
+@app.get("/api/usage-metrics")
+async def usage_metrics() -> dict:
+    """Return in-memory token and estimated cost metrics."""
+    return usage_tracker.snapshot()
+
+
+@app.post("/api/static-checks")
+async def run_static_checks(request: StaticChecksRequestModel) -> dict:
+    """
+    Execute command-based static checks for detected repo languages.
+
+    Args:
+        request: Static check request payload.
+
+    Returns:
+        Structured command executions and normalized issues.
+    """
+    try:
+        LOGGER.info(
+            "API request /api/static-checks repo=%s scope=%s",
+            request.repo_path,
+            request.scope,
+        )
+        runner = StaticCheckRunner(repo_path=request.repo_path)
+        scope = (request.scope or "repo").strip().lower()
+        target_files: list[str] | None = request.file_paths or None
+        if scope not in {"repo", "changed"}:
+            raise HTTPException(status_code=400, detail="Invalid static check scope. Use 'repo' or 'changed'.")
+
+        if scope == "changed" and target_files is None:
+            controller = AgenticAICodeReviewCLI(config=request)
+            diffs = controller._collect_diffs()
+            target_files = _extract_changed_file_paths(diffs)
+
+        result = runner.run_checks(file_paths=target_files)
+        result["scope"] = scope
+        result["target_files_count"] = len(target_files or [])
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        LOGGER.exception("Static checks request failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _extract_changed_file_paths(diffs: list[dict[str, Any]]) -> list[str]:
+    """Extract unique changed file paths from local/PR diff payload shapes."""
+    paths: list[str] = []
+    for item in diffs or []:
+        if not isinstance(item, dict):
+            continue
+        candidate = item.get("file") or item.get("file_path")
+        if not candidate and isinstance(item.get("diff"), dict):
+            candidate = item["diff"].get("file_path")
+        if isinstance(candidate, str) and candidate.strip():
+            normalized = candidate.strip().lstrip("/\\")
+            if normalized not in paths:
+                paths.append(normalized)
+    return paths
+
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

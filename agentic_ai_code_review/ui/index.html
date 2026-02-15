@@ -1,121 +1,297 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <title>Agentic AI Code Review</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agentic AI Code Review</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <div class="header-top">
+          <div>
+            <h1>Agentic AI Code Review</h1>
+            <p>AI-powered pull request reviewer</p>
+          </div>
+          <div class="theme-toggle">
+            <span id="themeLabel">Light</span>
+            <label class="switch">
+              <input type="checkbox" id="themeToggle" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </header>
 
-        <link rel="stylesheet" href="styles.css" />
-        <script
-            src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    </head>
-    <body>
+      <section class="card">
+        <h2>Configuration</h2>
+        <div class="grid">
+          <div>
+            <label>Repository Path</label>
+            <input id="repoPath" value="D:\Product\Infraon" />
+          </div>
 
-        <div class="app">
+          <div>
+            <label>AI Model</label>
+            <input id="aiModel" value="gpt-4o-mini" />
+          </div>
 
-            <header>
-                <h1>🤖 Agentic AI Code Review</h1>
-                <p>AI-powered Pull Request Reviewer</p>
-            </header>
+          <div>
+            <label>Max Tokens</label>
+            <input type="number" id="maxTokens" value="30000" />
+          </div>
 
-            <!-- CONFIG PANEL -->
-            <section class="card">
-                <h2>⚙️ Configuration</h2>
+          <div>
+            <label>Organization</label>
+            <input id="organization" value="infraon" />
+          </div>
 
-                <div class="grid">
-                    <div>
-                        <label>Repository Path</label>
-                        <input id="repoPath" value="D:\Product\Infraon" />
-                    </div>
+          <div>
+            <label>Project</label>
+            <input id="project" value="Infraon" />
+          </div>
 
-                    <div>
-                        <label>AI Model</label>
-                        <input id="aiModel" value="gpt-4o-mini" />
-                    </div>
+          <div>
+            <label>Repository Name</label>
+            <input id="repository" value="Infraon" />
+          </div>
 
-                    <div>
-                        <label>Max Tokens</label>
-                        <input type="number" id="maxTokens" value="30000" />
-                    </div>
+          <div>
+            <label>Pull Request ID</label>
+            <input id="prId" value="" required />
+          </div>
 
-                    <div>
-                        <label>Organization</label>
-                        <input id="organization" value="infraon" />
-                    </div>
-
-                    <div>
-                        <label>Project</label>
-                        <input id="project" value="Infraon" />
-                    </div>
-
-                    <div>
-                        <label>Repository Name</label>
-                        <input id="repository" value="Infraon" />
-                    </div>
-
-                    <div>
-                        <label>Pull Request ID</label>
-                        <input id="prId" value="" required/>
-                    </div>
-
-                    <div>
-                        <label>Azure PAT</label>
-                        <input id="password"
-                            type="password"
-                            value="Azure_access_token" />
-                        <small>Hidden for security</small>
-                    </div>
-                </div>
-
-                <div class="toggle-wrapper">
-                    <label class="toggle-label">Take Local Changes</label>
-
-                    <label class="switch">
-                        <input type="checkbox" id="isLocal">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-
-                <button class="primary" onclick="runReview()">🚀 Run Code
-                    Review</button>
-            </section>
-
-            <!-- AI REVIEW -->
-            <section class="card">
-                <div class="card-header">
-                    <h2>🧠 AI Review</h2>
-                    <button onclick="copyText('aiReview')">📋 Copy</button>
-                </div>
-                <div id="aiReview" class="markdown"></div>
-            </section>
-
-            <!-- CODE CHANGES -->
-            <!-- <section class="card">
-    <div class="card-header">
-      <h2>🛠 Code Change Suggestions</h2>
-      <button onclick="copyText('codeChanges')">📋 Copy</button>
-    </div>
-    <pre id="codeChanges" class="json-viewer"></pre>
-  </section> -->
-            <section id="codeChangesContainer" class="card">
-                <div class="card-header">
-                    <h2>🛠 Code Change Suggestions</h2>
-                    <button onclick="copyAllChanges()">📋 Copy All</button>
-                </div>
-                <div id="codeChanges"></div>
-                <!-- Changed from <pre> to <div> -->
-            </section>
-
-            <!-- LOG OUTPUT -->
-            <section class="card">
-                <div class="card-header">
-                    <h2>📜 Execution Logs</h2>
-                    <button onclick="copyText('logs')">📋 Copy</button>
-                </div>
-                <pre id="logs" class="console"></pre>
-            </section>
-
+          <div>
+            <label>Azure PAT</label>
+            <input id="password" type="password" value="Azure_access_token" />
+            <small>Hidden for security</small>
+          </div>
         </div>
 
-        <script src="script.js"></script>
-    </body>
+        <div class="toggle-wrapper">
+          <label class="toggle-label">Take Local Changes</label>
+          <label class="switch">
+            <input type="checkbox" id="isLocal" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-wrapper">
+          <label class="toggle-label">Run Static Checks (Non-AI)</label>
+          <label class="switch">
+            <input type="checkbox" id="runStaticChecks" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-wrapper">
+          <label class="toggle-label">Show Usage Monitor</label>
+          <label class="switch">
+            <input type="checkbox" id="showUsageMonitor" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <button class="primary" onclick="runReview()">Run Code Review</button>
+        <button onclick="runStaticChecksOnly()">Run Static Checks</button>
+      </section>
+
+      <section id="usageMonitorSection" class="card hidden">
+        <div class="card-header">
+          <h2>Usage Monitor</h2>
+          <button onclick="refreshUsageMetrics()">Refresh</button>
+        </div>
+        <div id="usageRequestSummary" class="summary-grid"></div>
+        <div class="meter-group">
+          <div>
+            <div class="meter-header">
+              <span>Token Budget</span>
+              <span id="tokenMeterLabel">0%</span>
+            </div>
+            <div class="meter">
+              <div id="tokenMeterFill" class="meter-fill"></div>
+            </div>
+          </div>
+          <div>
+            <div class="meter-header">
+              <span>Cost Budget</span>
+              <span id="costMeterLabel">0%</span>
+            </div>
+            <div class="meter">
+              <div id="costMeterFill" class="meter-fill cost"></div>
+            </div>
+          </div>
+        </div>
+        <details class="static-section" open>
+          <summary>Recent AI Requests</summary>
+          <div id="usageRecentRequests"></div>
+        </details>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2>AI Review</h2>
+          <button onclick="copyText('aiReview')">Copy</button>
+        </div>
+        <div id="aiReview" class="markdown"></div>
+      </section>
+
+      <section id="codeChangesContainer" class="card">
+        <div class="card-header">
+          <h2>Code Change Suggestions</h2>
+          <div class="changes-actions">
+            <button onclick="copyAllChanges()">Copy All</button>
+            <button class="primary" onclick="applyAllChanges()">Apply All</button>
+          </div>
+        </div>
+        <div class="list-controls">
+          <input id="codeChangesSearch" placeholder="Search by file, category, explanation..." />
+          <select id="codeChangesPageSize">
+            <option value="10">10 / page</option>
+            <option value="25" selected>25 / page</option>
+            <option value="50">50 / page</option>
+          </select>
+        </div>
+        <div id="codeChanges"></div>
+        <div id="codeChangesPagination" class="pagination-bar"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2>Execution Logs</h2>
+          <button onclick="copyText('logs')">Copy</button>
+        </div>
+        <pre id="logs" class="console"></pre>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2>Static Checks</h2>
+          <button onclick="copyText('staticChecksOutput')">Copy</button>
+        </div>
+        <div class="runner-status">
+          <div id="staticChecksSpinner" class="spinner hidden"></div>
+          <div id="staticChecksRunState" class="muted-text">Idle</div>
+        </div>
+        <ol id="staticChecksSteps" class="steps-list"></ol>
+        <div id="staticChecksSummary" class="summary-grid"></div>
+        <div id="staticChecksMajorIssues" class="static-section"></div>
+        <details class="static-section">
+          <summary>Critical Issues Grid</summary>
+          <div class="list-controls">
+            <input id="staticIssuesSearch" placeholder="Search issues by message, file, language, tool..." />
+            <select id="staticIssuesPageSize">
+              <option value="10">10 / page</option>
+              <option value="25" selected>25 / page</option>
+              <option value="50">50 / page</option>
+              <option value="100">100 / page</option>
+            </select>
+          </div>
+          <div id="staticChecksIssues"></div>
+          <div id="staticIssuesPagination" class="pagination-bar"></div>
+        </details>
+        <details class="static-section">
+          <summary>Executed Commands</summary>
+          <div class="list-controls">
+            <input id="staticCommandsSearch" placeholder="Search commands by tool, language, status..." />
+            <select id="staticCommandsPageSize">
+              <option value="5">5 / page</option>
+              <option value="10" selected>10 / page</option>
+              <option value="25">25 / page</option>
+            </select>
+          </div>
+          <div id="staticChecksCommands"></div>
+          <div id="staticCommandsPagination" class="pagination-bar"></div>
+        </details>
+        <pre id="staticChecksOutput" class="console"></pre>
+      </section>
+    </div>
+
+    <template id="emptyChangesTemplate">
+      <div class="empty-changes">
+        <i class="fas fa-code"></i>
+        <p>No code changes available</p>
+      </div>
+    </template>
+
+    <template id="changeItemTemplate">
+      <article class="change-item">
+        <div class="file-change-header">
+          <div class="file-info">
+            <i class="fas fa-chevron-right collapse-icon"></i>
+            <div>
+              <div class="file-path">
+                <i class="fas fa-file-code"></i>
+                <span class="file-path-text"></span>
+              </div>
+              <div class="line-info"></div>
+            </div>
+          </div>
+          <div class="change-metadata">
+            <div class="categories"></div>
+            <span class="change-type-badge"></span>
+            <span class="status-indicator" style="display: none"></span>
+          </div>
+        </div>
+
+        <div class="diff-content">
+          <div class="diff-viewer-container">
+            <div class="diff-pane-old">
+              <div class="pane-title">
+                <i class="fas fa-minus-circle" style="color: #f87171"></i>
+                <span class="pane-title-old"></span>
+              </div>
+              <div class="pane-code pane-code-old"></div>
+            </div>
+
+            <div class="diff-pane-new">
+              <div class="pane-title">
+                <i class="fas fa-plus-circle" style="color: #34d399"></i>
+                <span class="pane-title-new"></span>
+              </div>
+              <div class="pane-code pane-code-new"></div>
+            </div>
+          </div>
+
+          <div class="change-explanation">
+            <div class="explanation-title">
+              <i class="fas fa-info-circle"></i>
+              Explanation
+            </div>
+            <div class="explanation-text"></div>
+            <div class="comment-box" hidden>
+              <strong>
+                <i class="fas fa-lightbulb"></i>
+                Note:
+              </strong>
+              <span class="comment-text"></span>
+            </div>
+          </div>
+
+          <div class="change-actions">
+            <button class="btn-copy-change">
+              <i class="fas fa-copy"></i>
+              Copy
+            </button>
+            <button class="btn-cancel">
+              <i class="fas fa-times"></i>
+              Cancel
+            </button>
+            <button class="btn-apply">
+              <i class="fas fa-check"></i>
+              Apply Change
+            </button>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <script src="script.js"></script>
+  </body>
 </html>
