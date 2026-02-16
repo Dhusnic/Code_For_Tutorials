@@ -29,6 +29,22 @@ def test_valid_rule_schema() -> None:
     validator.validate(payload, "rules/test.yml")
 
 
+def test_valid_signal_key_multi_underscore() -> None:
+    validator = RuleSchemaValidator()
+    payload = {
+        "service": "nginx",
+        "rules": [
+            {
+                "id": "RULE_MULTI",
+                "signal_key": "nginx_upstream_timeout_connect",
+                "level": "critical",
+                "condition": {"field": "message", "op": "contains", "value": "timeout"},
+            }
+        ],
+    }
+    validator.validate(payload, "rules/test.yml")
+
+
 def test_invalid_missing_value_for_non_exists() -> None:
     validator = RuleSchemaValidator()
     payload = {

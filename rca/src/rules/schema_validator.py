@@ -46,10 +46,10 @@ class RuleSchemaValidator:
         level = str(rule["level"]).lower()
         if level not in self.SUPPORTED_LEVELS:
             raise ValueError(f"{prefix}.level unsupported: {rule['level']}")
-        if not re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)?", rule["signal_key"]):
+        if not re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)*", rule["signal_key"]):
             raise ValueError(
-                f"{prefix}.signal_key must be lowercase keyword with optional one underscore "
-                "(example: upstream_timeout)"
+                f"{prefix}.signal_key must be lowercase snake_case "
+                "(example: nginx_upstream_timeout)"
             )
 
         tags = rule.get("tags", [])

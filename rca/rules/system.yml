@@ -1,7 +1,7 @@
 service: system
 rules:
   - id: SYSTEM_LEVEL_CRITICAL
-    signal_key: level_critical
+    signal_key: system_level_critical
     level: critical
     description: Syslog/journald critical priorities (emerg/alert/crit/err).
     tags: [severity, critical, syslog]
@@ -18,7 +18,7 @@ rules:
           value: [0, 1, 2, 3, "0", "1", "2", "3"]
 
   - id: SYSTEM_LEVEL_WARNING
-    signal_key: level_warning
+    signal_key: system_level_warning
     level: warning
     description: Syslog/journald warning priority.
     tags: [severity, warning, syslog]
@@ -35,7 +35,7 @@ rules:
           value: [4, "4"]
 
   - id: SYSTEM_SSH_AUTH_FAILED
-    signal_key: ssh_auth
+    signal_key: system_ssh_auth_failed
     level: warning
     description: SSH authentication failures detected.
     tags: [security, ssh, auth]
@@ -49,7 +49,7 @@ rules:
           value: 'Failed password for( invalid user)?'
 
   - id: SYSTEM_SSH_INVALID_USER
-    signal_key: ssh_user
+    signal_key: system_ssh_invalid_user
     level: warning
     description: SSH attempt with invalid user account.
     tags: [security, ssh, user]
@@ -63,7 +63,7 @@ rules:
           value: Invalid user
 
   - id: SYSTEM_SSH_ROOT_DENIED
-    signal_key: ssh_root
+    signal_key: system_ssh_root_denied
     level: warning
     description: Root SSH login attempt denied by policy.
     tags: [security, ssh, policy]
@@ -77,7 +77,7 @@ rules:
           value: '(ROOT LOGIN REFUSED|root login attempt denied|PermitRootLogin)'
 
   - id: SYSTEM_SSH_BRUTE_HINT
-    signal_key: ssh_brute
+    signal_key: system_ssh_brute_hint
     level: warning
     description: SSH brute-force pattern (excessive auth attempts).
     tags: [security, ssh, brute]
@@ -91,7 +91,7 @@ rules:
           value: '(maximum authentication attempts exceeded|Too many authentication failures)'
 
   - id: SYSTEM_SUDO_DENIED
-    signal_key: sudo_denied
+    signal_key: system_sudo_denied
     level: warning
     description: Sudo authorization denied for user.
     tags: [security, sudo, authz]
@@ -104,7 +104,7 @@ rules:
           value: '(user NOT in sudoers|sudo: .*authentication failure)'
 
   - id: SYSTEM_PAM_AUTH_FAILURE
-    signal_key: pam_auth
+    signal_key: system_pam_auth_failure
     level: warning
     description: PAM authentication failure across login services.
     tags: [security, pam, auth]
@@ -118,7 +118,7 @@ rules:
           value: '(pam_unix\\(.*\\): authentication failure|pam_faillock|PAM .* authentication error)'
 
   - id: SYSTEM_ACCOUNT_LOCKED
-    signal_key: acct_locked
+    signal_key: system_account_locked
     level: warning
     description: Account locked due to repeated authentication failures.
     tags: [security, account, lock]
@@ -132,7 +132,7 @@ rules:
           value: '(account is locked|user account locked|authentication failure.*locked)'
 
   - id: SYSTEM_SELINUX_DENIED
-    signal_key: selinux_denied
+    signal_key: system_selinux_denied
     level: warning
     description: SELinux AVC denial event.
     tags: [security, selinux, policy]
@@ -146,7 +146,7 @@ rules:
           value: denied
 
   - id: SYSTEM_APPARMOR_DENIED
-    signal_key: apparmor_denied
+    signal_key: system_apparmor_denied
     level: warning
     description: AppArmor denied action in enforced profile.
     tags: [security, apparmor, policy]
@@ -160,7 +160,7 @@ rules:
           value: DENIED
 
   - id: SYSTEM_AUDIT_BACKLOG
-    signal_key: audit_backlog
+    signal_key: system_audit_backlog
     level: warning
     description: Linux audit subsystem backlog pressure/loss detected.
     tags: [audit, security, queue]
@@ -173,7 +173,7 @@ rules:
           op: exists
 
   - id: SYSTEMD_UNIT_FAILED
-    signal_key: unit_failed
+    signal_key: systemd_unit_failed
     level: critical
     description: systemd unit entered failed state or failed to start.
     tags: [systemd, service, availability]
@@ -187,7 +187,7 @@ rules:
           value: '(Failed to start .*|entered the ''failed'' state|failed \\(Result: exit-code\\)|Main process exited, code=exited, status=[1-9][0-9]*)'
 
   - id: SYSTEMD_START_LIMIT
-    signal_key: start_limit
+    signal_key: systemd_start_limit
     level: critical
     description: systemd start-rate limit hit, service restart suppressed.
     tags: [systemd, service, restart]
@@ -201,7 +201,7 @@ rules:
           value: '(Start request repeated too quickly|start-limit hit)'
 
   - id: SYSTEMD_WATCHDOG_TIMEOUT
-    signal_key: watchdog_timeout
+    signal_key: systemd_watchdog_timeout
     level: critical
     description: systemd service watchdog timeout triggered.
     tags: [systemd, watchdog, timeout]
@@ -215,7 +215,7 @@ rules:
           value: '(Watchdog timeout|watchdog timeout)'
 
   - id: SYSTEMD_OOMD_KILL
-    signal_key: oomd_kill
+    signal_key: systemd_oomd_kill
     level: critical
     description: systemd-oomd terminated a cgroup due to memory pressure/swap usage.
     tags: [systemd, memory, oomd]
@@ -236,7 +236,7 @@ rules:
           value: '(systemd-oomd.*Killed|Killed cgroup .* due to memory pressure|memory pressure relief)'
 
   - id: SYSTEM_KERNEL_PANIC
-    signal_key: kernel_panic
+    signal_key: system_kernel_panic
     level: critical
     description: Kernel panic condition detected.
     tags: [kernel, panic, availability]
@@ -250,7 +250,7 @@ rules:
           value: Kernel panic - not syncing
 
   - id: SYSTEM_KERNEL_OOPS
-    signal_key: kernel_oops
+    signal_key: system_kernel_oops
     level: critical
     description: Kernel oops/fatal exception detected.
     tags: [kernel, oops, crash]
@@ -264,7 +264,7 @@ rules:
           value: '(BUG: unable to handle kernel|Oops:|general protection fault|invalid opcode)'
 
   - id: SYSTEM_LOCKUP_DETECTED
-    signal_key: lockup_detected
+    signal_key: system_lockup_detected
     level: critical
     description: Soft/hard lockup watchdog detection.
     tags: [kernel, watchdog, lockup]
@@ -278,7 +278,7 @@ rules:
           value: '(soft lockup|hard LOCKUP|watchdog: BUG)'
 
   - id: SYSTEM_HUNG_TASK
-    signal_key: hung_task
+    signal_key: system_hung_task
     level: warning
     description: Kernel detected task blocked for excessive time.
     tags: [kernel, task, stall]
@@ -292,7 +292,7 @@ rules:
           value: 'task .* blocked for more than [0-9]+ seconds'
 
   - id: SYSTEM_OOM_KILLER
-    signal_key: oom_killer
+    signal_key: system_oom_killer
     level: critical
     description: Kernel OOM killer terminated process due to memory exhaustion.
     tags: [kernel, memory, oom]
@@ -306,7 +306,7 @@ rules:
           value: '(Out of memory: Killed process|oom-kill:)'
 
   - id: SYSTEM_MACHINE_CHECK
-    signal_key: machine_check
+    signal_key: system_machine_check
     level: critical
     description: Hardware machine-check or ECC memory fault indication.
     tags: [hardware, mce, cpu]
@@ -320,7 +320,7 @@ rules:
           value: '(Machine check events logged|MCE:|Hardware Error|EDAC)'
 
   - id: SYSTEM_PROCESS_SEGFAULT
-    signal_key: segfault_proc
+    signal_key: system_process_segfault
     level: warning
     description: User-space process segmentation fault/core dump pattern.
     tags: [process, crash, userspace]
@@ -334,7 +334,7 @@ rules:
           value: '(segfault at|segfault|core dumped)'
 
   - id: SYSTEM_EXT4_ERROR
-    signal_key: ext4_error
+    signal_key: system_ext4_error
     level: critical
     description: EXT4 filesystem error/journal abort detected.
     tags: [filesystem, ext4, storage]
@@ -348,7 +348,7 @@ rules:
           value: '(EXT4-fs error|EXT4-fs warning|Detected aborted journal)'
 
   - id: SYSTEM_XFS_ERROR
-    signal_key: xfs_error
+    signal_key: system_xfs_error
     level: critical
     description: XFS metadata I/O error or forced shutdown.
     tags: [filesystem, xfs, storage]
@@ -362,7 +362,7 @@ rules:
           value: '(XFS \\(.*\\): metadata I/O error|xfs_do_force_shutdown|Log I/O Error Detected)'
 
   - id: SYSTEM_BTRFS_ERROR
-    signal_key: btrfs_error
+    signal_key: system_btrfs_error
     level: critical
     description: Btrfs filesystem corruption/IO failure indicators.
     tags: [filesystem, btrfs, storage]
@@ -376,7 +376,7 @@ rules:
           value: '(BTRFS.*error|parent transid verify failed|BTRFS: corruption)'
 
   - id: SYSTEM_DISK_IO_ERROR
-    signal_key: disk_io
+    signal_key: system_disk_io_error
     level: critical
     description: Block device I/O error patterns.
     tags: [storage, disk, io]
@@ -390,7 +390,7 @@ rules:
           value: '(I/O error, dev|blk_update_request: I/O error|Buffer I/O error on dev)'
 
   - id: SYSTEM_RAID_DEGRADED
-    signal_key: raid_degraded
+    signal_key: system_raid_degraded
     level: critical
     description: Software RAID degraded/failure events (mdadm monitor events).
     tags: [storage, raid, availability]
@@ -404,7 +404,7 @@ rules:
           value: '(DegradedArray|FailSpare|Fail|SparesMissing|md[0-9]+: .*degraded)'
 
   - id: SYSTEM_SMART_FAILURE
-    signal_key: smart_failure
+    signal_key: system_smart_failure
     level: critical
     description: SMART subsystem predicts imminent disk failure.
     tags: [storage, smart, hardware]
@@ -418,7 +418,7 @@ rules:
           value: '(SMART.*FAILED|Device: .* Failed SMART usage Attribute|Disk failure is imminent)'
 
   - id: SYSTEM_FILESYSTEM_READONLY
-    signal_key: fs_readonly
+    signal_key: system_filesystem_readonly
     level: critical
     description: Filesystem remounted read-only due to errors.
     tags: [filesystem, readonly, storage]
@@ -432,7 +432,7 @@ rules:
           value: '(Remounting filesystem read-only|EXT4-fs \\(.*\\): Remounting filesystem read-only|Read-only file system)'
 
   - id: SYSTEM_NETWORK_LINK_DOWN
-    signal_key: net_down
+    signal_key: system_network_link_down
     level: warning
     description: Network interface/link transitioned down.
     tags: [network, link, connectivity]
@@ -446,7 +446,7 @@ rules:
           value: '(link is down|state DOWN|Network is down|carrier lost)'
 
   - id: SYSTEM_DNS_FAILURE
-    signal_key: dns_fail
+    signal_key: system_dns_failure
     level: warning
     description: DNS resolution failure detected.
     tags: [network, dns, resolver]
@@ -460,7 +460,7 @@ rules:
           value: '(Temporary failure in name resolution|Name or service not known|DNSSEC validation failed)'
 
   - id: SYSTEM_NTP_SYNC_ISSUE
-    signal_key: ntp_sync
+    signal_key: system_ntp_sync_issue
     level: warning
     description: Time synchronization drift/failure from NTP/chrony/systemd-timesyncd.
     tags: [time, ntp, sync]
@@ -474,7 +474,7 @@ rules:
           value: '(No suitable source for synchronisation|timed out waiting for reply|Clock offset too large|time jump|clock .* not synchronized|synchronization lost|no servers reachable|Source .* unreachable)'
 
   - id: SYSTEM_THERMAL_THROTTLE
-    signal_key: thermal_throttle
+    signal_key: system_thermal_throttle
     level: warning
     description: Thermal throttling or over-temperature condition.
     tags: [hardware, thermal, cpu]
@@ -488,7 +488,7 @@ rules:
           value: '(temperature above threshold|CPU.*throttled|Thermal event|critical temperature reached)'
 
   - id: SYSTEM_CRON_FAILURE
-    signal_key: cron_fail
+    signal_key: system_cron_failure
     level: warning
     description: Cron/periodic job failure pattern.
     tags: [scheduler, cron, jobs]
@@ -509,7 +509,7 @@ rules:
               value: '(error|failed|exit status [1-9][0-9]*)'
 
   - id: SYSTEM_PACKAGE_MANAGER_LOCK
-    signal_key: package_lock
+    signal_key: system_package_manager_lock
     level: warning
     description: Package manager lock contention (apt/dnf/yum/zypper).
     tags: [packages, lock, maintenance]

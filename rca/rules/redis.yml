@@ -1,7 +1,7 @@
-﻿service: redis
+service: redis
 rules:
   - id: REDIS_LEVEL_CRITICAL
-    signal_key: level_critical
+    signal_key: redis_level_critical
     level: critical
     description: Redis log indicates critical/error severity.
     tags: [severity, critical, core]
@@ -18,7 +18,7 @@ rules:
           value: '\\b(FATAL|PANIC|CRITICAL|ERR)\\b'
 
   - id: REDIS_LEVEL_WARNING
-    signal_key: level_warning
+    signal_key: redis_level_warning
     level: warning
     description: Redis log indicates warning severity.
     tags: [severity, warning, core]
@@ -35,7 +35,7 @@ rules:
           value: '\\b(WARNING|WARN)\\b'
 
   - id: REDIS_NOAUTH_REQUIRED
-    signal_key: noauth_required
+    signal_key: redis_noauth_required
     level: warning
     description: Client command rejected because authentication is required.
     tags: [security, auth, access]
@@ -49,7 +49,7 @@ rules:
           value: NOAUTH Authentication required
 
   - id: REDIS_WRONGPASS_AUTH
-    signal_key: auth_failed
+    signal_key: redis_wrongpass_auth
     level: warning
     description: Client authentication failed due to invalid username/password.
     tags: [security, auth, login]
@@ -63,7 +63,7 @@ rules:
           value: WRONGPASS invalid username-password pair
 
   - id: REDIS_ACL_NOPERM
-    signal_key: acl_denied
+    signal_key: redis_acl_noperm
     level: warning
     description: ACL denied command/key/channel access for a user.
     tags: [security, acl, authz]
@@ -77,7 +77,7 @@ rules:
           value: '(NOPERM|ACL|permission denied|no permissions to run)'
 
   - id: REDIS_READONLY_REPLICA
-    signal_key: readonly_replica
+    signal_key: redis_readonly_replica
     level: critical
     description: Write attempted on read-only replica.
     tags: [replication, write, role]
@@ -91,7 +91,7 @@ rules:
           value: READONLY You can't write against a read only replica
 
   - id: REDIS_MASTERDOWN_LINK
-    signal_key: master_down
+    signal_key: redis_masterdown_link
     level: critical
     description: Replica cannot reach master and stale reads are disabled.
     tags: [replication, connectivity, availability]
@@ -105,7 +105,7 @@ rules:
           value: MASTERDOWN Link with MASTER is down
 
   - id: REDIS_LOADING_DATASET
-    signal_key: loading_state
+    signal_key: redis_loading_dataset
     level: warning
     description: Instance is loading dataset and temporarily rejecting normal commands.
     tags: [startup, loading, availability]
@@ -119,7 +119,7 @@ rules:
           value: LOADING Redis is loading the dataset in memory
 
   - id: REDIS_OOM_MAXMEMORY
-    signal_key: oom_memory
+    signal_key: redis_oom_maxmemory
     level: critical
     description: Command rejected due to maxmemory limit.
     tags: [memory, capacity, write]
@@ -133,7 +133,7 @@ rules:
           value: OOM command not allowed when used memory > 'maxmemory'
 
   - id: REDIS_NOREPLICAS_WRITE
-    signal_key: replicas_low
+    signal_key: redis_noreplicas_write
     level: critical
     description: Write refused because there are not enough healthy replicas.
     tags: [replication, write, durability]
@@ -147,7 +147,7 @@ rules:
           value: NOREPLICAS Not enough good replicas to write
 
   - id: REDIS_MISCONF_RDB
-    signal_key: rdb_misconf
+    signal_key: redis_misconf_rdb
     level: critical
     description: RDB snapshot persistence failed and writes are blocked by configuration.
     tags: [persistence, rdb, write]
@@ -161,7 +161,7 @@ rules:
           value: MISCONF Redis is configured to save RDB snapshots
 
   - id: REDIS_AOF_WRITE_ERROR
-    signal_key: aof_error
+    signal_key: redis_aof_write_error
     level: critical
     description: AOF persistence write/fsync errors detected.
     tags: [persistence, aof, disk]
@@ -175,7 +175,7 @@ rules:
           value: '(MISCONF Errors writing to the AOF file|Error writing to the AOF file|Fail to fsync the AOF file)'
 
   - id: REDIS_PERSIST_FORK_FAIL
-    signal_key: fork_failed
+    signal_key: redis_persist_fork_fail
     level: critical
     description: Background save failed due to fork/memory/resource pressure.
     tags: [persistence, memory, process]
@@ -189,7 +189,7 @@ rules:
           value: '(Can''t save in background: fork|Cannot allocate memory|Error trying to save the DB)'
 
   - id: REDIS_DB_LOAD_FATAL
-    signal_key: db_load
+    signal_key: redis_db_load_fatal
     level: critical
     description: Fatal database loading/recovery errors.
     tags: [startup, persistence, recovery]
@@ -203,7 +203,7 @@ rules:
           value: '(Fatal error loading the DB|Short read or OOM loading DB)'
 
   - id: REDIS_DISK_FULL
-    signal_key: disk_full
+    signal_key: redis_disk_full
     level: critical
     description: Disk/storage write failure pattern detected.
     tags: [disk, storage, capacity]
@@ -217,7 +217,7 @@ rules:
           value: '(No space left on device|disk full|read-only file system)'
 
   - id: REDIS_TOO_MANY_OPEN_FILES
-    signal_key: fd_exhausted
+    signal_key: redis_too_many_open_files
     level: critical
     description: File descriptor limit reached.
     tags: [os, file, capacity]
@@ -231,7 +231,7 @@ rules:
           value: Too many open files
 
   - id: REDIS_BUSY_SCRIPT
-    signal_key: script_busy
+    signal_key: redis_busy_script
     level: warning
     description: Lua script is blocking command execution.
     tags: [lua, script, runtime]
@@ -245,7 +245,7 @@ rules:
           value: BUSY Redis is busy running a script
 
   - id: REDIS_BUSY_FUNCTION
-    signal_key: function_busy
+    signal_key: redis_busy_function
     level: warning
     description: Function/module command busy state is blocking progress.
     tags: [function, module, runtime]
@@ -259,7 +259,7 @@ rules:
           value: '(BUSY Redis is busy running a module command|FUNCTION KILL)'
 
   - id: REDIS_CLUSTER_DOWN
-    signal_key: cluster_down
+    signal_key: redis_cluster_down
     level: critical
     description: Cluster reported down state.
     tags: [cluster, availability, routing]
@@ -279,7 +279,7 @@ rules:
           value: fail
 
   - id: REDIS_CLUSTER_UNBOUND_SLOT
-    signal_key: slot_unbound
+    signal_key: redis_cluster_unbound_slot
     level: critical
     description: Cluster has unserved hash slots.
     tags: [cluster, slots, routing]
@@ -293,7 +293,7 @@ rules:
           value: CLUSTERDOWN Hash slot not served
 
   - id: REDIS_CLUSTER_REHASH_TRYAGAIN
-    signal_key: rehash_retry
+    signal_key: redis_cluster_rehash_tryagain
     level: warning
     description: Command failed during slot rehash and should be retried.
     tags: [cluster, rehash, retry]
@@ -307,7 +307,7 @@ rules:
           value: TRYAGAIN Multiple keys request during rehashing of slot
 
   - id: REDIS_CLUSTER_REDIRECT
-    signal_key: cluster_redirect
+    signal_key: redis_cluster_redirect
     level: warning
     description: Cluster redirection response observed (MOVED/ASK).
     tags: [cluster, redirect, client]
@@ -321,7 +321,7 @@ rules:
           value: '-(MOVED|ASK) [0-9]+'
 
   - id: REDIS_CLUSTER_FAIL_SLOTS
-    signal_key: slots_fail
+    signal_key: redis_cluster_fail_slots
     level: critical
     description: Cluster has slots in FAIL state.
     tags: [cluster, fail, slots]
@@ -335,7 +335,7 @@ rules:
           value: 0
 
   - id: REDIS_CLUSTER_PFAIL_SLOTS
-    signal_key: slots_pfail
+    signal_key: redis_cluster_pfail_slots
     level: warning
     description: Cluster has slots in PFAIL state (potential node reachability issue).
     tags: [cluster, pfail, slots]
@@ -349,7 +349,7 @@ rules:
           value: 0
 
   - id: REDIS_SENTINEL_SDOWN
-    signal_key: sentinel_sdown
+    signal_key: redis_sentinel_sdown
     level: warning
     description: Sentinel marked instance as subjectively down.
     tags: [sentinel, failover, monitoring]
@@ -363,7 +363,7 @@ rules:
           value: +sdown
 
   - id: REDIS_SENTINEL_ODOWN
-    signal_key: sentinel_odown
+    signal_key: redis_sentinel_odown
     level: critical
     description: Sentinel marked master as objectively down (quorum reached).
     tags: [sentinel, failover, quorum]
@@ -377,7 +377,7 @@ rules:
           value: +odown
 
   - id: REDIS_SENTINEL_TILT
-    signal_key: sentinel_tilt
+    signal_key: redis_sentinel_tilt
     level: warning
     description: Sentinel entered/exited TILT protective mode due to timing anomalies.
     tags: [sentinel, tilt, timing]
@@ -391,7 +391,7 @@ rules:
           value: '([+-]tilt|tilt mode entered|tilt mode exited)'
 
   - id: REDIS_SENTINEL_FAILOVER_ABORT
-    signal_key: failover_abort
+    signal_key: redis_sentinel_failover_abort
     level: critical
     description: Sentinel failover aborted due to timeout/no suitable replica.
     tags: [sentinel, failover, abort]
@@ -405,7 +405,7 @@ rules:
           value: '(-failover-abort-no-good-slave|-failover-abort-slave-timeout|-failover-abort-not-elected)'
 
   - id: REDIS_SENTINEL_SWITCH_MASTER
-    signal_key: master_switch
+    signal_key: redis_sentinel_switch_master
     level: warning
     description: Sentinel reported master switch/failover progression.
     tags: [sentinel, failover, topology]
@@ -419,7 +419,7 @@ rules:
           value: '(\+switch-master|\+selected-slave|\+promoted-slave|\+failover-state-)'
 
   - id: REDIS_BACKLOG_CONFIG_WARNING
-    signal_key: backlog_warning
+    signal_key: redis_backlog_config_warning
     level: warning
     description: TCP backlog could not be enforced due to kernel limits.
     tags: [network, kernel, tuning]
@@ -433,7 +433,7 @@ rules:
           value: The TCP backlog setting of
 
   - id: REDIS_OVERCOMMIT_WARNING
-    signal_key: overcommit_warn
+    signal_key: redis_overcommit_warning
     level: warning
     description: Kernel overcommit_memory setting may break background saves.
     tags: [memory, kernel, tuning]
@@ -447,7 +447,7 @@ rules:
           value: overcommit_memory is set to 0
 
   - id: REDIS_THP_WARNING
-    signal_key: thp_warning
+    signal_key: redis_thp_warning
     level: warning
     description: Transparent Huge Pages enabled; can cause latency and memory issues.
     tags: [memory, kernel, tuning]
@@ -461,7 +461,7 @@ rules:
           value: Transparent Huge Pages (THP) support enabled
 
   - id: REDIS_READONLY_SYNC_STATE
-    signal_key: sync_wait
+    signal_key: redis_readonly_sync_state
     level: warning
     description: Replica is ready but waiting for master-replica synchronization.
     tags: [replication, sync, startup]
@@ -475,7 +475,7 @@ rules:
           value: Ready to accept connections in read-only mode. Waiting for MASTER <-> REPLICA sync
 
   - id: REDIS_SERVICE_RESTARTED
-    signal_key: service_restart
+    signal_key: redis_service_restarted
     level: warning
     description: Redis process started/reinitialized (track frequent restart patterns).
     tags: [service, lifecycle, startup]
@@ -489,7 +489,7 @@ rules:
           value: '(Redis is starting|Server initialized|Ready to accept connections)'
 
   - id: REDIS_PROCESS_EXITING
-    signal_key: service_down
+    signal_key: redis_process_exiting
     level: critical
     description: Redis process is shutting down or exiting unexpectedly.
     tags: [service, lifecycle, availability]
@@ -503,7 +503,7 @@ rules:
           value: '(shutting down|exiting now|Can''t restart: error preparing for shutdown|Fatal)'
 
   - id: REDIS_NETWORK_CONNECTIVITY
-    signal_key: network_issue
+    signal_key: redis_network_connectivity
     level: warning
     description: Network connectivity errors affecting replication/client paths.
     tags: [network, connectivity, io]
@@ -517,7 +517,7 @@ rules:
           value: '(Connection refused|Connection reset by peer|Network is unreachable|Broken pipe|i/o timeout)'
 
   - id: REDIS_MAXCLIENTS_REDUCED
-    signal_key: maxclients_low
+    signal_key: redis_maxclients_reduced
     level: warning
     description: Redis reduced maxclients due to low OS file-limit settings.
     tags: [capacity, clients, os]
@@ -531,7 +531,7 @@ rules:
           value: maxclients has been reduced to
 
   - id: REDIS_MEMORY_FRAGMENT_WARNING
-    signal_key: mem_fragment
+    signal_key: redis_memory_fragment_warning
     level: warning
     description: High memory fragmentation warning/metric indicator.
     tags: [memory, fragmentation, performance]
@@ -548,7 +548,7 @@ rules:
           value: '(memory fragmentation|allocator is not releasing memory)'
 
   - id: REDIS_BLOCKED_CLIENTS_HIGH
-    signal_key: clients_blocked
+    signal_key: redis_blocked_clients_high
     level: warning
     description: Elevated blocked clients indicates latency or lock contention.
     tags: [clients, latency, performance]
@@ -562,7 +562,7 @@ rules:
           value: 100
 
   - id: REDIS_REJECTED_CONNECTIONS
-    signal_key: conn_rejected
+    signal_key: redis_rejected_connections
     level: warning
     description: Redis is rejecting client connections at elevated rate.
     tags: [connections, capacity, availability]

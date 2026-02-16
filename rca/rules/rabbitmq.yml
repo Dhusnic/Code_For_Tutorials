@@ -36,7 +36,7 @@ rules:
     - field: message
       op: regex
       value: \b(CRITICAL|critical|ERROR|error|FATAL|fatal)\b
-  signal_key: level_critical
+  signal_key: rabbitmq_level_critical
 
 
 - id: RABBITMQ_LEVEL_WARNING
@@ -66,7 +66,7 @@ rules:
     - field: message
       op: regex
       value: \b(WARNING|warning|WARN|warn)\b
-  signal_key: level_warning
+  signal_key: rabbitmq_level_warning
 
 
 - id: RABBITMQ_MEMORY_ALARM_SET
@@ -87,7 +87,7 @@ rules:
     - field: rabbitmq.node.mem.alarm
       op: equals
       value: true
-  signal_key: memory_alarm
+  signal_key: rabbitmq_memory_alarm_set
 
 - id: RABBITMQ_DISK_ALARM_SET
   level: critical
@@ -107,7 +107,7 @@ rules:
     - field: rabbitmq.node.disk_free.alarm
       op: equals
       value: true
-  signal_key: disk_alarm
+  signal_key: rabbitmq_disk_alarm_set
 - id: RABBITMQ_ALARM_CLEARED
   level: warning
   description: Alarm cleared event after pressure period.
@@ -122,7 +122,7 @@ rules:
     - field: message
       op: contains
       value: alarm cleared
-  signal_key: alarm_cleared
+  signal_key: rabbitmq_alarm_cleared
 - id: RABBITMQ_HEARTBEAT_MISSED
   level: critical
   description: Client heartbeat timeout detected.
@@ -141,7 +141,7 @@ rules:
     - field: message
       op: contains
       value: closing AMQP connection
-  signal_key: heartbeat_missed
+  signal_key: rabbitmq_heartbeat_missed
 - id: RABBITMQ_CONNECTION_CLOSED_UNEXPECTED
   level: warning
   description: AMQP connection closed unexpectedly or forcefully.
@@ -159,7 +159,7 @@ rules:
     - field: message
       op: contains
       value: connection reset by peer
-  signal_key: connection_closed
+  signal_key: rabbitmq_connection_closed_unexpected
 - id: RABBITMQ_CONNECTION_BLOCKED
   level: warning
   description: Connection blocked by broker flow control/alarm.
@@ -174,7 +174,7 @@ rules:
     - field: rabbitmq.connection.state
       op: equals
       value: blocked
-  signal_key: connection_blocked
+  signal_key: rabbitmq_connection_blocked
 - id: RABBITMQ_AUTH_FAILED
   level: warning
   description: Authentication failure for RabbitMQ user/vhost.
@@ -193,7 +193,7 @@ rules:
     - field: message
       op: contains
       value: invalid credentials
-  signal_key: auth_failed
+  signal_key: rabbitmq_auth_failed
 - id: RABBITMQ_ACCESS_REFUSED
   level: warning
   description: Authorization failure (permission denied or access refused).
@@ -211,7 +211,7 @@ rules:
     - field: message
       op: contains
       value: not allowed
-  signal_key: access_refused
+  signal_key: rabbitmq_access_refused
 - id: RABBITMQ_TLS_HANDSHAKE_FAILED
   level: critical
   description: TLS/SSL handshake failure for RabbitMQ listener.
@@ -230,7 +230,7 @@ rules:
     - field: message
       op: contains
       value: ssl_handshake
-  signal_key: tls_handshake
+  signal_key: rabbitmq_tls_handshake_failed
 - id: RABBITMQ_TLS_CERT_ISSUE
   level: warning
   description: TLS certificate verification or trust issue.
@@ -249,7 +249,7 @@ rules:
     - field: message
       op: contains
       value: bad certificate
-  signal_key: tls_cert
+  signal_key: rabbitmq_tls_cert_issue
 - id: RABBITMQ_CLUSTER_PARTITION
   level: critical
   description: Cluster partition or node down event detected.
@@ -265,7 +265,7 @@ rules:
     - field: rabbitmq.cluster.partition_detected
       op: equals
       value: true
-  signal_key: cluster_partition
+  signal_key: rabbitmq_cluster_partition
 - id: RABBITMQ_MNESIA_OR_SCHEMA_FAILURE
   level: critical
   description: Mnesia/table/schema startup or sync error.
@@ -284,7 +284,7 @@ rules:
     - field: message
       op: contains
       value: table
-  signal_key: mnesia_or
+  signal_key: rabbitmq_mnesia_or_schema_failure
 - id: RABBITMQ_QUEUE_BACKLOG_HIGH
   level: warning
   description: Queue ready message depth exceeded threshold.
@@ -303,7 +303,7 @@ rules:
     - field: queue.messages.ready
       op: gte
       value: 10000
-  signal_key: queue_backlog
+  signal_key: rabbitmq_queue_backlog_high
 - id: RABBITMQ_UNACKED_MESSAGES_HIGH
   level: warning
   description: Unacked messages are high (consumer lag risk).
@@ -319,7 +319,7 @@ rules:
     - field: queue.messages.unacknowledged
       op: gte
       value: 5000
-  signal_key: unacked_messages
+  signal_key: rabbitmq_unacked_messages_high
 - id: RABBITMQ_REDELIVER_RATE_HIGH
   level: warning
   description: Elevated redelivery count suggests processing instability.
@@ -334,7 +334,7 @@ rules:
     - field: rabbitmq.queue.message_stats.redeliver_details.rate
       op: gte
       value: 50
-  signal_key: redeliver_rate
+  signal_key: rabbitmq_redeliver_rate_high
 - id: RABBITMQ_CONSUMER_CAPACITY_LOW
   level: warning
   description: Queue consumer capacity indicates saturation.
@@ -350,7 +350,7 @@ rules:
     - field: rabbitmq.queue.consumers
       op: equals
       value: 0
-  signal_key: consumer_capacity
+  signal_key: rabbitmq_consumer_capacity_low
 - id: RABBITMQ_CHANNEL_OR_CONNECTION_MAX_REACHED
   level: warning
   description: Channel/connection count limits reached.
@@ -369,7 +369,7 @@ rules:
     - field: rabbitmq.node.channels
       op: gte
       value: 50000
-  signal_key: channel_or
+  signal_key: rabbitmq_channel_or_connection_max_reached
 - id: RABBITMQ_CHANNEL_EXCEPTION
   level: warning
   description: Channel exception indicates protocol or topology issue.
@@ -388,7 +388,7 @@ rules:
     - field: message
       op: contains
       value: not_found
-  signal_key: channel_exception
+  signal_key: rabbitmq_channel_exception
 - id: RABBITMQ_QUEUE_EXCLUSIVE_LOCKED
   level: warning
   description: Queue/resource locked by exclusive use.
@@ -404,7 +404,7 @@ rules:
     - field: message
       op: contains
       value: cannot obtain exclusive access
-  signal_key: queue_exclusive
+  signal_key: rabbitmq_queue_exclusive_locked
 - id: RABBITMQ_MESSAGE_TOO_LARGE
   level: warning
   description: Message exceeded limits and was rejected.
@@ -423,7 +423,7 @@ rules:
     - field: message
       op: contains
       value: max_message_size
-  signal_key: message_too
+  signal_key: rabbitmq_message_too_large
 - id: RABBITMQ_DISK_SPACE_LOW_METRIC
   level: critical
   description: Node disk free metric below conservative threshold.
@@ -439,7 +439,7 @@ rules:
     - field: rabbitmq.node.disk_free_limit
       op: gte
       value: 1000000000
-  signal_key: disk_space
+  signal_key: rabbitmq_disk_space_low_metric
 - id: RABBITMQ_MEMORY_USAGE_HIGH_METRIC
   level: critical
   description: RabbitMQ memory usage near/exceeding configured high watermark.
@@ -455,7 +455,7 @@ rules:
     - field: rabbitmq.node.mem.limit
       op: lte
       value: 5000000000
-  signal_key: memory_usage
+  signal_key: rabbitmq_memory_usage_high_metric
 - id: RABBITMQ_FILE_DESCRIPTORS_EXHAUSTION
   level: critical
   description: File descriptors near exhaustion.
@@ -471,7 +471,7 @@ rules:
     - field: rabbitmq.node.fd_used
       op: gte
       value: 90000
-  signal_key: file_descriptors
+  signal_key: rabbitmq_file_descriptors_exhaustion
 - id: RABBITMQ_SOCKET_ERROR
   level: warning
   description: Socket-level network errors affecting clients or peers.
@@ -492,7 +492,7 @@ rules:
     - field: message
       op: contains
       value: connection refused
-  signal_key: socket_error
+  signal_key: rabbitmq_socket_error
 - id: RABBITMQ_PUBLISH_CONFIRM_TIMEOUT
   level: warning
   description: Publisher confirm/ack timeout pattern.
@@ -508,7 +508,7 @@ rules:
     - field: message
       op: contains
       value: publisher confirm
-  signal_key: publish_confirm
+  signal_key: rabbitmq_publish_confirm_timeout
 - id: RABBITMQ_DEAD_LETTER_ACTIVITY_HIGH
   level: warning
   description: Heavy dead-letter activity indicates downstream failures.
@@ -523,7 +523,7 @@ rules:
     - field: rabbitmq.queue.messages.ready
       op: gte
       value: 1000
-  signal_key: dead_letter
+  signal_key: rabbitmq_dead_letter_activity_high
 - id: RABBITMQ_SHOVEL_OR_FEDERATION_FAILURE
   level: warning
   description: Federation or shovel link failures.
@@ -542,7 +542,7 @@ rules:
     - field: message
       op: contains
       value: reconnect in
-  signal_key: shovel_or
+  signal_key: rabbitmq_shovel_or_federation_failure
 - id: RABBITMQ_BOOT_FAILURE
   level: critical
   description: Broker startup/boot failure detected.
@@ -561,7 +561,7 @@ rules:
     - field: message
       op: contains
       value: application_controller
-  signal_key: boot_failure
+  signal_key: rabbitmq_boot_failure
 - id: RABBITMQ_PLUGIN_OR_DEFINITION_LOAD_ERROR
   level: warning
   description: Plugin start/load or definitions import failure.
@@ -580,7 +580,7 @@ rules:
     - field: message
       op: contains
       value: error while loading definitions
-  signal_key: plugin_or
+  signal_key: rabbitmq_plugin_or_definition_load_error
 - id: RABBITMQ_CLUSTER_SYNC_TIMEOUT
   level: warning
   description: Queue mirror/quorum/raft sync timeout or replication lag messages.
@@ -596,7 +596,7 @@ rules:
     - field: message
       op: contains
       value: timeout
-  signal_key: cluster_sync
+  signal_key: rabbitmq_cluster_sync_timeout
 - id: RABBITMQ_SERVICE_MANAGER_FAILURE
   level: critical
   description: Service manager reports rabbitmq-server failed state/start failure.
@@ -615,7 +615,7 @@ rules:
     - field: message
       op: contains
       value: Failed to start RabbitMQ broker
-  signal_key: service_manager
+  signal_key: rabbitmq_service_manager_failure
 - id: RABBITMQ_LISTENER_BIND_PORT_CONFLICT
   level: critical
   description: RabbitMQ cannot bind AMQP/management listener (port in use).
@@ -634,7 +634,7 @@ rules:
     - field: message
       op: contains
       value: address already in use
-  signal_key: listener_bind
+  signal_key: rabbitmq_listener_bind_port_conflict
 - id: RABBITMQ_LISTENER_BIND_PERMISSION
   level: critical
   description: RabbitMQ cannot bind listener due to insufficient permissions.
@@ -653,7 +653,7 @@ rules:
     - field: message
       op: contains
       value: permission denied
-  signal_key: listener_permission
+  signal_key: rabbitmq_listener_bind_permission
 - id: RABBITMQ_ERLANG_COOKIE_MISMATCH
   level: critical
   description: Erlang cookie authentication mismatch blocks inter-node communication.
@@ -672,7 +672,7 @@ rules:
     - field: message
       op: contains
       value: Erlang cookie
-  signal_key: erlang_cookie
+  signal_key: rabbitmq_erlang_cookie_mismatch
 - id: RABBITMQ_ERLANG_DISTRIBUTION_DOWN
   level: critical
   description: Erlang distribution channel failure can isolate node/cluster.
@@ -691,7 +691,7 @@ rules:
     - field: message
       op: contains
       value: net_kernel
-  signal_key: erlang_distribution
+  signal_key: rabbitmq_erlang_distribution_down
 - id: RABBITMQ_CLUSTER_PEER_UNREACHABLE
   level: critical
   description: Cluster peer unreachable due to network/DNS issues.
@@ -713,7 +713,7 @@ rules:
     - field: message
       op: contains
       value: name or service not known
-  signal_key: cluster_peer
+  signal_key: rabbitmq_cluster_peer_unreachable
 - id: RABBITMQ_BLOCKED_CONNECTIONS_PERSISTENT
   level: critical
   description: Connections remain blocked under sustained resource pressure.
@@ -732,7 +732,7 @@ rules:
     - field: message
       op: contains
       value: flow control
-  signal_key: blocked_connections
+  signal_key: rabbitmq_blocked_connections_persistent
 - id: RABBITMQ_VM_OR_ERLANG_CRASH
   level: critical
   description: Erlang VM crash or panic-level broker failure.
@@ -751,4 +751,4 @@ rules:
     - field: message
       op: contains
       value: CRASH REPORT
-  signal_key: vm_or
+  signal_key: rabbitmq_vm_or_erlang_crash

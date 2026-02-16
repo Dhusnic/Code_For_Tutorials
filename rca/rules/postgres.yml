@@ -1,7 +1,7 @@
-﻿service: postgres
+service: postgres
 rules:
   - id: POSTGRES_LEVEL_CRITICAL
-    signal_key: level_critical
+    signal_key: postgres_level_critical
     level: critical
     description: PostgreSQL reported critical severities (FATAL/PANIC/ERROR).
     tags: [severity, critical, core]
@@ -18,7 +18,7 @@ rules:
           value: [FATAL, PANIC, ERROR, fatal, panic, error]
 
   - id: POSTGRES_LEVEL_WARNING
-    signal_key: level_warning
+    signal_key: postgres_level_warning
     level: warning
     description: PostgreSQL reported warning severities.
     tags: [severity, warning, core]
@@ -35,7 +35,7 @@ rules:
           value: [WARNING, WARN, warning, warn]
 
   - id: POSTGRES_AUTH_FAILED
-    signal_key: auth_failed
+    signal_key: postgres_auth_failed
     level: warning
     description: Password authentication failed (SQLSTATE 28P01).
     tags: [security, auth, access]
@@ -52,7 +52,7 @@ rules:
           value: password authentication failed for user
 
   - id: POSTGRES_HBA_BLOCKED
-    signal_key: hba_blocked
+    signal_key: postgres_hba_blocked
     level: warning
     description: Connection rejected because no matching pg_hba.conf rule exists.
     tags: [security, auth, config]
@@ -66,7 +66,7 @@ rules:
           value: no pg_hba.conf entry for host
 
   - id: POSTGRES_USER_MISSING
-    signal_key: user_missing
+    signal_key: postgres_user_missing
     level: warning
     description: Login attempted for non-existent database role.
     tags: [security, auth, user]
@@ -80,7 +80,7 @@ rules:
           value: 'Role ".*" does not exist'
 
   - id: POSTGRES_DB_MISSING
-    signal_key: db_missing
+    signal_key: postgres_db_missing
     level: warning
     description: Target database does not exist (SQLSTATE 3D000).
     tags: [catalog, database, connect]
@@ -97,7 +97,7 @@ rules:
           value: 'database ".*" does not exist'
 
   - id: POSTGRES_CONN_LIMIT
-    signal_key: conn_limit
+    signal_key: postgres_conn_limit
     level: critical
     description: Connection capacity exhausted (SQLSTATE 53300 / reserved slot message).
     tags: [connections, capacity, availability]
@@ -114,7 +114,7 @@ rules:
           value: remaining connection slots are reserved
 
   - id: POSTGRES_CONN_FAILED
-    signal_key: conn_failed
+    signal_key: postgres_conn_failed
     level: critical
     description: SQL client connection failure/rejection detected (Class 08).
     tags: [connections, network, client]
@@ -131,7 +131,7 @@ rules:
           value: '(connection refused|could not connect|connection failure|terminating connection due to administrator command)'
 
   - id: POSTGRES_CONNECT_WAIT
-    signal_key: connect_wait
+    signal_key: postgres_connect_wait
     level: warning
     description: Server cannot accept new connections yet (SQLSTATE 57P03).
     tags: [startup, connect, availability]
@@ -148,7 +148,7 @@ rules:
           value: the database system is starting up
 
   - id: POSTGRES_ADMIN_SHUTDOWN
-    signal_key: admin_shutdown
+    signal_key: postgres_admin_shutdown
     level: critical
     description: Server terminated by administrator command (SQLSTATE 57P01).
     tags: [service, shutdown, operator]
@@ -165,7 +165,7 @@ rules:
           value: terminating connection due to administrator command
 
   - id: POSTGRES_CRASH_SHUTDOWN
-    signal_key: crash_shutdown
+    signal_key: postgres_crash_shutdown
     level: critical
     description: Crash shutdown state detected (SQLSTATE 57P02).
     tags: [service, crash, availability]
@@ -182,7 +182,7 @@ rules:
           value: '(crash shutdown|aborting startup due to startup process failure)'
 
   - id: POSTGRES_QUERY_CANCEL
-    signal_key: query_cancel
+    signal_key: postgres_query_cancel
     level: warning
     description: Query canceled by timeout/operator intervention (SQLSTATE 57014).
     tags: [query, timeout, intervention]
@@ -199,7 +199,7 @@ rules:
           value: '(canceling statement due to|query canceled)'
 
   - id: POSTGRES_LOCK_TIMEOUT
-    signal_key: lock_timeout
+    signal_key: postgres_lock_timeout
     level: warning
     description: Lock wait timeout/lock unavailable (SQLSTATE 55P03).
     tags: [locks, concurrency, timeout]
@@ -216,7 +216,7 @@ rules:
           value: '(lock timeout|could not obtain lock|canceling statement due to lock timeout)'
 
   - id: POSTGRES_DEADLOCK_FOUND
-    signal_key: deadlock_found
+    signal_key: postgres_deadlock_found
     level: warning
     description: Deadlock detected and transaction aborted (SQLSTATE 40P01).
     tags: [locks, deadlock, transactions]
@@ -233,7 +233,7 @@ rules:
           value: deadlock detected
 
   - id: POSTGRES_SERIAL_FAIL
-    signal_key: serial_fail
+    signal_key: postgres_serial_fail
     level: warning
     description: Serializable transaction failed and must be retried (SQLSTATE 40001).
     tags: [transactions, serialization, retry]
@@ -250,7 +250,7 @@ rules:
           value: could not serialize access
 
   - id: POSTGRES_UNIQUE_VIOLATION
-    signal_key: unique_error
+    signal_key: postgres_unique_violation
     level: warning
     description: Unique constraint violation (SQLSTATE 23505).
     tags: [constraints, data, write]
@@ -267,7 +267,7 @@ rules:
           value: duplicate key value violates unique constraint
 
   - id: POSTGRES_FK_VIOLATION
-    signal_key: fk_error
+    signal_key: postgres_fk_violation
     level: warning
     description: Foreign key constraint violation (SQLSTATE 23503).
     tags: [constraints, relations, write]
@@ -284,7 +284,7 @@ rules:
           value: violates foreign key constraint
 
   - id: POSTGRES_CHECK_VIOLATION
-    signal_key: check_error
+    signal_key: postgres_check_violation
     level: warning
     description: CHECK constraint violation (SQLSTATE 23514).
     tags: [constraints, validation, write]
@@ -301,7 +301,7 @@ rules:
           value: violates check constraint
 
   - id: POSTGRES_NULL_VIOLATION
-    signal_key: null_error
+    signal_key: postgres_null_violation
     level: warning
     description: NOT NULL constraint violation (SQLSTATE 23502).
     tags: [constraints, validation, write]
@@ -318,7 +318,7 @@ rules:
           value: null value in column
 
   - id: POSTGRES_SYNTAX_ERROR
-    signal_key: syntax_error
+    signal_key: postgres_syntax_error
     level: warning
     description: SQL syntax error (SQLSTATE 42601).
     tags: [query, syntax, client]
@@ -335,7 +335,7 @@ rules:
           value: syntax error at or near
 
   - id: POSTGRES_TABLE_MISSING
-    signal_key: table_missing
+    signal_key: postgres_table_missing
     level: warning
     description: Undefined table referenced (SQLSTATE 42P01).
     tags: [query, schema, metadata]
@@ -352,7 +352,7 @@ rules:
           value: relation
 
   - id: POSTGRES_COLUMN_MISSING
-    signal_key: column_missing
+    signal_key: postgres_column_missing
     level: warning
     description: Undefined column referenced (SQLSTATE 42703).
     tags: [query, schema, metadata]
@@ -369,7 +369,7 @@ rules:
           value: 'column ".*" does not exist'
 
   - id: POSTGRES_DISK_FULL
-    signal_key: disk_full
+    signal_key: postgres_disk_full
     level: critical
     description: Insufficient storage space (SQLSTATE 53100 or OS disk-full errors).
     tags: [storage, disk, capacity]
@@ -386,7 +386,7 @@ rules:
           value: '(No space left on device|disk full|could not write to file)'
 
   - id: POSTGRES_MEM_FULL
-    signal_key: mem_full
+    signal_key: postgres_mem_full
     level: critical
     description: Out-of-memory condition (SQLSTATE 53200).
     tags: [memory, capacity, process]
@@ -403,7 +403,7 @@ rules:
           value: '(out of memory|cannot allocate memory)'
 
   - id: POSTGRES_FD_EXHAUSTED
-    signal_key: fd_exhausted
+    signal_key: postgres_fd_exhausted
     level: critical
     description: File descriptor exhaustion.
     tags: [os, files, capacity]
@@ -417,7 +417,7 @@ rules:
           value: Too many open files
 
   - id: POSTGRES_DATA_CORRUPT
-    signal_key: data_corrupt
+    signal_key: postgres_data_corrupt
     level: critical
     description: Internal data corruption detected (SQLSTATE XX001).
     tags: [integrity, storage, internal]
@@ -434,7 +434,7 @@ rules:
           value: '(data corrupted|could not read block|invalid page in block)'
 
   - id: POSTGRES_INDEX_CORRUPT
-    signal_key: index_corrupt
+    signal_key: postgres_index_corrupt
     level: critical
     description: Index corruption detected (SQLSTATE XX002).
     tags: [integrity, index, internal]
@@ -451,7 +451,7 @@ rules:
           value: '(index .* contains unexpected|index corrupted|could not read block)'
 
   - id: POSTGRES_WAL_MISSING
-    signal_key: wal_missing
+    signal_key: postgres_wal_missing
     level: critical
     description: Requested WAL segment is unavailable/removed.
     tags: [replication, wal, recovery]
@@ -468,7 +468,7 @@ rules:
           value: 'requested WAL segment .* has already been removed'
 
   - id: POSTGRES_WAL_STREAM
-    signal_key: wal_stream
+    signal_key: postgres_wal_stream
     level: critical
     description: Streaming replication WAL receiver/sender connectivity failure.
     tags: [replication, wal, network]
@@ -482,7 +482,7 @@ rules:
           value: [walreceiver, walsender]
 
   - id: POSTGRES_ARCHIVE_FAILED
-    signal_key: archive_fail
+    signal_key: postgres_archive_failed
     level: critical
     description: WAL archive command failed.
     tags: [archive, wal, backup]
@@ -496,7 +496,7 @@ rules:
           value: archive command failed
 
   - id: POSTGRES_CHECKPOINT_HOT
-    signal_key: checkpoint_hot
+    signal_key: postgres_checkpoint_hot
     level: warning
     description: Checkpoints occurring too frequently.
     tags: [checkpoint, wal, performance]
@@ -510,7 +510,7 @@ rules:
           value: checkpoints are occurring too frequently
 
   - id: POSTGRES_RECOVERY_CONFLICT
-    signal_key: recovery_conflict
+    signal_key: postgres_recovery_conflict
     level: warning
     description: Session terminated due to standby recovery conflict.
     tags: [recovery, standby, query]
@@ -524,7 +524,7 @@ rules:
           value: terminating connection due to conflict with recovery
 
   - id: POSTGRES_READONLY_TX
-    signal_key: readonly_tx
+    signal_key: postgres_readonly_tx
     level: warning
     description: Write attempted in read-only transaction (SQLSTATE 25006).
     tags: [transactions, readonly, write]
@@ -541,7 +541,7 @@ rules:
           value: cannot execute
 
   - id: POSTGRES_SSL_FAILED
-    signal_key: ssl_failed
+    signal_key: postgres_ssl_failed
     level: warning
     description: SSL/TLS connection failure in PostgreSQL listener.
     tags: [security, tls, network]
@@ -555,7 +555,7 @@ rules:
           value: '(SSL error|could not accept SSL connection|TLS handshake failure)'
 
   - id: POSTGRES_CONFIG_ERROR
-    signal_key: config_error
+    signal_key: postgres_config_error
     level: critical
     description: Configuration file/lock file issues (Class F0).
     tags: [startup, config, service]
@@ -572,7 +572,7 @@ rules:
           value: '(configuration file contains errors|lock file .* already exists)'
 
   - id: POSTGRES_STARTUP_WAIT
-    signal_key: startup_wait
+    signal_key: postgres_startup_wait
     level: warning
     description: Database system is in startup/recovery and not fully ready.
     tags: [startup, recovery, availability]
@@ -586,7 +586,7 @@ rules:
           value: startup
 
   - id: POSTGRES_XID_WRAP
-    signal_key: xid_wrap
+    signal_key: postgres_xid_wrap
     level: critical
     description: Anti-wraparound protection triggered; database may reject commands.
     tags: [maintenance, autovacuum, wraparound]
@@ -600,7 +600,7 @@ rules:
           value: '(database is not accepting commands to avoid wraparound data loss|must be vacuumed within)'
 
   - id: POSTGRES_AUTOVACUUM_SKIP
-    signal_key: autovacuum_skip
+    signal_key: postgres_autovacuum_skip
     level: warning
     description: Autovacuum action skipped due to locks/dropped relation.
     tags: [maintenance, autovacuum, lock]
@@ -614,7 +614,7 @@ rules:
           value: '(autovacuum.*skipped due to conflicting lock|autovacuum.*skipped due to a concurrently dropped relation)'
 
   - id: POSTGRES_REPLICA_LAG
-    signal_key: replica_lag
+    signal_key: postgres_replica_lag
     level: warning
     description: Replication lag is above threshold.
     tags: [replication, lag, performance]
@@ -631,7 +631,7 @@ rules:
           value: 10000
 
   - id: POSTGRES_SLOT_INVALID
-    signal_key: slot_invalid
+    signal_key: postgres_slot_invalid
     level: warning
     description: Replication slot invalid/missing/active conflict.
     tags: [replication, slots, wal]
@@ -645,7 +645,7 @@ rules:
           value: '(replication slot .* does not exist|replication slot .* is active|invalid replication slot)'
 
   - id: POSTGRES_LOGICAL_LEVEL
-    signal_key: logical_level
+    signal_key: postgres_logical_level
     level: warning
     description: Logical replication/decoding blocked due to wal_level or replication config.
     tags: [replication, logical, config]
@@ -659,7 +659,7 @@ rules:
           value: '(logical decoding requires wal_level >= logical|replication slot .* cannot be created)'
 
   - id: POSTGRES_SNAPSHOT_OLD
-    signal_key: snapshot_old
+    signal_key: postgres_snapshot_old
     level: warning
     description: Snapshot too old (SQLSTATE 72000).
     tags: [query, snapshot, retention]
@@ -676,7 +676,7 @@ rules:
           value: snapshot too old
 
   - id: POSTGRES_SERVICE_DOWN
-    signal_key: service_down
+    signal_key: postgres_service_down
     level: critical
     description: Server shutdown/termination lifecycle messages.
     tags: [service, lifecycle, availability]

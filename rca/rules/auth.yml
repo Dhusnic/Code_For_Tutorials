@@ -1,7 +1,7 @@
 service: auth
 rules:
   - id: AUTH_LEVEL_CRITICAL
-    signal_key: level_critical
+    signal_key: auth_level_critical
     level: critical
     description: Authentication log severity indicates critical or higher condition.
     tags: [severity, critical, auth]
@@ -18,7 +18,7 @@ rules:
           value: [0, 1, 2, 3, "0", "1", "2", "3"]
 
   - id: AUTH_LEVEL_WARNING
-    signal_key: level_warning
+    signal_key: auth_level_warning
     level: warning
     description: Authentication log severity indicates warning condition.
     tags: [severity, warning, auth]
@@ -35,7 +35,7 @@ rules:
           value: [4, "4"]
 
   - id: AUTH_SSH_PASSWORD_FAIL
-    signal_key: ssh_fail
+    signal_key: auth_ssh_password_fail
     level: warning
     description: OpenSSH password authentication failed.
     tags: [ssh, auth, failure]
@@ -59,7 +59,7 @@ rules:
               value: 'Failed password for( invalid user)? .+ from .+'
 
   - id: AUTH_SSH_INVALID_USER
-    signal_key: ssh_user
+    signal_key: auth_ssh_invalid_user
     level: warning
     description: OpenSSH authentication attempt for invalid user.
     tags: [ssh, auth, account]
@@ -83,7 +83,7 @@ rules:
               value: 'Invalid user .+ from .+'
 
   - id: AUTH_SSH_ROOT_DENIED
-    signal_key: ssh_root
+    signal_key: auth_ssh_root_denied
     level: warning
     description: Root SSH login attempt blocked by server policy.
     tags: [ssh, auth, policy]
@@ -104,7 +104,7 @@ rules:
               value: '(ROOT LOGIN REFUSED|root login attempt denied|not allowed because not listed in AllowUsers|not allowed because listed in DenyUsers|PermitRootLogin)'
 
   - id: AUTH_SSH_BRUTE_FORCE
-    signal_key: ssh_brute
+    signal_key: auth_ssh_brute_force
     level: critical
     description: SSH brute-force indicators such as repeated failures or preauth disconnect thresholds.
     tags: [ssh, auth, brute]
@@ -125,7 +125,7 @@ rules:
               value: '(maximum authentication attempts exceeded|Too many authentication failures|Received disconnect from .* Too many authentication failures|beginning MaxStartups throttling|drop connection #)'
 
   - id: AUTH_SSH_PUBLICKEY_FAIL
-    signal_key: ssh_key
+    signal_key: auth_ssh_publickey_fail
     level: warning
     description: SSH public key authentication rejected.
     tags: [ssh, auth, publickey]
@@ -149,7 +149,7 @@ rules:
               value: '(Failed publickey for|Authentication refused: bad ownership or modes for|Authentication refused: bad ownership or modes for directory)'
 
   - id: AUTH_SSH_KEX_FAIL
-    signal_key: ssh_kex
+    signal_key: auth_ssh_kex_fail
     level: warning
     description: SSH key exchange or cipher negotiation failed.
     tags: [ssh, crypto, negotiation]
@@ -170,7 +170,7 @@ rules:
               value: '(Unable to negotiate with .* no matching (key exchange method|cipher found|host key type found)|kex_exchange_identification)'
 
   - id: AUTH_SSH_DNS_SPOOF
-    signal_key: ssh_spoof
+    signal_key: auth_ssh_dns_spoof
     level: warning
     description: SSH reverse DNS mismatch or spoofing warning.
     tags: [ssh, dns, spoof]
@@ -191,7 +191,7 @@ rules:
               value: '(POSSIBLE DNS SPOOFING DETECTED|POSSIBLE BREAK-IN ATTEMPT|Address .* maps to .* but this does not map back to the address)'
 
   - id: AUTH_PAM_AUTH_FAIL
-    signal_key: pam_fail
+    signal_key: auth_pam_auth_fail
     level: warning
     description: PAM authentication failure across sshd/sudo/login stacks.
     tags: [pam, auth, failure]
@@ -205,7 +205,7 @@ rules:
           value: '(pam_[a-z0-9_]+\\(.*\\): authentication failure|pam_[a-z0-9_]+\\(.*\\): auth could not identify password|PAM .* authentication error)'
 
   - id: AUTH_PAM_ACCOUNT_FAIL
-    signal_key: pam_acct
+    signal_key: auth_pam_account_fail
     level: warning
     description: PAM account policy failure (expired/locked/invalid account).
     tags: [pam, account, policy]
@@ -219,7 +219,7 @@ rules:
           value: '(pam_[a-z0-9_]+\\(.*\\): account (expired|locked|not available)|PAM account management error|User account has expired)'
 
   - id: AUTH_PAM_SESSION_FAIL
-    signal_key: pam_sess
+    signal_key: auth_pam_session_fail
     level: warning
     description: PAM session open/close failed.
     tags: [pam, session, failure]
@@ -233,7 +233,7 @@ rules:
           value: '(pam_[a-z0-9_]+\\(.*\\): cannot (open|close) session|session open failed|session denied)'
 
   - id: AUTH_PAM_CRED_FAIL
-    signal_key: pam_cred
+    signal_key: auth_pam_cred_fail
     level: warning
     description: PAM credential setup/refresh failed.
     tags: [pam, credential, failure]
@@ -247,7 +247,7 @@ rules:
           value: '(pam_[a-z0-9_]+\\(.*\\): setcred failed|credential(s)? .* (failed|invalid|expired)|PAM setcred error)'
 
   - id: AUTH_PAM_FAILLOCK
-    signal_key: pam_lock
+    signal_key: auth_pam_faillock
     level: warning
     description: pam_faillock indicates account lockout after repeated failures.
     tags: [pam, lockout, auth]
@@ -261,7 +261,7 @@ rules:
           value: '(pam_faillock\\(.*\\): (Consecutive login failures|User .* is locked)|faillock.*(locked|failures))'
 
   - id: AUTH_PAM_ACCESS_DENIED
-    signal_key: pam_deny
+    signal_key: auth_pam_access_denied
     level: warning
     description: PAM access policy denied login.
     tags: [pam, access, denial]
@@ -275,7 +275,7 @@ rules:
           value: '(pam_access\\(.*\\): access denied|pam_succeed_if\\(.*\\): requirement .* not met|PAM.*Permission denied)'
 
   - id: AUTH_PAM_MODULE_ERROR
-    signal_key: pam_error
+    signal_key: auth_pam_module_error
     level: critical
     description: PAM stack misconfiguration or module initialization error.
     tags: [pam, config, error]
@@ -289,7 +289,7 @@ rules:
           value: '(PAM \\(.*\\) illegal module type|PAM unable to dlopen\\(.*\\)|Module is unknown|PAM adding faulty module)'
 
   - id: AUTH_SUDO_DENIED
-    signal_key: sudo_deny
+    signal_key: auth_sudo_denied
     level: warning
     description: sudo authorization denied by sudoers policy.
     tags: [sudo, authz, denial]
@@ -305,7 +305,7 @@ rules:
           value: '(user NOT in sudoers|is not in the sudoers file|command not allowed|not allowed to execute)'
 
   - id: AUTH_SUDO_AUTH_FAIL
-    signal_key: sudo_auth
+    signal_key: auth_sudo_auth_fail
     level: warning
     description: sudo password authentication failed.
     tags: [sudo, auth, failure]
@@ -326,7 +326,7 @@ rules:
               value: '(sudo: .*authentication failure|incorrect password attempts|[0-9]+ incorrect password attempt)'
 
   - id: AUTH_SUDO_PLUGIN_ERROR
-    signal_key: sudo_error
+    signal_key: auth_sudo_plugin_error
     level: critical
     description: sudo policy/plugin/parsing failure blocks authorization flow.
     tags: [sudo, config, failure]
@@ -340,7 +340,7 @@ rules:
           value: '(unable to initialize policy plugin|parse error in /etc/sudoers|no valid sudoers sources found|unable to load /etc/sudoers)'
 
   - id: AUTH_SU_FAILED
-    signal_key: su_fail
+    signal_key: auth_su_failed
     level: warning
     description: su authentication failure.
     tags: [su, auth, failure]
@@ -361,7 +361,7 @@ rules:
               value: '(FAILED SU|su: Authentication failure|su: incorrect password attempt)'
 
   - id: AUTH_SU_ROOT_DENIED
-    signal_key: su_root
+    signal_key: auth_su_root_denied
     level: critical
     description: Failed su attempt specifically targeting root account.
     tags: [su, auth, root]
@@ -382,7 +382,7 @@ rules:
               value: '(FAILED SU .* to root|authentication failure.* user=root)'
 
   - id: AUTH_PKEXEC_DENIED
-    signal_key: pke_deny
+    signal_key: auth_pkexec_denied
     level: warning
     description: pkexec/polkit authorization denied.
     tags: [polkit, pkexec, denial]
@@ -404,7 +404,7 @@ rules:
               value: '(Not authorized|authorization denied|Authentication failure)'
 
   - id: AUTH_ACCOUNT_LOCKED
-    signal_key: acct_lock
+    signal_key: auth_account_locked
     level: warning
     description: User account locked or disabled by authentication stack.
     tags: [account, lockout, auth]
@@ -418,7 +418,7 @@ rules:
           value: '(account is locked|User account is locked|Account locked|authentication failure.*locked)'
 
   - id: AUTH_ACCOUNT_EXPIRED
-    signal_key: acct_expire
+    signal_key: auth_account_expired
     level: warning
     description: Account expired and login denied.
     tags: [account, expiry, policy]
@@ -432,7 +432,7 @@ rules:
           value: '(account expired|User account has expired|Account has expired)'
 
   - id: AUTH_PASSWORD_EXPIRED
-    signal_key: pass_expire
+    signal_key: auth_password_expired
     level: warning
     description: Password expired and requires reset before login.
     tags: [password, expiry, policy]
@@ -446,7 +446,7 @@ rules:
           value: '(Password expired|password has expired|You are required to change your password immediately)'
 
   - id: AUTH_PASSWORD_POLICY
-    signal_key: pass_policy
+    signal_key: auth_password_policy
     level: warning
     description: Password change rejected due to policy checks.
     tags: [password, policy, compliance]
@@ -460,7 +460,7 @@ rules:
           value: '(BAD PASSWORD|password does not satisfy|password is too short|dictionary check failed|password reuse)'
 
   - id: AUTH_USER_ADDED
-    signal_key: user_add
+    signal_key: auth_user_added
     level: info
     description: New local account creation detected.
     tags: [identity, user, create]
@@ -481,7 +481,7 @@ rules:
               value: [success, unknown]
 
   - id: AUTH_USER_REMOVED
-    signal_key: user_del
+    signal_key: auth_user_removed
     level: warning
     description: Local account deletion detected.
     tags: [identity, user, delete]
@@ -502,7 +502,7 @@ rules:
               value: [success, unknown]
 
   - id: AUTH_USER_MODIFIED
-    signal_key: user_mod
+    signal_key: auth_user_modified
     level: info
     description: User identity attributes or credentials modified.
     tags: [identity, user, modify]
@@ -523,7 +523,7 @@ rules:
               value: [success, unknown]
 
   - id: AUTH_AUDIT_USER_AUTH_FAIL
-    signal_key: audit_auth
+    signal_key: auth_audit_user_auth_fail
     level: warning
     description: auditd user authentication failure event.
     tags: [auditd, auth, failure]
@@ -548,7 +548,7 @@ rules:
               value: '(res=failed|op=PAM:authentication)'
 
   - id: AUTH_AUDIT_USER_ACCT_FAIL
-    signal_key: audit_acct
+    signal_key: auth_audit_user_acct_fail
     level: warning
     description: auditd account validation or credential event failed.
     tags: [auditd, account, failure]
@@ -573,7 +573,7 @@ rules:
               value: res=failed
 
   - id: AUTH_AUDIT_ANOMALY
-    signal_key: audit_anom
+    signal_key: auth_audit_anomaly
     level: critical
     description: auditd anomaly event indicates abnormal authentication/security behavior.
     tags: [auditd, anomaly, security]
@@ -590,7 +590,7 @@ rules:
           value: 'type=ANOM_'
 
   - id: AUTH_AUDIT_RESP_LOCK
-    signal_key: audit_lock
+    signal_key: auth_audit_resp_lock
     level: warning
     description: auditd active response locked account/access.
     tags: [auditd, response, lockout]
@@ -607,7 +607,7 @@ rules:
           value: 'type=(RESP_ACCT_LOCK|RESP_TERM_ACCESS)'
 
   - id: AUTH_AUDIT_MAC_DENIED
-    signal_key: audit_mac
+    signal_key: auth_audit_mac_denied
     level: warning
     description: MAC framework denial (SELinux AVC/AppArmor) tied to auth surface.
     tags: [auditd, mac, denial]
@@ -621,7 +621,7 @@ rules:
           value: denied
 
   - id: AUTH_SSSD_AUTH_FAIL
-    signal_key: sssd_fail
+    signal_key: auth_sssd_auth_fail
     level: warning
     description: SSSD/PAM-SSS authentication failed for centralized identity.
     tags: [sssd, auth, failure]
@@ -643,7 +643,7 @@ rules:
               value: '(pam_sss\\(.*\\): authentication failure|Access denied for user|Authentication failed)'
 
   - id: AUTH_SSSD_OFFLINE
-    signal_key: sssd_offline
+    signal_key: auth_sssd_offline
     level: warning
     description: SSSD backend/offline state can block authentication.
     tags: [sssd, backend, availability]
@@ -665,7 +665,7 @@ rules:
               value: '(Backend is offline|No available servers|Going offline|Unable to resolve host)'
 
   - id: AUTH_KRB5_PREAUTH_FAIL
-    signal_key: krb_fail
+    signal_key: auth_krb5_preauth_fail
     level: warning
     description: Kerberos/GSSAPI preauthentication or principal lookup failed.
     tags: [kerberos, gssapi, auth]
@@ -679,7 +679,7 @@ rules:
           value: '(Preauthentication failed|Client not found in Kerberos database|Decrypt integrity check failed|gssapi-with-mic|krb5kdc)'
 
   - id: AUTH_LDAP_BIND_FAIL
-    signal_key: ldap_fail
+    signal_key: auth_ldap_bind_fail
     level: warning
     description: LDAP bind/authentication failure affects login path.
     tags: [ldap, auth, directory]
@@ -693,7 +693,7 @@ rules:
           value: '(ldap_(simple_)?bind.*(Invalid credentials|Can''t contact LDAP server|Server is unavailable)|pam_ldap.*Authentication failure)'
 
   - id: AUTH_CONSOLE_LOGIN_FAIL
-    signal_key: login_fail
+    signal_key: auth_console_login_fail
     level: warning
     description: Console/getty/login program rejected user credentials.
     tags: [login, console, auth]
@@ -715,7 +715,7 @@ rules:
               value: '(FAILED LOGIN|Login incorrect|authentication failure)'
 
   - id: AUTH_LOGIN_RATE_LIMIT
-    signal_key: login_rate
+    signal_key: auth_login_rate_limit
     level: warning
     description: Login throttling or attempt-rate limit reached.
     tags: [login, rate, abuse]
