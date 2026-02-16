@@ -1,0 +1,134 @@
+﻿elasticsearch:
+  hosts:
+    - "http://10.0.4.132:9200"
+  username: "elastic"
+  password: "elastic"
+  verify_certs: false
+  request_timeout_seconds: 30
+
+checkpoints:
+  path: "state/checkpoints.json"
+
+logging:
+  level: "INFO"
+  json: true
+  log_unmatched_events: false
+
+rules_directory: "rules"
+
+pipeline:
+  batch_size: 100
+  poll_interval_seconds: 10
+  timestamp_field: "@timestamp"
+  start_time: "now-15m"
+  retry_max_attempts: 4
+  retry_initial_backoff_seconds: 1.0
+  retry_backoff_multiplier: 2.0
+  signal_max_per_event: 2
+  signal_select_highest_only: true
+  source_indices:
+    - "linux-*"
+  target_suffix: "-rca"
+  dead_letter_suffix: "-rca-dead-letter"
+  services:
+    - name: "nginx"
+      enabled: true
+      rule_file: "nginx.yml"
+      source_indices:
+        - "linux-*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "nginx"
+    - name: "rabbitmq"
+      enabled: true
+      rule_file: "rabbitmq.yml"
+      source_indices:
+        - "linux-*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "rabbitmq"
+    - name: "mongodb"
+      enabled: true
+      rule_file: "mongodb.yml"
+      source_indices:
+        - "linux-*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "mongodb"
+    - name: "redis"
+      enabled: true
+      rule_file: "redis.yml"
+      source_indices:
+        - "linux-*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "redis"
+    - name: "kafka"
+      enabled: true
+      rule_file: "kafka.yml"
+      source_indices:
+        - "linux-*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "kafka"
+    - name: "postgres"
+      enabled: true
+      rule_file: "postgres.yml"
+      source_indices:
+        - "linux-*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "postgresql"
+    - name: "system"
+      enabled: true
+      rule_file: "system.yml"
+      source_indices:
+        - "linux-*"
+      start_time: "now-60m"
+      query:
+        bool:
+          should:
+            - term:
+                event.module: "system"
+            - term:
+                event.dataset: "system.syslog"
+            - term:
+                data_stream.dataset: "system.syslog"
+          must_not:
+            - term:
+                event.dataset: "system.auth"
+            - term:
+                data_stream.dataset: "system.auth"
+            - term:
+                fileset.name: "auth"
+            - wildcard:
+                log.file.path: "*/auth.log*"
+            - wildcard:
+                log.file.path: "*/secure*"
+          minimum_should_match: 1
+    - name: "auth"
+      enabled: true
+      rule_file: "auth.yml"
+      source_indices:
+        - "linux-*"
+      start_time: "now-60m"
+      query:
+        bool:
+          should:
+            - term:
+                event.dataset: "system.auth"
+            - term:
+                data_stream.dataset: "system.auth"
+            - term:
+                fileset.name: "auth"
+            - wildcard:
+                log.file.path: "*/auth.log*"
+            - wildcard:
+                log.file.path: "*/secure*"
+          minimum_should_match: 1

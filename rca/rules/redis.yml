@@ -1,0 +1,579 @@
+﻿service: redis
+rules:
+  - id: REDIS_LEVEL_CRITICAL
+    signal_key: level_critical
+    level: critical
+    description: Redis log indicates critical/error severity.
+    tags: [severity, critical, core]
+    condition:
+      or:
+        - field: log.level
+          op: in
+          value: [critical, error, fatal]
+        - field: level
+          op: in
+          value: [critical, error, fatal]
+        - field: message
+          op: regex
+          value: '\\b(FATAL|PANIC|CRITICAL|ERR)\\b'
+
+  - id: REDIS_LEVEL_WARNING
+    signal_key: level_warning
+    level: warning
+    description: Redis log indicates warning severity.
+    tags: [severity, warning, core]
+    condition:
+      or:
+        - field: log.level
+          op: in
+          value: [warning, warn]
+        - field: level
+          op: in
+          value: [warning, warn]
+        - field: message
+          op: regex
+          value: '\\b(WARNING|WARN)\\b'
+
+  - id: REDIS_NOAUTH_REQUIRED
+    signal_key: noauth_required
+    level: warning
+    description: Client command rejected because authentication is required.
+    tags: [security, auth, access]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: NOAUTH Authentication required
+        - field: msg
+          op: contains
+          value: NOAUTH Authentication required
+
+  - id: REDIS_WRONGPASS_AUTH
+    signal_key: auth_failed
+    level: warning
+    description: Client authentication failed due to invalid username/password.
+    tags: [security, auth, login]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: WRONGPASS invalid username-password pair
+        - field: msg
+          op: contains
+          value: WRONGPASS invalid username-password pair
+
+  - id: REDIS_ACL_NOPERM
+    signal_key: acl_denied
+    level: warning
+    description: ACL denied command/key/channel access for a user.
+    tags: [security, acl, authz]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(NOPERM|ACL|permission denied|no permissions to run)'
+        - field: msg
+          op: regex
+          value: '(NOPERM|ACL|permission denied|no permissions to run)'
+
+  - id: REDIS_READONLY_REPLICA
+    signal_key: readonly_replica
+    level: critical
+    description: Write attempted on read-only replica.
+    tags: [replication, write, role]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: READONLY You can't write against a read only replica
+        - field: msg
+          op: contains
+          value: READONLY You can't write against a read only replica
+
+  - id: REDIS_MASTERDOWN_LINK
+    signal_key: master_down
+    level: critical
+    description: Replica cannot reach master and stale reads are disabled.
+    tags: [replication, connectivity, availability]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: MASTERDOWN Link with MASTER is down
+        - field: msg
+          op: contains
+          value: MASTERDOWN Link with MASTER is down
+
+  - id: REDIS_LOADING_DATASET
+    signal_key: loading_state
+    level: warning
+    description: Instance is loading dataset and temporarily rejecting normal commands.
+    tags: [startup, loading, availability]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: LOADING Redis is loading the dataset in memory
+        - field: msg
+          op: contains
+          value: LOADING Redis is loading the dataset in memory
+
+  - id: REDIS_OOM_MAXMEMORY
+    signal_key: oom_memory
+    level: critical
+    description: Command rejected due to maxmemory limit.
+    tags: [memory, capacity, write]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: OOM command not allowed when used memory > 'maxmemory'
+        - field: msg
+          op: contains
+          value: OOM command not allowed when used memory > 'maxmemory'
+
+  - id: REDIS_NOREPLICAS_WRITE
+    signal_key: replicas_low
+    level: critical
+    description: Write refused because there are not enough healthy replicas.
+    tags: [replication, write, durability]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: NOREPLICAS Not enough good replicas to write
+        - field: msg
+          op: contains
+          value: NOREPLICAS Not enough good replicas to write
+
+  - id: REDIS_MISCONF_RDB
+    signal_key: rdb_misconf
+    level: critical
+    description: RDB snapshot persistence failed and writes are blocked by configuration.
+    tags: [persistence, rdb, write]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: MISCONF Redis is configured to save RDB snapshots
+        - field: msg
+          op: contains
+          value: MISCONF Redis is configured to save RDB snapshots
+
+  - id: REDIS_AOF_WRITE_ERROR
+    signal_key: aof_error
+    level: critical
+    description: AOF persistence write/fsync errors detected.
+    tags: [persistence, aof, disk]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(MISCONF Errors writing to the AOF file|Error writing to the AOF file|Fail to fsync the AOF file)'
+        - field: msg
+          op: regex
+          value: '(MISCONF Errors writing to the AOF file|Error writing to the AOF file|Fail to fsync the AOF file)'
+
+  - id: REDIS_PERSIST_FORK_FAIL
+    signal_key: fork_failed
+    level: critical
+    description: Background save failed due to fork/memory/resource pressure.
+    tags: [persistence, memory, process]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Can''t save in background: fork|Cannot allocate memory|Error trying to save the DB)'
+        - field: msg
+          op: regex
+          value: '(Can''t save in background: fork|Cannot allocate memory|Error trying to save the DB)'
+
+  - id: REDIS_DB_LOAD_FATAL
+    signal_key: db_load
+    level: critical
+    description: Fatal database loading/recovery errors.
+    tags: [startup, persistence, recovery]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Fatal error loading the DB|Short read or OOM loading DB)'
+        - field: msg
+          op: regex
+          value: '(Fatal error loading the DB|Short read or OOM loading DB)'
+
+  - id: REDIS_DISK_FULL
+    signal_key: disk_full
+    level: critical
+    description: Disk/storage write failure pattern detected.
+    tags: [disk, storage, capacity]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(No space left on device|disk full|read-only file system)'
+        - field: msg
+          op: regex
+          value: '(No space left on device|disk full|read-only file system)'
+
+  - id: REDIS_TOO_MANY_OPEN_FILES
+    signal_key: fd_exhausted
+    level: critical
+    description: File descriptor limit reached.
+    tags: [os, file, capacity]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: Too many open files
+        - field: msg
+          op: contains
+          value: Too many open files
+
+  - id: REDIS_BUSY_SCRIPT
+    signal_key: script_busy
+    level: warning
+    description: Lua script is blocking command execution.
+    tags: [lua, script, runtime]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: BUSY Redis is busy running a script
+        - field: msg
+          op: contains
+          value: BUSY Redis is busy running a script
+
+  - id: REDIS_BUSY_FUNCTION
+    signal_key: function_busy
+    level: warning
+    description: Function/module command busy state is blocking progress.
+    tags: [function, module, runtime]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(BUSY Redis is busy running a module command|FUNCTION KILL)'
+        - field: msg
+          op: regex
+          value: '(BUSY Redis is busy running a module command|FUNCTION KILL)'
+
+  - id: REDIS_CLUSTER_DOWN
+    signal_key: cluster_down
+    level: critical
+    description: Cluster reported down state.
+    tags: [cluster, availability, routing]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: CLUSTERDOWN The cluster is down
+        - field: msg
+          op: contains
+          value: CLUSTERDOWN The cluster is down
+        - field: cluster_state
+          op: equals
+          value: fail
+        - field: redis.cluster.state
+          op: equals
+          value: fail
+
+  - id: REDIS_CLUSTER_UNBOUND_SLOT
+    signal_key: slot_unbound
+    level: critical
+    description: Cluster has unserved hash slots.
+    tags: [cluster, slots, routing]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: CLUSTERDOWN Hash slot not served
+        - field: msg
+          op: contains
+          value: CLUSTERDOWN Hash slot not served
+
+  - id: REDIS_CLUSTER_REHASH_TRYAGAIN
+    signal_key: rehash_retry
+    level: warning
+    description: Command failed during slot rehash and should be retried.
+    tags: [cluster, rehash, retry]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: TRYAGAIN Multiple keys request during rehashing of slot
+        - field: msg
+          op: contains
+          value: TRYAGAIN Multiple keys request during rehashing of slot
+
+  - id: REDIS_CLUSTER_REDIRECT
+    signal_key: cluster_redirect
+    level: warning
+    description: Cluster redirection response observed (MOVED/ASK).
+    tags: [cluster, redirect, client]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '-(MOVED|ASK) [0-9]+'
+        - field: msg
+          op: regex
+          value: '-(MOVED|ASK) [0-9]+'
+
+  - id: REDIS_CLUSTER_FAIL_SLOTS
+    signal_key: slots_fail
+    level: critical
+    description: Cluster has slots in FAIL state.
+    tags: [cluster, fail, slots]
+    condition:
+      or:
+        - field: cluster_slots_fail
+          op: gt
+          value: 0
+        - field: redis.cluster.slots_fail
+          op: gt
+          value: 0
+
+  - id: REDIS_CLUSTER_PFAIL_SLOTS
+    signal_key: slots_pfail
+    level: warning
+    description: Cluster has slots in PFAIL state (potential node reachability issue).
+    tags: [cluster, pfail, slots]
+    condition:
+      or:
+        - field: cluster_slots_pfail
+          op: gt
+          value: 0
+        - field: redis.cluster.slots_pfail
+          op: gt
+          value: 0
+
+  - id: REDIS_SENTINEL_SDOWN
+    signal_key: sentinel_sdown
+    level: warning
+    description: Sentinel marked instance as subjectively down.
+    tags: [sentinel, failover, monitoring]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: +sdown
+        - field: msg
+          op: contains
+          value: +sdown
+
+  - id: REDIS_SENTINEL_ODOWN
+    signal_key: sentinel_odown
+    level: critical
+    description: Sentinel marked master as objectively down (quorum reached).
+    tags: [sentinel, failover, quorum]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: +odown
+        - field: msg
+          op: contains
+          value: +odown
+
+  - id: REDIS_SENTINEL_TILT
+    signal_key: sentinel_tilt
+    level: warning
+    description: Sentinel entered/exited TILT protective mode due to timing anomalies.
+    tags: [sentinel, tilt, timing]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '([+-]tilt|tilt mode entered|tilt mode exited)'
+        - field: msg
+          op: regex
+          value: '([+-]tilt|tilt mode entered|tilt mode exited)'
+
+  - id: REDIS_SENTINEL_FAILOVER_ABORT
+    signal_key: failover_abort
+    level: critical
+    description: Sentinel failover aborted due to timeout/no suitable replica.
+    tags: [sentinel, failover, abort]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(-failover-abort-no-good-slave|-failover-abort-slave-timeout|-failover-abort-not-elected)'
+        - field: msg
+          op: regex
+          value: '(-failover-abort-no-good-slave|-failover-abort-slave-timeout|-failover-abort-not-elected)'
+
+  - id: REDIS_SENTINEL_SWITCH_MASTER
+    signal_key: master_switch
+    level: warning
+    description: Sentinel reported master switch/failover progression.
+    tags: [sentinel, failover, topology]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(\+switch-master|\+selected-slave|\+promoted-slave|\+failover-state-)'
+        - field: msg
+          op: regex
+          value: '(\+switch-master|\+selected-slave|\+promoted-slave|\+failover-state-)'
+
+  - id: REDIS_BACKLOG_CONFIG_WARNING
+    signal_key: backlog_warning
+    level: warning
+    description: TCP backlog could not be enforced due to kernel limits.
+    tags: [network, kernel, tuning]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: The TCP backlog setting of
+        - field: msg
+          op: contains
+          value: The TCP backlog setting of
+
+  - id: REDIS_OVERCOMMIT_WARNING
+    signal_key: overcommit_warn
+    level: warning
+    description: Kernel overcommit_memory setting may break background saves.
+    tags: [memory, kernel, tuning]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: overcommit_memory is set to 0
+        - field: msg
+          op: contains
+          value: overcommit_memory is set to 0
+
+  - id: REDIS_THP_WARNING
+    signal_key: thp_warning
+    level: warning
+    description: Transparent Huge Pages enabled; can cause latency and memory issues.
+    tags: [memory, kernel, tuning]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: Transparent Huge Pages (THP) support enabled
+        - field: msg
+          op: contains
+          value: Transparent Huge Pages (THP) support enabled
+
+  - id: REDIS_READONLY_SYNC_STATE
+    signal_key: sync_wait
+    level: warning
+    description: Replica is ready but waiting for master-replica synchronization.
+    tags: [replication, sync, startup]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: Ready to accept connections in read-only mode. Waiting for MASTER <-> REPLICA sync
+        - field: msg
+          op: contains
+          value: Ready to accept connections in read-only mode. Waiting for MASTER <-> REPLICA sync
+
+  - id: REDIS_SERVICE_RESTARTED
+    signal_key: service_restart
+    level: warning
+    description: Redis process started/reinitialized (track frequent restart patterns).
+    tags: [service, lifecycle, startup]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Redis is starting|Server initialized|Ready to accept connections)'
+        - field: msg
+          op: regex
+          value: '(Redis is starting|Server initialized|Ready to accept connections)'
+
+  - id: REDIS_PROCESS_EXITING
+    signal_key: service_down
+    level: critical
+    description: Redis process is shutting down or exiting unexpectedly.
+    tags: [service, lifecycle, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(shutting down|exiting now|Can''t restart: error preparing for shutdown|Fatal)'
+        - field: msg
+          op: regex
+          value: '(shutting down|exiting now|Can''t restart: error preparing for shutdown|Fatal)'
+
+  - id: REDIS_NETWORK_CONNECTIVITY
+    signal_key: network_issue
+    level: warning
+    description: Network connectivity errors affecting replication/client paths.
+    tags: [network, connectivity, io]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Connection refused|Connection reset by peer|Network is unreachable|Broken pipe|i/o timeout)'
+        - field: msg
+          op: regex
+          value: '(Connection refused|Connection reset by peer|Network is unreachable|Broken pipe|i/o timeout)'
+
+  - id: REDIS_MAXCLIENTS_REDUCED
+    signal_key: maxclients_low
+    level: warning
+    description: Redis reduced maxclients due to low OS file-limit settings.
+    tags: [capacity, clients, os]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: maxclients has been reduced to
+        - field: msg
+          op: contains
+          value: maxclients has been reduced to
+
+  - id: REDIS_MEMORY_FRAGMENT_WARNING
+    signal_key: mem_fragment
+    level: warning
+    description: High memory fragmentation warning/metric indicator.
+    tags: [memory, fragmentation, performance]
+    condition:
+      or:
+        - field: redis.memory_fragmentation_ratio
+          op: gte
+          value: 2
+        - field: memory_fragmentation_ratio
+          op: gte
+          value: 2
+        - field: message
+          op: regex
+          value: '(memory fragmentation|allocator is not releasing memory)'
+
+  - id: REDIS_BLOCKED_CLIENTS_HIGH
+    signal_key: clients_blocked
+    level: warning
+    description: Elevated blocked clients indicates latency or lock contention.
+    tags: [clients, latency, performance]
+    condition:
+      or:
+        - field: redis.blocked_clients
+          op: gte
+          value: 100
+        - field: blocked_clients
+          op: gte
+          value: 100
+
+  - id: REDIS_REJECTED_CONNECTIONS
+    signal_key: conn_rejected
+    level: warning
+    description: Redis is rejecting client connections at elevated rate.
+    tags: [connections, capacity, availability]
+    condition:
+      or:
+        - field: redis.rejected_connections
+          op: gte
+          value: 100
+        - field: rejected_connections
+          op: gte
+          value: 100
+        - field: message
+          op: regex
+          value: '(max number of clients reached|maxclients)'
