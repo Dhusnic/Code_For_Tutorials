@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
@@ -96,27 +96,41 @@ class AIReviewer(CommonUtils):
 
                 response = client.responses.create(
                     model=model,
-                    input=[
-                        {
-                            "role": message["role"],
-                            "content": [{"type": "input_text", "text": message["content"]}],
-                        }
-                        for message in conversation
-                    ],
+                    input=[self._to_responses_input_item(message) for message in conversation],
                     max_output_tokens=max_output_tokens,
                     temperature=temperature,
                 )
 
                 text_output = self._extract_response_text(response)
-                response_tokens = self.estimate_tokens(text_output, model=model)
-                total_tokens = request_tokens + response_tokens
+                usage = self._extract_response_usage(response)
+                if usage is not None:
+                    prompt_tokens = usage["input_tokens"]
+                    response_tokens = usage["output_tokens"]
+                    total_tokens = usage["total_tokens"]
+                    token_source = "response_usage"
+                else:
+                    response_tokens = self.estimate_tokens(text_output, model=model)
+                    prompt_tokens = request_tokens
+                    total_tokens = request_tokens + response_tokens
+                    token_source = "estimated"
                 LOGGER.info(
-                    "OpenAI request completed model=%s response_tokens=%s total_tokens=%s",
+                    "OpenAI request completed model=%s source=%s response_tokens=%s total_tokens=%s",
                     model,
+                    token_source,
                     response_tokens,
                     total_tokens,
                 )
-                return {"response": text_output, "tokens_used": total_tokens}
+                return {
+                    "response": text_output,
+                    "tokens_used": total_tokens,
+                    "token_source": token_source,
+                    "token_usage": {
+                        "input_tokens": prompt_tokens,
+                        "output_tokens": response_tokens,
+                        "total_tokens": total_tokens,
+                        "source": token_source,
+                    },
+                }
             except Exception as exc:
                 last_error = exc
                 LOGGER.exception(
@@ -165,6 +179,23 @@ class AIReviewer(CommonUtils):
             LOGGER.exception("Failed to generate AI response")
             raise
 
+    def _to_responses_input_item(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert role/content message into Responses API input payload.
+
+        Assistant replay messages must use `output_text`, while other roles use `input_text`.
+        """
+        role = str(message.get("role", "user") or "user").strip().lower()
+        text = str(message.get("content", "") or "")
+        if role == "assistant":
+            content_type = "output_text"
+        else:
+            content_type = "input_text"
+        return {
+            "role": role,
+            "content": [{"type": content_type, "text": text}],
+        }
+
     def _extract_response_text(self, response: Any) -> str:
         """
         Normalize output text from OpenAI SDK response object.
@@ -199,3 +230,45 @@ class AIReviewer(CommonUtils):
         except Exception as exc:
             LOGGER.exception("Unable to extract text from OpenAI response")
             raise RuntimeError("Failed to parse OpenAI response payload") from exc
+
+    def _extract_response_usage(self, response: Any) -> Optional[Dict[str, int]]:
+        """
+        Extract token usage from OpenAI response payload when available.
+
+        Returns:
+            Dictionary with normalized token counters, or `None` if unavailable.
+        """
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None
+
+        def read_usage_int(*keys: str) -> int | None:
+            for key in keys:
+                raw_value = usage.get(key) if isinstance(usage, dict) else getattr(usage, key, None)
+                if raw_value is None:
+                    continue
+                try:
+                    return max(int(raw_value), 0)
+                except (TypeError, ValueError):
+                    continue
+            return None
+
+        input_tokens = read_usage_int("input_tokens", "prompt_tokens")
+        output_tokens = read_usage_int("output_tokens", "completion_tokens")
+        total_tokens = read_usage_int("total_tokens")
+
+        if total_tokens is None:
+            if input_tokens is None and output_tokens is None:
+                return None
+            total_tokens = max((input_tokens or 0) + (output_tokens or 0), 0)
+
+        if input_tokens is None and output_tokens is not None:
+            input_tokens = max(total_tokens - output_tokens, 0)
+        if output_tokens is None and input_tokens is not None:
+            output_tokens = max(total_tokens - input_tokens, 0)
+
+        return {
+            "input_tokens": input_tokens or 0,
+            "output_tokens": output_tokens or 0,
+            "total_tokens": total_tokens,
+        }

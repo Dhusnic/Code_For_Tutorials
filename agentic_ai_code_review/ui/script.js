@@ -1,5 +1,7 @@
 const API_BASE = "http://localhost:8000";
 const MAX_RENDER_LINES_PER_PANE = 500;
+const JOB_POLL_INTERVAL_MS = 1000;
+const JOB_MAX_WAIT_MS = 15 * 60 * 1000;
 
 let allChanges = [];
 let changeLookup = {};
@@ -9,7 +11,8 @@ const codeChangesState = {
   query: "",
   page: 1,
   pageSize: 25,
-  filteredChanges: []
+  filteredChanges: [],
+  emptyMessage: "No code changes available."
 };
 const staticChecksState = {
   raw: null,
@@ -40,9 +43,15 @@ async function runReview() {
   const logs = document.getElementById("logs");
   const aiReview = document.getElementById("aiReview");
   const shouldRunStaticChecks = document.getElementById("runStaticChecks")?.checked;
+  const codeSearch = document.getElementById("codeChangesSearch");
   logs.textContent = "Starting review process...\n";
   aiReview.innerHTML = "";
-  displayCodeChanges([]);
+  codeChangesState.query = "";
+  codeChangesState.page = 1;
+  if (codeSearch) {
+    codeSearch.value = "";
+  }
+  displayCodeChanges([], { emptyMessage: "No code changes available." });
 
   try {
     const payload = {
@@ -57,21 +66,32 @@ async function runReview() {
       is_local: document.getElementById("isLocal").checked
     };
 
-    logs.textContent += "Collecting diffs...\n";
-    const reviewData = await apiPost("/api/review-diffs", payload);
-    recordLatestUsage(reviewData?.usage);
-    logs.textContent += `OK Diffs collected (${reviewData.token_estimate || 0} tokens estimated)\n`;
-    logs.textContent += "OK AI review completed\n";
-    aiReview.innerHTML = renderMarkdown(reviewData?.review || "");
-
-    logs.textContent += "Generating code changes...\n";
-    const changesData = await apiPost("/api/generate-changes", {
-      ...payload,
-      review: reviewData?.review || ""
+    logs.textContent += "Collecting PR diffs and generating required fixes...\n";
+    const fullReviewData = await apiPostAsyncJob("/api/run-full-review", payload, {
+      label: "run-full-review",
+      onProgress: createJobProgressLogger(logs, "Full review job")
     });
-    recordLatestUsage(changesData?.usage);
-    logs.textContent += "OK Code changes generated\n";
-    displayCodeChanges(changesData?.code_changes || []);
+    recordLatestUsage(fullReviewData?.usage);
+    logs.textContent += `OK Full review completed (${fullReviewData?.token_estimate || 0} tokens estimated)\n`;
+    aiReview.innerHTML = renderMarkdown(fullReviewData?.review || "");
+
+    const requiredChanges = Array.isArray(fullReviewData?.code_changes) ? fullReviewData.code_changes : [];
+    const noChangesRequired = Boolean(fullReviewData?.no_changes_required) || requiredChanges.length === 0;
+    const relaxedFilter = Boolean(fullReviewData?.filter_relaxed_to_include_generated);
+    if (noChangesRequired) {
+      logs.textContent += "No required changes detected for the current PR diff.\n";
+      displayCodeChanges(requiredChanges, {
+        emptyMessage: "No required changes needed for this PR diff."
+      });
+    } else {
+      logs.textContent += `OK Required code changes generated (${requiredChanges.length})\n`;
+      if (relaxedFilter) {
+        logs.textContent += "Note: showing generated suggestions after relaxing strict required-only filter.\n";
+      }
+      displayCodeChanges(requiredChanges, {
+        emptyMessage: "No required changes needed for this PR diff."
+      });
+    }
 
     if (shouldRunStaticChecks) {
       logs.textContent += "Running static checks...\n";
@@ -231,12 +251,13 @@ async function runStaticChecks(options) {
   const repoPath = options?.repoPath;
   const scope = options?.scope || "repo";
   const reviewContext = options?.reviewContext || {};
+  const logs = document.getElementById("logs");
   startStaticCheckRun();
   completeStaticCheckStep("Preparing static check request payload");
   beginStaticCheckStep("Sending static check request to backend");
 
   try {
-    const data = await apiPost("/api/static-checks", {
+    const data = await apiPostAsyncJob("/api/static-checks", {
       repo_path: repoPath,
       scope,
       organization: reviewContext.organization,
@@ -245,6 +266,9 @@ async function runStaticChecks(options) {
       pull_request_id: reviewContext.pull_request_id,
       azure_pat: reviewContext.azure_pat,
       is_local: reviewContext.is_local
+    }, {
+      label: "static-checks",
+      onProgress: createJobProgressLogger(logs, "Static checks job")
     });
     completeStaticCheckStep("Sending static check request to backend");
     beginStaticCheckStep("Parsing command outputs and critical failures");
@@ -634,6 +658,21 @@ async function apiPost(path, payload) {
         detail = body.detail;
       } else if (body?.detail?.message) {
         detail = body.detail.message;
+        if (body.detail.diagnostics && typeof body.detail.diagnostics === "object") {
+          const diagnostics = body.detail.diagnostics;
+          const requested = diagnostics.requested_start_line;
+          const removed = diagnostics.removed_line_count;
+          const existing = diagnostics.existing_preview;
+          const expected = diagnostics.expected_preview;
+          const diagnosticsParts = [];
+          if (requested !== undefined) diagnosticsParts.push(`requested_start_line=${requested}`);
+          if (removed !== undefined) diagnosticsParts.push(`removed_line_count=${removed}`);
+          if (existing) diagnosticsParts.push(`existing_preview=${existing}`);
+          if (expected) diagnosticsParts.push(`expected_preview=${expected}`);
+          if (diagnosticsParts.length) {
+            detail = `${detail} (${diagnosticsParts.join("; ")})`;
+          }
+        }
       } else if (body?.detail && typeof body.detail === "object") {
         detail = JSON.stringify(body.detail);
       } else {
@@ -644,6 +683,45 @@ async function apiPost(path, payload) {
   }
 
   return response.json();
+}
+
+async function apiPostAsyncJob(path, payload, options = {}) {
+  const response = await apiPost(`${path}?async_job=true`, payload);
+  if (!response?.job_id) {
+    return response;
+  }
+  return waitForJobCompletion(response, options);
+}
+
+async function waitForJobCompletion(jobMetadata, options = {}) {
+  const label = options?.label || "job";
+  const pollPath = jobMetadata?.poll_url || `/api/jobs/${jobMetadata?.job_id || ""}`;
+  const startedAt = Date.now();
+  const onProgress = typeof options?.onProgress === "function" ? options.onProgress : null;
+
+  if (!pollPath || !jobMetadata?.job_id) {
+    throw new Error("Invalid async job response: missing job_id or poll_url.");
+  }
+
+  while (Date.now() - startedAt < JOB_MAX_WAIT_MS) {
+    const job = await apiGet(pollPath);
+    if (onProgress) {
+      onProgress(job);
+    }
+
+    const status = String(job?.status || "").toLowerCase();
+    if (status === "succeeded") {
+      return job?.result || {};
+    }
+    if (status === "failed") {
+      const detail = job?.error?.message || `Async ${label} failed.`;
+      throw new Error(detail);
+    }
+
+    await delay(JOB_POLL_INTERVAL_MS);
+  }
+
+  throw new Error(`Timed out waiting for async ${label} job.`);
 }
 
 async function apiGet(path) {
@@ -662,7 +740,27 @@ async function apiGet(path) {
   return response.json();
 }
 
-function displayCodeChanges(changes) {
+function createJobProgressLogger(logTarget, title) {
+  let lastStatus = "";
+  return (job) => {
+    if (!logTarget || !job) {
+      return;
+    }
+    const status = String(job?.status || "unknown").toLowerCase();
+    if (status === lastStatus) {
+      return;
+    }
+    lastStatus = status;
+    const jobId = job?.job_id || "unknown";
+    logTarget.textContent += `${title}: ${status} (${jobId})\n`;
+  };
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function displayCodeChanges(changes, options = {}) {
   const container = document.getElementById("codeChanges");
   if (!container) {
     return;
@@ -674,6 +772,7 @@ function displayCodeChanges(changes) {
   appliedChanges = new Set();
   cancelledChanges = new Set();
   codeChangesState.page = 1;
+  codeChangesState.emptyMessage = options?.emptyMessage || "No code changes available.";
   renderCodeChangesList();
 }
 
@@ -699,7 +798,12 @@ function renderCodeChangesList() {
   container.innerHTML = "";
   if (!codeChangesState.filteredChanges.length) {
     const emptyTemplate = document.getElementById("emptyChangesTemplate");
-    container.appendChild(emptyTemplate.content.cloneNode(true));
+    const emptyNode = emptyTemplate.content.cloneNode(true);
+    const message = emptyNode.querySelector("p");
+    if (message) {
+      message.textContent = codeChangesState.emptyMessage || "No code changes available.";
+    }
+    container.appendChild(emptyNode);
   } else {
     pageData.items.forEach((entry) => {
       const filePath = entry.change?.diff?.file_path || "Unknown file";
@@ -821,6 +925,8 @@ function renderChangeItem(change, filePath, index) {
   }
 
   header.addEventListener("click", () => toggleDiff(changeId));
+  element.querySelector(".btn-copy-old").addEventListener("click", () => copyOldContent(changeId));
+  element.querySelector(".btn-copy-new").addEventListener("click", () => copyNewContent(changeId));
   element.querySelector(".btn-copy-change").addEventListener("click", () => copyChange(changeId));
   element.querySelector(".btn-cancel").addEventListener("click", () => cancelChange(changeId));
   element.querySelector(".btn-apply").addEventListener("click", () => applyChange(changeId));
@@ -829,11 +935,12 @@ function renderChangeItem(change, filePath, index) {
 }
 
 function parseCodeLines(code) {
-  if (!code) {
+  const normalizedCode = normalizeCodeText(code);
+  if (!normalizedCode) {
     return { lines: [], truncatedCount: 0 };
   }
 
-  const allLines = code.split("\n");
+  const allLines = normalizedCode.split("\n");
   if (allLines.length <= MAX_RENDER_LINES_PER_PANE) {
     return { lines: allLines, truncatedCount: 0 };
   }
@@ -842,6 +949,23 @@ function parseCodeLines(code) {
     lines: allLines.slice(0, MAX_RENDER_LINES_PER_PANE),
     truncatedCount: allLines.length - MAX_RENDER_LINES_PER_PANE
   };
+}
+
+function normalizeCodeText(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  }
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch (_) {
+      return String(value);
+    }
+  }
+  return String(value);
 }
 
 function renderTruncationNote(parsed) {
@@ -881,6 +1005,9 @@ function renderCodeLines(lines, type, startLine) {
     const lineCode = document.createElement("span");
     lineCode.className = "line-code";
     lineCode.textContent = line || " ";
+    if (line && line.length > 240) {
+      lineCode.title = line;
+    }
 
     row.appendChild(lineNumber);
     row.appendChild(lineCode);
@@ -901,15 +1028,20 @@ function toggleDiff(changeId) {
   icon.classList.toggle("expanded");
 }
 
-async function applyChange(changeId) {
+async function applyChange(changeId, options = {}) {
   const change = changeLookup[changeId];
   const changeElement = document.querySelector(`[data-change-id="${changeId}"]`);
+  const silent = Boolean(options?.silent);
   if (!change || !change.diff) {
-    showToast("Change not found", "error");
+    if (!silent) {
+      showToast("Change not found", "error");
+    }
     return;
   }
   if (appliedChanges.has(changeId)) {
-    showToast("Change already applied", "info");
+    if (!silent) {
+      showToast("Change already applied", "info");
+    }
     return;
   }
 
@@ -917,7 +1049,9 @@ async function applyChange(changeId) {
   const diff = change.diff;
 
   try {
-    showToast("Applying change...", "info");
+    if (!silent) {
+      showToast("Applying change...", "info");
+    }
     const result = await apiPost("/api/apply-changes", {
       repo_path: repoPath,
       file_path: diff.file_path,
@@ -927,7 +1061,8 @@ async function applyChange(changeId) {
       number_of_lines_removed_from_old: Number(diff.number_of_lines_removed_from_old || 0),
       number_of_lines_added_in_new: Number(diff.number_of_lines_added_in_new || 0),
       old_start_line_number: Number(diff.old_start_line_number || diff.line_number || 1),
-      old_content: diff.old_content || ""
+      old_content: diff.old_content || "",
+      allow_fallback_search: true
     });
 
     appliedChanges.add(changeId);
@@ -946,13 +1081,25 @@ async function applyChange(changeId) {
     }
 
     const appliedLine = result?.applied_start_line_number;
-    if (appliedLine) {
-      showToast(`Change applied at line ${appliedLine}`, "success");
-    } else {
-      showToast("Change applied successfully", "success");
+    const usedRelaxed = Boolean(result?.applied_with_relaxed_old_content);
+    const usedFallback = Boolean(result?.applied_with_fallback_search);
+    if (!silent) {
+      if (appliedLine) {
+        if (usedRelaxed) {
+          showToast(`Change applied at line ${appliedLine} (relaxed match mode)`, "success");
+        } else if (usedFallback) {
+          showToast(`Change applied at line ${appliedLine} (fallback match mode)`, "success");
+        } else {
+          showToast(`Change applied at line ${appliedLine}`, "success");
+        }
+      } else {
+        showToast("Change applied successfully", "success");
+      }
     }
   } catch (error) {
-    showToast(`Failed to apply change: ${error.message}`, "error");
+    if (!silent) {
+      showToast(`Failed to apply change: ${error.message}`, "error");
+    }
   }
 }
 
@@ -1009,6 +1156,44 @@ function copyChange(changeId) {
     .catch(() => showToast("Failed to copy", "error"));
 }
 
+function copyOldContent(changeId) {
+  const change = changeLookup[changeId];
+  if (!change || !change.diff) {
+    showToast("Change not found", "error");
+    return;
+  }
+
+  const text = normalizeCodeText(change.diff.old_content || "");
+  if (!text.trim()) {
+    showToast("No old content to copy", "info");
+    return;
+  }
+
+  navigator.clipboard
+    .writeText(text)
+    .then(() => showToast("Old content copied", "success"))
+    .catch(() => showToast("Failed to copy old content", "error"));
+}
+
+function copyNewContent(changeId) {
+  const change = changeLookup[changeId];
+  if (!change || !change.diff) {
+    showToast("Change not found", "error");
+    return;
+  }
+
+  const text = normalizeCodeText(change.diff.new_content || "");
+  if (!text.trim()) {
+    showToast("No new content to copy", "info");
+    return;
+  }
+
+  navigator.clipboard
+    .writeText(text)
+    .then(() => showToast("New content copied", "success"))
+    .catch(() => showToast("Failed to copy new content", "error"));
+}
+
 function copyAllChanges() {
   if (!allChanges.length) {
     showToast("No changes to copy", "info");
@@ -1054,15 +1239,10 @@ async function applyAllChanges() {
 
   let successCount = 0;
   let failCount = 0;
-
-  for (let i = 0; i < allChanges.length; i += 1) {
-    const changeId = `change-${i}`;
-    if (cancelledChanges.has(changeId) || appliedChanges.has(changeId)) {
-      continue;
-    }
-
+  const pendingChangeIds = getPendingChangeIdsForBulkApply();
+  for (const changeId of pendingChangeIds) {
     try {
-      await applyChange(changeId);
+      await applyChange(changeId, { silent: true });
       if (appliedChanges.has(changeId)) {
         successCount += 1;
       } else {
@@ -1074,6 +1254,31 @@ async function applyAllChanges() {
   }
 
   showToast(`Applied ${successCount} changes. ${failCount} failed.`, failCount ? "info" : "success");
+}
+
+function getPendingChangeIdsForBulkApply() {
+  const pending = [];
+  for (let i = 0; i < allChanges.length; i += 1) {
+    const changeId = `change-${i}`;
+    if (cancelledChanges.has(changeId) || appliedChanges.has(changeId)) {
+      continue;
+    }
+    const diff = allChanges[i]?.diff || {};
+    pending.push({
+      changeId,
+      filePath: String(diff.file_path || ""),
+      line: Number(diff.old_start_line_number || diff.line_number || 1)
+    });
+  }
+
+  pending.sort((left, right) => {
+    if (left.filePath !== right.filePath) {
+      return left.filePath.localeCompare(right.filePath);
+    }
+    return right.line - left.line;
+  });
+
+  return pending.map((item) => item.changeId);
 }
 
 function filterByCategory(category) {

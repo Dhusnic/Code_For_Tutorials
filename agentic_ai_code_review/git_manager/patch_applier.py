@@ -24,15 +24,16 @@ class PatchApplyRequest:
     number_of_lines_removed_from_old: int
     new_content: str
     old_content: str = ""
-    allow_fallback_search: bool = True
+    allow_fallback_search: bool = False
 
 
 class PatchApplier:
     """Apply line-accurate patches with strict content checks and rollback safety."""
 
     SEARCH_WINDOW_LINES = 5_000
-    SIMILARITY_SEARCH_WINDOW_LINES = 400
+    SIMILARITY_SEARCH_WINDOW_LINES = 2_000
     MIN_SIMILARITY_RATIO = 0.82
+    ANCHOR_MIN_SIMILARITY_RATIO = 0.62
 
     def apply_change(self, request: PatchApplyRequest) -> Dict[str, str | bool | int]:
         """
@@ -70,13 +71,28 @@ class PatchApplier:
             start_char, end_char = initial_bounds
             existing_block = original_text[start_char:end_char]
             expected_block = self._normalize_patch_content(request.old_content, newline_style)
+            if removed_count > 0 and not expected_block and not request.allow_fallback_search:
+                return {
+                    "success": False,
+                    "message": (
+                        "Strict apply requires non-empty old_content for replacement changes "
+                        "so the target block can be verified."
+                    ),
+                }
 
             matched_line = requested_start
+            match_mode = "exact"
             if expected_block and not self._content_matches(existing_block, expected_block):
                 if not request.allow_fallback_search:
                     return {
                         "success": False,
                         "message": "Existing content does not match expected old content",
+                        "diagnostics": self._build_mismatch_diagnostics(
+                            requested_start=requested_start,
+                            removed_count=removed_count,
+                            existing_block=existing_block,
+                            expected_block=expected_block,
+                        ),
                     }
 
                 fallback = self._find_fallback_match(
@@ -104,6 +120,7 @@ class PatchApplier:
                         },
                     }
                 start_char, end_char, matched_line = fallback
+                match_mode = "fallback"
 
             replacement_block = self._normalize_patch_content(request.new_content, newline_style)
             replacement_block = self._ensure_replacement_block_boundary(
@@ -140,11 +157,28 @@ class PatchApplier:
                 "backup_path": str(backup_path),
                 "file_path": str(file_path),
                 "applied_start_line_number": matched_line,
+                "match_mode": match_mode,
                 "unified_diff": preview,
             }
         except Exception as exc:
             LOGGER.exception("Patch application failed for %s", request.file_path)
             return {"success": False, "message": f"Patch application failed: {exc}"}
+
+    def _build_mismatch_diagnostics(
+        self,
+        *,
+        requested_start: int,
+        removed_count: int,
+        existing_block: str,
+        expected_block: str,
+    ) -> Dict[str, str | int]:
+        """Build structured diagnostics for strict content mismatch failures."""
+        return {
+            "requested_start_line": requested_start,
+            "removed_line_count": removed_count,
+            "existing_preview": self._preview_text(existing_block),
+            "expected_preview": self._preview_text(expected_block),
+        }
 
     def _resolve_file_path(self, repo_path: str, file_path: str) -> Path:
         """Resolve and validate target file path within repository root."""
@@ -288,6 +322,17 @@ class PatchApplier:
         )
         if fuzzy_match is not None:
             return fuzzy_match
+
+        anchor_match = self._find_anchor_line_range_match(
+            text=text,
+            expected_block=expected_block,
+            line_offsets=line_offsets,
+            requested_start=requested_start,
+            total_lines=total_lines,
+            removed_count=removed_count,
+        )
+        if anchor_match is not None:
+            return anchor_match
 
         similar_match = self._find_similar_line_range_match(
             text=text,
@@ -451,17 +496,10 @@ class PatchApplier:
             return None
 
         expected_line_count = len(expected_block.splitlines())
-        candidate_counts: list[int] = []
-        for candidate in (
-            removed_count,
-            expected_line_count,
-            max(removed_count - 1, 1),
-            removed_count + 1,
-            max(expected_line_count - 1, 1),
-            expected_line_count + 1,
-        ):
-            if candidate > 0 and candidate not in candidate_counts:
-                candidate_counts.append(candidate)
+        candidate_counts = self._build_candidate_counts(
+            removed_count=removed_count,
+            expected_line_count=expected_line_count,
+        )
         if not candidate_counts:
             return None
 
@@ -499,6 +537,118 @@ class PatchApplier:
         if best is None:
             return None
         return best[1], best[2], best[3]
+
+    def _find_anchor_line_range_match(
+        self,
+        text: str,
+        expected_block: str,
+        line_offsets: List[int],
+        requested_start: int,
+        total_lines: int,
+        removed_count: int,
+    ) -> tuple[int, int, int] | None:
+        """
+        Match by unique anchor chunks when full old_content drift prevents exact/fuzzy matches.
+
+        This method searches for small stable snippets from the expected block and infers
+        the full replacement range from anchor position.
+        """
+        normalized_expected = self._normalize_for_fuzzy_match(expected_block)
+        if not normalized_expected:
+            return None
+
+        expected_lines = expected_block.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        expected_line_count = len(expected_lines)
+        if expected_line_count < 3:
+            return None
+
+        newline_style = "\r\n" if "\r\n" in expected_block else "\n"
+        candidate_counts = self._build_candidate_counts(
+            removed_count=removed_count,
+            expected_line_count=expected_line_count,
+        )
+        if not candidate_counts:
+            return None
+
+        best: tuple[float, int, int, int] | None = None
+        for anchor_size in (16, 12, 8, 6, 4, 3):
+            if anchor_size > expected_line_count:
+                continue
+            for anchor_offset in self._candidate_anchor_offsets(expected_line_count, anchor_size):
+                anchor_block = newline_style.join(expected_lines[anchor_offset : anchor_offset + anchor_size]).strip()
+                if not anchor_block:
+                    continue
+                matches = self._find_all_matches(text=text, needle=anchor_block, limit=20)
+                if not matches:
+                    continue
+
+                ordered_matches = sorted(
+                    matches,
+                    key=lambda start: abs(self._line_for_offset(line_offsets, start) - (requested_start + anchor_offset)),
+                )
+                for match_start in ordered_matches:
+                    anchor_start_line = self._line_for_offset(line_offsets, match_start)
+                    inferred_start_line = max(1, anchor_start_line - anchor_offset)
+                    for count in candidate_counts:
+                        bounds = self._line_range_to_char_bounds(
+                            line_offsets=line_offsets,
+                            start_line=inferred_start_line,
+                            removed_count=count,
+                            total_lines=total_lines,
+                        )
+                        if bounds is None:
+                            continue
+                        start_char, end_char = bounds
+                        candidate_text = text[start_char:end_char]
+                        candidate_normalized = self._normalize_for_fuzzy_match(candidate_text)
+                        if not candidate_normalized:
+                            continue
+
+                        ratio = difflib.SequenceMatcher(None, normalized_expected, candidate_normalized).ratio()
+                        if ratio < self.ANCHOR_MIN_SIMILARITY_RATIO:
+                            continue
+
+                        distance = abs(inferred_start_line - requested_start)
+                        if best is None or ratio > best[0] or (
+                            ratio == best[0] and distance < abs(best[3] - requested_start)
+                        ):
+                            best = (ratio, start_char, end_char, inferred_start_line)
+
+        if best is None:
+            return None
+        return best[1], best[2], best[3]
+
+    def _build_candidate_counts(self, *, removed_count: int, expected_line_count: int) -> list[int]:
+        """Build stable candidate line-range sizes for fallback range search."""
+        counts: list[int] = []
+        for candidate in (
+            removed_count,
+            expected_line_count,
+            max(removed_count - 1, 1),
+            removed_count + 1,
+            max(expected_line_count - 1, 1),
+            expected_line_count + 1,
+            max(expected_line_count - 2, 1),
+            expected_line_count + 2,
+        ):
+            if candidate > 0 and candidate not in counts:
+                counts.append(candidate)
+        return counts
+
+    def _candidate_anchor_offsets(self, total_lines: int, anchor_size: int) -> list[int]:
+        """Generate deterministic anchor offsets sampled across a multiline block."""
+        max_offset = max(total_lines - anchor_size, 0)
+        center_offset = max((total_lines // 2) - (anchor_size // 2), 0)
+        quarter_offset = max((total_lines // 4) - (anchor_size // 2), 0)
+        three_quarter_offset = max(((total_lines * 3) // 4) - (anchor_size // 2), 0)
+
+        offsets = [0, quarter_offset, center_offset, three_quarter_offset, max_offset]
+        deduped: list[int] = []
+        for offset in offsets:
+            clamped = min(max(offset, 0), max_offset)
+            if clamped not in deduped:
+                deduped.append(clamped)
+        return deduped
 
     def _preview_text(self, text: str, limit: int = 200) -> str:
         """Return compact preview of text for diagnostics."""

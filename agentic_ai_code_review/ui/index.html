@@ -71,8 +71,15 @@
 
           <div>
             <label>Azure PAT</label>
-            <input id="password" type="password" value="Azure_access_token" />
-            <small>Hidden for security</small>
+            <input
+              id="password"
+              type="password"
+              value=""
+              placeholder="Enter Azure PAT"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <small>Optional in local mode. Never stored by this UI.</small>
           </div>
         </div>
 
@@ -216,7 +223,7 @@
     <template id="emptyChangesTemplate">
       <div class="empty-changes">
         <i class="fas fa-code"></i>
-        <p>No code changes available</p>
+        <p>No required changes needed for this PR diff.</p>
       </div>
     </template>
 
@@ -275,6 +282,14 @@
           </div>
 
           <div class="change-actions">
+            <button class="btn-copy-old">
+              <i class="fas fa-copy"></i>
+              Copy Old
+            </button>
+            <button class="btn-copy-new">
+              <i class="fas fa-copy"></i>
+              Copy New
+            </button>
             <button class="btn-copy-change">
               <i class="fas fa-copy"></i>
               Copy

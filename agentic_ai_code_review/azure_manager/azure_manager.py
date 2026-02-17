@@ -24,6 +24,8 @@ class AzureDevOpsError(RuntimeError):
 class AzureDevOpsClient:
     """Thin typed wrapper over Azure DevOps Git pull request APIs."""
 
+    CONTEXT_WINDOW_LINES = 12
+
     def __init__(
         self,
         organization: str,
@@ -354,12 +356,25 @@ class AzureDevOpsClient:
                 if tag == "equal":
                     continue
 
+                before_start = max(0, j1 - self.CONTEXT_WINDOW_LINES)
+                after_end = min(len(target_lines), j2 + self.CONTEXT_WINDOW_LINES)
+                context_before = [
+                    {"line": target_lines[index], "new_line": index + 1}
+                    for index in range(before_start, j1)
+                ]
+                context_after = [
+                    {"line": target_lines[index], "new_line": index + 1}
+                    for index in range(j2, after_end)
+                ]
+
                 hunk = {
                     "file": file_path,
                     "hunk": {
                         "old_start": i1 + 1 if i1 < len(base_lines) else None,
                         "new_start": j1 + 1 if j1 < len(target_lines) else None,
                         "context": base_lines[max(0, i1 - 3) : min(len(base_lines), i2 + 3)],
+                        "context_before": context_before,
+                        "context_after": context_after,
                         "removed": [],
                         "added": [],
                     },
@@ -473,6 +488,8 @@ class AzureDevOpsClient:
                                 "old_start": hunk.get("oldStartLine"),
                                 "new_start": hunk.get("newStartLine"),
                                 "context": context,
+                                "context_before": context[: self.CONTEXT_WINDOW_LINES],
+                                "context_after": context[-self.CONTEXT_WINDOW_LINES :],
                                 "removed": removed,
                                 "added": added,
                             },
