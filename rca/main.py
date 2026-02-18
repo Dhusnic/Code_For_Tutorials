@@ -10,7 +10,7 @@ import time
 from src.config.settings import load_app_config
 from src.connectors.elasticsearch_client import ElasticClientFactory
 from src.enrichment.signal_enricher import SignalEnrichmentService
-from src.state.checkpoint_store import CheckpointStore
+from src.state.checkpoint_store import create_checkpoint_store
 from src.utils.logging import configure_logging
 
 
@@ -39,7 +39,7 @@ def main() -> int:
     logger = logging.getLogger(__name__)
 
     es_client = ElasticClientFactory(config.elasticsearch).create()
-    checkpoint_store = CheckpointStore(config.checkpoints.path)
+    checkpoint_store = create_checkpoint_store(config.checkpoints, es_client=es_client)
     service = SignalEnrichmentService(
         es_client=es_client,
         config=config,
@@ -59,6 +59,11 @@ def main() -> int:
     except Exception:
         logger.exception("Fatal error in enrichment loop")
         return 1
+    finally:
+        try:
+            service.shutdown()
+        except Exception:
+            logger.exception("Failed during service shutdown")
 
     return 0
 

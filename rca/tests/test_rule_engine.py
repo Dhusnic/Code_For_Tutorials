@@ -139,3 +139,55 @@ def test_highest_only_and_max_two() -> None:
     signals = engine.evaluate(event, rule_set, max_signals=2, highest_only=True)
     assert len(signals) == 2
     assert all(item["level"] == "critical" for item in signals)
+
+
+def test_fallback_only_used_when_no_specific_rule_matches() -> None:
+    engine = RuleEngine()
+    rule_set = RuleSet(
+        service="nginx",
+        rules=[
+            SignalRule(
+                rule_id="A_FALLBACK",
+                signal_key="nginx_unclassified_failure",
+                level="critical",
+                description="fallback",
+                tags=["fallback", "unclassified", "critical"],
+                condition=RuleCondition(field="log.level", op="equals", value="error"),
+            ),
+            SignalRule(
+                rule_id="Z_SPECIFIC",
+                signal_key="nginx_upstream_timeout_connect",
+                level="critical",
+                description="specific",
+                tags=["upstream", "timeout", "connect"],
+                condition=RuleCondition(field="message", op="contains", value="upstream timed out"),
+            ),
+        ],
+    )
+
+    event = {"log": {"level": "error"}, "message": "upstream timed out while connecting"}
+    signals = engine.evaluate(event, rule_set, highest_only=True, max_signals=1)
+    assert len(signals) == 1
+    assert signals[0]["signal"] == "nginx_upstream_timeout_connect"
+
+
+def test_fallback_kept_when_it_is_only_match() -> None:
+    engine = RuleEngine()
+    rule_set = RuleSet(
+        service="nginx",
+        rules=[
+            SignalRule(
+                rule_id="A_FALLBACK",
+                signal_key="nginx_unclassified_failure",
+                level="critical",
+                description="fallback",
+                tags=["fallback", "unclassified", "critical"],
+                condition=RuleCondition(field="log.level", op="equals", value="error"),
+            )
+        ],
+    )
+
+    event = {"log": {"level": "error"}, "message": "unknown failure text"}
+    signals = engine.evaluate(event, rule_set, highest_only=True, max_signals=1)
+    assert len(signals) == 1
+    assert signals[0]["signal"] == "nginx_unclassified_failure"

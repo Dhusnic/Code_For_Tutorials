@@ -66,9 +66,10 @@ class BulkActionFactory:
         source_id: str,
         source_doc: dict[str, Any],
         selected_signal: dict[str, Any],
+        use_source_id: bool = False,
     ) -> dict[str, Any]:
-        """Return one bulk update action with deterministic target id."""
-        target_id = self._target_id(source_index, source_id)
+        """Return one bulk update action using source id or derived target id."""
+        target_id = source_id if use_source_id else self._target_id(source_index, source_id)
         payload = {
             **source_doc,
             "source_index": source_index,

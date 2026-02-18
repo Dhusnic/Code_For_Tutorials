@@ -1,5 +1,25 @@
 service: kafka
 rules:
+  - id: A_KAFKA_UNCLASSIFIED_FAILURE
+    signal_key: kafka_unclassified_failure
+    level: critical
+    description: Kafka event indicates critical failure but no specific Kafka signature matched.
+    tags: [fallback, unclassified, kafka, critical, triage]
+    condition:
+      or:
+        - field: log.level
+          op: in
+          value: [critical, crit, error, err, fatal, panic, emergency, alert]
+        - field: level
+          op: in
+          value: [critical, crit, error, err, fatal, panic, emergency, alert]
+        - field: message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR|ERR)'
+        - field: msg
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR|ERR)'
+
   - id: KAFKA_SASL_AUTH_FAILED
     signal_key: kafka_sasl_auth_failed
     level: critical

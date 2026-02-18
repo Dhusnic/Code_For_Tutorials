@@ -1,38 +1,24 @@
 service: redis
 rules:
-  - id: REDIS_LEVEL_CRITICAL
-    signal_key: redis_level_critical
+  - id: A_REDIS_UNCLASSIFIED_FAILURE
+    signal_key: redis_unclassified_failure
     level: critical
-    description: Redis log indicates critical/error severity.
-    tags: [severity, critical, core]
+    description: Redis event indicates critical failure but no specific Redis signature matched.
+    tags: [fallback, unclassified, redis, critical, triage]
     condition:
       or:
         - field: log.level
           op: in
-          value: [critical, error, fatal]
+          value: [critical, crit, error, err, fatal, panic, emergency, alert]
         - field: level
           op: in
-          value: [critical, error, fatal]
+          value: [critical, crit, error, err, fatal, panic, emergency, alert]
         - field: message
           op: regex
-          value: '\\b(FATAL|PANIC|CRITICAL|ERR)\\b'
-
-  - id: REDIS_LEVEL_WARNING
-    signal_key: redis_level_warning
-    level: warning
-    description: Redis log indicates warning severity.
-    tags: [severity, warning, core]
-    condition:
-      or:
-        - field: log.level
-          op: in
-          value: [warning, warn]
-        - field: level
-          op: in
-          value: [warning, warn]
-        - field: message
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR|ERR)'
+        - field: msg
           op: regex
-          value: '\\b(WARNING|WARN)\\b'
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR|ERR)'
 
   - id: REDIS_NOAUTH_REQUIRED
     signal_key: redis_noauth_required

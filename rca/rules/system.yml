@@ -1,10 +1,10 @@
 service: system
 rules:
-  - id: SYSTEM_LEVEL_CRITICAL
-    signal_key: system_level_critical
+  - id: A_SYSTEM_UNCLASSIFIED_FAILURE
+    signal_key: system_unclassified_failure
     level: critical
-    description: Syslog/journald critical priorities (emerg/alert/crit/err).
-    tags: [severity, critical, syslog]
+    description: System event indicates critical failure but no specific system signature matched.
+    tags: [fallback, unclassified, system, critical, triage]
     condition:
       or:
         - field: log.level
@@ -16,23 +16,12 @@ rules:
         - field: PRIORITY
           op: in
           value: [0, 1, 2, 3, "0", "1", "2", "3"]
-
-  - id: SYSTEM_LEVEL_WARNING
-    signal_key: system_level_warning
-    level: warning
-    description: Syslog/journald warning priority.
-    tags: [severity, warning, syslog]
-    condition:
-      or:
-        - field: log.level
-          op: in
-          value: [warn, warning]
-        - field: level
-          op: in
-          value: [warn, warning]
-        - field: PRIORITY
-          op: in
-          value: [4, "4"]
+        - field: message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)'
+        - field: system.syslog.message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)'
 
   - id: SYSTEM_SSH_AUTH_FAILED
     signal_key: system_ssh_auth_failed

@@ -1,22 +1,27 @@
 service: rabbitmq
 rules:
-- id: RABBITMQ_LEVEL_CRITICAL
+- id: A_RABBITMQ_UNCLASSIFIED_FAILURE
+  signal_key: rabbitmq_unclassified_failure
   level: critical
-  description: RabbitMQ log severity indicates critical failure.
+  description: RabbitMQ event indicates critical failure but no specific broker signature matched.
   tags:
-  - severity
+  - fallback
+  - unclassified
+  - rabbitmq
   - critical
-  - broker
+  - triage
   condition:
     or:
-    # - field: log.level
-    #   op: in
-    #   value:
-    #   - critical
-    #   - crit
-    #   - error
-    #   - alert
-    #   - emergency
+    - field: log.level
+      op: in
+      value:
+      - critical
+      - crit
+      - error
+      - alert
+      - emergency
+      - fatal
+      - panic
     - field: level
       op: in
       value:
@@ -25,49 +30,21 @@ rules:
       - error
       - alert
       - emergency
-    # - field: rabbitmq.log.level
-    #   op: in
-    #   value:
-    #   - critical
-    #   - crit
-    #   - error
-    #   - alert
-    #   - emergency
-    - field: message
-      op: regex
-      value: \b(CRITICAL|critical|ERROR|error|FATAL|fatal)\b
-  signal_key: rabbitmq_level_critical
-
-
-- id: RABBITMQ_LEVEL_WARNING
-  level: warning
-  description: RabbitMQ log severity indicates warning condition.
-  tags:
-  - severity
-  - warning
-  - broker
-  condition:
-    or:
-    - field: log.level
-      op: in
-      value:
-      - warning
-      - warn
-    - field: level
-      op: in
-      value:
-      - warning
-      - warn
+      - fatal
+      - panic
     - field: rabbitmq.log.level
       op: in
       value:
-      - warning
-      - warn
+      - critical
+      - crit
+      - error
+      - alert
+      - emergency
+      - fatal
+      - panic
     - field: message
       op: regex
-      value: \b(WARNING|warning|WARN|warn)\b
-  signal_key: rabbitmq_level_warning
-
+      value: \b(CRITICAL|critical|ERROR|error|FATAL|fatal|PANIC|panic)\b
 
 - id: RABBITMQ_MEMORY_ALARM_SET
   level: critical

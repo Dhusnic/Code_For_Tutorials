@@ -53,3 +53,30 @@ def test_normalizes_numeric_level_to_debug() -> None:
     )
 
     assert action["doc"]["log"]["level"] == "debug"
+
+
+def test_uses_source_id_when_requested() -> None:
+    factory = BulkActionFactory()
+    action = factory.build(
+        source_index="linux-logs",
+        target_index="linux-logs",
+        source_id="abc",
+        source_doc={"message": "sample"},
+        selected_signal={"signal": "ssh_fail", "level": "warning"},
+        use_source_id=True,
+    )
+
+    assert action["_id"] == "abc"
+
+
+def test_uses_deterministic_derived_id_by_default() -> None:
+    factory = BulkActionFactory()
+    action = factory.build(
+        source_index="linux-logs",
+        target_index="linux-logs-rca",
+        source_id="abc",
+        source_doc={"message": "sample"},
+        selected_signal={"signal": "ssh_fail", "level": "warning"},
+    )
+
+    assert action["_id"] == factory._target_id("linux-logs", "abc")

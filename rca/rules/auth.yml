@@ -1,10 +1,10 @@
 service: auth
 rules:
-  - id: AUTH_LEVEL_CRITICAL
-    signal_key: auth_level_critical
+  - id: A_AUTH_UNCLASSIFIED_FAILURE
+    signal_key: auth_unclassified_failure
     level: critical
-    description: Authentication log severity indicates critical or higher condition.
-    tags: [severity, critical, auth]
+    description: Authentication event indicates critical failure but no specific auth signature matched.
+    tags: [fallback, unclassified, auth, critical, triage]
     condition:
       or:
         - field: log.level
@@ -16,23 +16,12 @@ rules:
         - field: PRIORITY
           op: in
           value: [0, 1, 2, 3, "0", "1", "2", "3"]
-
-  - id: AUTH_LEVEL_WARNING
-    signal_key: auth_level_warning
-    level: warning
-    description: Authentication log severity indicates warning condition.
-    tags: [severity, warning, auth]
-    condition:
-      or:
-        - field: log.level
-          op: in
-          value: [warn, warning]
-        - field: level
-          op: in
-          value: [warn, warning]
-        - field: PRIORITY
-          op: in
-          value: [4, "4"]
+        - field: message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)'
+        - field: system.auth.message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)'
 
   - id: AUTH_SSH_PASSWORD_FAIL
     signal_key: auth_ssh_password_fail

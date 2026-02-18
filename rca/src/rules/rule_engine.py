@@ -48,6 +48,8 @@ class RuleEngine:
         if not scored_matches:
             return []
 
+        scored_matches = self._prefer_specific_matches(scored_matches)
+
         if highest_only:
             best_severity = max(item[0] for item in scored_matches)
             scored_matches = [item for item in scored_matches if item[0] == best_severity]
@@ -58,6 +60,30 @@ class RuleEngine:
         if max_signals > 0:
             return signals[:max_signals]
         return signals
+
+    @classmethod
+    def _prefer_specific_matches(
+        cls,
+        scored_matches: list[tuple[int, int, dict[str, Any]]],
+    ) -> list[tuple[int, int, dict[str, Any]]]:
+        """Drop fallback matches when any non-fallback match exists."""
+        has_non_fallback = any(not cls._is_fallback_signal(item[2]) for item in scored_matches)
+        if not has_non_fallback:
+            return scored_matches
+        return [item for item in scored_matches if not cls._is_fallback_signal(item[2])]
+
+    @staticmethod
+    def _is_fallback_signal(signal: dict[str, Any]) -> bool:
+        """Return True when signal is marked as fallback/unclassified."""
+        tags = signal.get("tags")
+        if isinstance(tags, list):
+            lowered = {str(tag).strip().lower() for tag in tags}
+            if "fallback" in lowered:
+                return True
+            if "unclassified" in lowered:
+                return True
+        signal_key = str(signal.get("signal", "")).strip().lower()
+        return signal_key.endswith("_unclassified_failure")
 
     def _matches_rule(self, event: dict[str, Any], rule: SignalRule) -> tuple[bool, int]:
         if not rule.condition:

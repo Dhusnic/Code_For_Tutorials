@@ -1,13 +1,15 @@
 service: nginx
 rules:
-- id: NGINX_LEVEL_CRITICAL
+- id: A_NGINX_UNCLASSIFIED_FAILURE
+  signal_key: nginx_unclassified_failure
   level: critical
-  description: NGINX error severity indicates critical failure (emerg, alert, crit,
-    critical).
+  description: NGINX event indicates critical failure but no specific NGINX signature matched.
   tags:
-  - severity
+  - fallback
+  - unclassified
+  - nginx
   - critical
-  - core
+  - triage
   condition:
     or:
     - field: log.level
@@ -19,6 +21,8 @@ rules:
       - critical
       - emergency
       - error
+      - fatal
+      - panic
     - field: level
       op: in
       value:
@@ -28,6 +32,8 @@ rules:
       - critical
       - emergency
       - error
+      - fatal
+      - panic
     - field: nginx.error.level
       op: in
       value:
@@ -37,38 +43,12 @@ rules:
       - critical
       - emergency
       - error
+      - fatal
+      - panic
     - field: message
       op: regex
-      value: \[emerg|alert|crit|critical|emergency|error\]
-  signal_key: nginx_level_critical
-- id: NGINX_LEVEL_WARNING
-  level: warning
-  description: NGINX error severity indicates warning conditions.
-  tags:
-  - severity
-  - warning
-  - core
-  condition:
-    or:
-    - field: log.level
-      op: in
-      value:
-      - warn
-      - warning
-    - field: level
-      op: in
-      value:
-      - warn
-      - warning
-    - field: nginx.error.level
-      op: in
-      value:
-      - warn
-      - warning
-    - field: message
-      op: regex
-      value: \[(warn|warning)\]
-  signal_key: nginx_level_warning
+      value: (FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)
+
 - id: NGINX_UPSTREAM_TIMEOUT_CONNECT
   level: critical
   description: Timeout while connecting to upstream.
@@ -156,6 +136,22 @@ rules:
     op: contains
     value: upstream sent more data than specified in "Content-Length" header
   signal_key: nginx_upstream_content_length_mismatch
+- id: NGINX_UPSTREAM_NO_VALID_RESPONSE
+  level: critical
+  description: Upstream returned an invalid HTTP response/header format.
+  tags:
+  - upstream
+  - protocol
+  - invalid_response
+  condition:
+    or:
+    - field: message
+      op: contains
+      value: upstream sent no valid
+    - field: message
+      op: contains
+      value: upstream sent no valid HTTP/1.0 header
+  signal_key: nginx_upstream_no_valid_response
 - id: NGINX_UPSTREAM_SERVER_TEMP_DISABLED
   level: warning
   description: Upstream peer was temporarily disabled after failures.

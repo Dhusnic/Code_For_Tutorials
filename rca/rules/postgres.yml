@@ -1,10 +1,10 @@
 service: postgres
 rules:
-  - id: POSTGRES_LEVEL_CRITICAL
-    signal_key: postgres_level_critical
+  - id: A_POSTGRES_UNCLASSIFIED_FAILURE
+    signal_key: postgres_unclassified_failure
     level: critical
-    description: PostgreSQL reported critical severities (FATAL/PANIC/ERROR).
-    tags: [severity, critical, core]
+    description: PostgreSQL event indicates critical failure but no specific Postgres signature matched.
+    tags: [fallback, unclassified, postgres, critical, triage]
     condition:
       or:
         - field: log.level
@@ -16,23 +16,12 @@ rules:
         - field: postgresql.log.level
           op: in
           value: [FATAL, PANIC, ERROR, fatal, panic, error]
-
-  - id: POSTGRES_LEVEL_WARNING
-    signal_key: postgres_level_warning
-    level: warning
-    description: PostgreSQL reported warning severities.
-    tags: [severity, warning, core]
-    condition:
-      or:
-        - field: log.level
-          op: in
-          value: [WARNING, WARN, warning, warn]
-        - field: level
-          op: in
-          value: [WARNING, WARN, warning, warn]
-        - field: postgresql.log.level
-          op: in
-          value: [WARNING, WARN, warning, warn]
+        - field: message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)'
+        - field: postgresql.log.message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)'
 
   - id: POSTGRES_AUTH_FAILED
     signal_key: postgres_auth_failed

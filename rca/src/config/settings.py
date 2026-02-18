@@ -25,7 +25,13 @@ class ElasticsearchConfig:
 class CheckpointConfig:
     """Checkpoint persistence settings."""
 
+    provider: str = "file"
     path: str = "state/checkpoints.json"
+    redis_url: str | None = None
+    redis_prefix: str = "rca:checkpoint:"
+    postgres_dsn: str | None = None
+    postgres_table: str = "rca_checkpoints"
+    elasticsearch_index: str = "rca-checkpoints"
 
 
 @dataclass(slots=True)
@@ -53,11 +59,29 @@ class ServiceConfig:
 class PipelineConfig:
     """Pipeline runtime behavior settings."""
 
-    batch_size: int = 500
+    batch_size: int = 2000
+    worker_count: int = 1
+    worker_id: int = 0
+    bulk_worker_count: int = 4
+    bulk_queue_size: int = 32
+    batch_size_mode: str = "static"
+    dynamic_batch_min_size: int = 500
+    dynamic_batch_max_size: int = 10000
+    dynamic_batch_lookback_seconds: int = 30
+    dynamic_batch_target_window_seconds: float = 1.0
+    dynamic_batch_smoothing_alpha: float = 0.5
+    autoscaling_enabled: bool = True
+    autoscaling_target_events_per_worker_sec: float = 1500.0
+    autoscaling_min_workers: int = 1
+    autoscaling_max_workers: int = 64
+    autoscaling_lag_scale_up_seconds: float = 60.0
+    autoscaling_lag_scale_down_seconds: float = 10.0
     poll_interval_seconds: int = 10
     timestamp_field: str = "@timestamp"
     start_time: str = "now-15m"
     source_indices: list[str] = field(default_factory=list)
+    write_to_source_index: bool = False
+    write_to_target_index: bool = True
     target_suffix: str = "-rca"
     dead_letter_suffix: str = "-rca-dead-letter"
     retry_max_attempts: int = 4
@@ -119,11 +143,32 @@ def load_app_config(path: str) -> AppConfig:
         checkpoints=CheckpointConfig(**raw.get("checkpoints", {})),
         logging=LoggingConfig(**raw.get("logging", {})),
         pipeline=PipelineConfig(
-            batch_size=pipe_raw.get("batch_size", 500),
+            batch_size=pipe_raw.get("batch_size", 2000),
+            worker_count=pipe_raw.get("worker_count", 1),
+            worker_id=pipe_raw.get("worker_id", 0),
+            bulk_worker_count=pipe_raw.get("bulk_worker_count", 4),
+            bulk_queue_size=pipe_raw.get("bulk_queue_size", 32),
+            batch_size_mode=pipe_raw.get("batch_size_mode", "static"),
+            dynamic_batch_min_size=pipe_raw.get("dynamic_batch_min_size", 500),
+            dynamic_batch_max_size=pipe_raw.get("dynamic_batch_max_size", 10000),
+            dynamic_batch_lookback_seconds=pipe_raw.get("dynamic_batch_lookback_seconds", 30),
+            dynamic_batch_target_window_seconds=pipe_raw.get("dynamic_batch_target_window_seconds", 1.0),
+            dynamic_batch_smoothing_alpha=pipe_raw.get("dynamic_batch_smoothing_alpha", 0.5),
+            autoscaling_enabled=pipe_raw.get("autoscaling_enabled", True),
+            autoscaling_target_events_per_worker_sec=pipe_raw.get(
+                "autoscaling_target_events_per_worker_sec",
+                1500.0,
+            ),
+            autoscaling_min_workers=pipe_raw.get("autoscaling_min_workers", 1),
+            autoscaling_max_workers=pipe_raw.get("autoscaling_max_workers", 64),
+            autoscaling_lag_scale_up_seconds=pipe_raw.get("autoscaling_lag_scale_up_seconds", 60.0),
+            autoscaling_lag_scale_down_seconds=pipe_raw.get("autoscaling_lag_scale_down_seconds", 10.0),
             poll_interval_seconds=pipe_raw.get("poll_interval_seconds", 10),
             timestamp_field=pipe_raw.get("timestamp_field", "@timestamp"),
             start_time=pipe_raw.get("start_time", "now-15m"),
             source_indices=pipe_raw.get("source_indices", []),
+            write_to_source_index=pipe_raw.get("write_to_source_index", False),
+            write_to_target_index=pipe_raw.get("write_to_target_index", True),
             target_suffix=pipe_raw.get("target_suffix", "-rca"),
             dead_letter_suffix=pipe_raw.get("dead_letter_suffix", "-rca-dead-letter"),
             retry_max_attempts=pipe_raw.get("retry_max_attempts", 4),

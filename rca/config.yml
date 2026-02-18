@@ -7,7 +7,13 @@
   request_timeout_seconds: 30
 
 checkpoints:
+  provider: "elasticsearch"  # file | redis | postgres | elasticsearch
   path: "state/checkpoints.json"
+  redis_url: null
+  redis_prefix: "rca:checkpoint:"
+  postgres_dsn: null
+  postgres_table: "rca_checkpoints"
+  elasticsearch_index: "rca-checkpoints"
 
 logging:
   level: "INFO"
@@ -17,7 +23,23 @@ logging:
 rules_directory: "rules"
 
 pipeline:
-  batch_size: 100
+  batch_size: 2000
+  worker_count: 1
+  worker_id: 0
+  bulk_worker_count: 4
+  bulk_queue_size: 32
+  batch_size_mode: "static"  # static | dynamic
+  dynamic_batch_min_size: 500
+  dynamic_batch_max_size: 10000
+  dynamic_batch_lookback_seconds: 30
+  dynamic_batch_target_window_seconds: 1.0
+  dynamic_batch_smoothing_alpha: 0.5
+  autoscaling_enabled: true
+  autoscaling_target_events_per_worker_sec: 1500
+  autoscaling_min_workers: 1
+  autoscaling_max_workers: 64
+  autoscaling_lag_scale_up_seconds: 60
+  autoscaling_lag_scale_down_seconds: 10
   poll_interval_seconds: 10
   timestamp_field: "@timestamp"
   start_time: "now-15m"
@@ -27,7 +49,9 @@ pipeline:
   signal_max_per_event: 2
   signal_select_highest_only: true
   source_indices:
-    - "linux-*"
+    - "*"
+  write_to_source_index: false
+  write_to_target_index: true
   target_suffix: "-rca"
   dead_letter_suffix: "-rca-dead-letter"
   services:
@@ -35,7 +59,7 @@ pipeline:
       enabled: true
       rule_file: "nginx.yml"
       source_indices:
-        - "linux-*"
+        - "*"
       start_time: "now-60m"
       query:
         term:
@@ -44,7 +68,7 @@ pipeline:
       enabled: true
       rule_file: "rabbitmq.yml"
       source_indices:
-        - "linux-*"
+        - "*"
       start_time: "now-60m"
       query:
         term:
@@ -53,7 +77,7 @@ pipeline:
       enabled: true
       rule_file: "mongodb.yml"
       source_indices:
-        - "linux-*"
+        - "*"
       start_time: "now-60m"
       query:
         term:
@@ -62,7 +86,7 @@ pipeline:
       enabled: true
       rule_file: "redis.yml"
       source_indices:
-        - "linux-*"
+        - "*"
       start_time: "now-60m"
       query:
         term:
@@ -71,7 +95,7 @@ pipeline:
       enabled: true
       rule_file: "kafka.yml"
       source_indices:
-        - "linux-*"
+        - "*"
       start_time: "now-60m"
       query:
         term:
@@ -80,43 +104,43 @@ pipeline:
       enabled: true
       rule_file: "postgres.yml"
       source_indices:
-        - "linux-*"
+        - "*"
       start_time: "now-60m"
       query:
         term:
           event.module: "postgresql"
-    - name: "system"
-      enabled: true
-      rule_file: "system.yml"
-      source_indices:
-        - "linux-*"
-      start_time: "now-60m"
-      query:
-        bool:
-          should:
-            - term:
-                event.module: "system"
-            - term:
-                event.dataset: "system.syslog"
-            - term:
-                data_stream.dataset: "system.syslog"
-          must_not:
-            - term:
-                event.dataset: "system.auth"
-            - term:
-                data_stream.dataset: "system.auth"
-            - term:
-                fileset.name: "auth"
-            - wildcard:
-                log.file.path: "*/auth.log*"
-            - wildcard:
-                log.file.path: "*/secure*"
-          minimum_should_match: 1
+    # - name: "system"
+    #   enabled: true
+    #   rule_file: "system.yml"
+    #   source_indices:
+    #     - "*"
+    #   start_time: "now-60m"
+    #   query:
+    #     bool:
+    #       should:
+    #         - term:
+    #             event.module: "system"
+    #         - term:
+    #             event.dataset: "system.syslog"
+    #         - term:
+    #             data_stream.dataset: "system.syslog"
+    #       must_not:
+    #         - term:
+    #             event.dataset: "system.auth"
+    #         - term:
+    #             data_stream.dataset: "system.auth"
+    #         - term:
+    #             fileset.name: "auth"
+    #         - wildcard:
+    #             log.file.path: "*/auth.log*"
+    #         - wildcard:
+    #             log.file.path: "*/secure*"
+    #       minimum_should_match: 1
     - name: "auth"
       enabled: true
       rule_file: "auth.yml"
       source_indices:
-        - "linux-*"
+        - "*"
       start_time: "now-60m"
       query:
         bool:
