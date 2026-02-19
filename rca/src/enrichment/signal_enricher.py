@@ -14,6 +14,7 @@ from elasticsearch.helpers import bulk
 
 from src.config.settings import AppConfig, ServiceConfig
 from src.ingestion.batch_reader import BatchReader
+from src.rule_learning.auto_rule_learner import AutoRuleLearner
 from src.rules.rule_engine import RuleEngine
 from src.rules.rule_loader import RuleLoader
 from src.state.checkpoint_store import CheckpointStoreBase
@@ -36,6 +37,11 @@ class SignalEnrichmentService:
         self._checkpoint_store = checkpoint_store
         self._rule_loader = RuleLoader(config.rules_directory)
         self._rule_engine = RuleEngine()
+        self._rule_learner = AutoRuleLearner(
+            config=self._config.rule_learning,
+            rules_directory=self._config.rules_directory,
+            service_rule_files={svc.name: svc.rule_file for svc in self._config.pipeline.services},
+        )
         self._action_factory = BulkActionFactory()
         self._dynamic_eps_by_key: dict[str, float] = {}
         self._logger = logging.getLogger(self.__class__.__name__)
@@ -80,6 +86,7 @@ class SignalEnrichmentService:
             max_lag_seconds=max_lag_seconds,
             cycle_seconds=cycle_seconds,
         )
+        self._flush_rule_learning_candidates()
         return processed
 
     def _process_service(self, service: ServiceConfig) -> tuple[int, int, float | None]:
@@ -202,6 +209,7 @@ class SignalEnrichmentService:
 
             if selected_signal:
                 matched_events += 1
+                self._rule_learner.observe(service.name, source_doc, selected_signal)
                 for destination_index in destination_indices:
                     action = self._action_factory.build(
                         source_index=source_event_index,
@@ -271,6 +279,20 @@ class SignalEnrichmentService:
             },
         )
         return processed, taken_events, lag_seconds
+
+    def _flush_rule_learning_candidates(self) -> None:
+        """Persist auto-learned rule candidates generated during this cycle."""
+        try:
+            written_by_service = self._rule_learner.flush()
+        except Exception:
+            self._logger.exception("Failed flushing auto-learned rule candidates")
+            return
+
+        if written_by_service:
+            self._logger.info(
+                "Auto-learned rules written",
+                extra={"written_by_service": written_by_service},
+            )
 
     def _validate_runtime_config(self) -> None:
         worker_count = int(self._config.pipeline.worker_count)

@@ -29,7 +29,7 @@ def main() -> int:
     validator = RuleSchemaValidator()
     failed = False
 
-    for path in sorted(rules_dir.glob("*.yml")):
+    for path in sorted(rules_dir.rglob("*.yml")):
         payload = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             print(f"[FAIL] {path}: file root must be an object")

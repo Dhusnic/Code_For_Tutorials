@@ -93,6 +93,22 @@ class PipelineConfig:
 
 
 @dataclass(slots=True)
+class RuleLearningConfig:
+    """Auto-generation settings for unclassified critical signals."""
+
+    enabled: bool = False
+    mode: str = "suggest"
+    output_directory: str = "rules/suggestions"
+    min_occurrences: int = 10
+    max_candidates_per_service: int = 20
+    min_keyword_count: int = 2
+    max_keywords_per_signal: int = 4
+    condition_field: str = "message"
+    condition_op: str = "contains"
+    level: str = "critical"
+
+
+@dataclass(slots=True)
 class AppConfig:
     """Root application configuration."""
 
@@ -101,6 +117,7 @@ class AppConfig:
     logging: LoggingConfig
     pipeline: PipelineConfig
     rules_directory: str = "rules"
+    rule_learning: RuleLearningConfig = field(default_factory=RuleLearningConfig)
 
 
 def _require(data: dict[str, Any], key: str) -> Any:
@@ -117,6 +134,9 @@ def load_app_config(path: str) -> AppConfig:
 
     es_raw = _require(raw, "elasticsearch")
     pipe_raw = _require(raw, "pipeline")
+    rule_learning_raw = raw.get("rule_learning", {})
+    if not isinstance(rule_learning_raw, dict):
+        raise ValueError("rule_learning must be a mapping when provided")
 
     services: list[ServiceConfig] = []
     for item in pipe_raw.get("services", []):
@@ -179,4 +199,16 @@ def load_app_config(path: str) -> AppConfig:
             services=services,
         ),
         rules_directory=raw.get("rules_directory", "rules"),
+        rule_learning=RuleLearningConfig(
+            enabled=rule_learning_raw.get("enabled", False),
+            mode=rule_learning_raw.get("mode", "suggest"),
+            output_directory=rule_learning_raw.get("output_directory", "rules/suggestions"),
+            min_occurrences=rule_learning_raw.get("min_occurrences", 10),
+            max_candidates_per_service=rule_learning_raw.get("max_candidates_per_service", 20),
+            min_keyword_count=rule_learning_raw.get("min_keyword_count", 2),
+            max_keywords_per_signal=rule_learning_raw.get("max_keywords_per_signal", 4),
+            condition_field=rule_learning_raw.get("condition_field", "message"),
+            condition_op=rule_learning_raw.get("condition_op", "contains"),
+            level=rule_learning_raw.get("level", "critical"),
+        ),
     )

@@ -1,0 +1,64 @@
+service: network
+rules:
+  - id: NETWORK_CISCO_NXOS_ETHPORT_DOWN
+    signal_key: network_cisco_nxos_ethport_down
+    level: critical
+    description: Cisco NX-OS Ethernet port/link transitioned to down.
+    tags: [vendor, cisco, nxos, physical, link]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '%ETHPORT-[0-9]-IF_DOWN_.*'
+        - field: msg
+          op: regex
+          value: '%ETHPORT-[0-9]-IF_DOWN_.*'
+        - field: message
+          op: regex
+          value: '%ETHPORT-[0-9]-IF_ERROR_.*'
+        - field: msg
+          op: regex
+          value: '%ETHPORT-[0-9]-IF_ERROR_.*'
+
+  - id: NETWORK_CISCO_NXOS_VPC_SUSPEND
+    signal_key: network_cisco_nxos_vpc_suspend
+    level: critical
+    description: Cisco NX-OS vPC suspended/degraded due to consistency or peer state issue.
+    tags: [vendor, cisco, nxos, vpc, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '%VPC-[0-9]-.*(SUSP|suspend|inconsistency|peer-link down)'
+        - field: msg
+          op: regex
+          value: '%VPC-[0-9]-.*(SUSP|suspend|inconsistency|peer-link down)'
+
+  - id: NETWORK_CISCO_NXOS_BGP_ADJCHANGE_DOWN
+    signal_key: network_cisco_nxos_bgp_adjchange_down
+    level: critical
+    description: Cisco NX-OS BGP adjacency changed to down state.
+    tags: [vendor, cisco, nxos, bgp, control_plane]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '%BGP-[0-9]-ADJCHANGE:.*(Down|Idle|hold time expired|cease|reset)'
+        - field: msg
+          op: regex
+          value: '%BGP-[0-9]-ADJCHANGE:.*(Down|Idle|hold time expired|cease|reset)'
+
+  - id: NETWORK_CISCO_NXOS_HSRP_DOWN
+    signal_key: network_cisco_nxos_hsrp_down
+    level: warning
+    description: Cisco NX-OS HSRP/first-hop redundancy state degraded.
+    tags: [vendor, cisco, nxos, hsrp, gateway]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '%HSRP-[0-9]-STATECHANGE:.*(Active -> Speak|Active -> Standby|down|Init)'
+        - field: msg
+          op: regex
+          value: '%HSRP-[0-9]-STATECHANGE:.*(Active -> Speak|Active -> Standby|down|Init)'
+

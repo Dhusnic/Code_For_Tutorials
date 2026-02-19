@@ -1,0 +1,10 @@
+service: network
+imports:
+  - ../network/common.yml
+  - ../network/vendors/cisco_ios.yml
+  - ../network/vendors/cisco_nxos.yml
+  - ../network/vendors/juniper_junos.yml
+  - ../network/vendors/arista_eos.yml
+  - ../network/vendors/fortinet_fortios.yml
+rules: []
+

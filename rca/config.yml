@@ -22,6 +22,18 @@ logging:
 
 rules_directory: "rules"
 
+rule_learning:
+  enabled: true
+  mode: "suggest"  # suggest | append
+  output_directory: "rules/suggestions"
+  min_occurrences: 5
+  max_candidates_per_service: 20
+  min_keyword_count: 2
+  max_keywords_per_signal: 4
+  condition_field: "message"
+  condition_op: "contains"
+  level: "critical"
+
 pipeline:
   batch_size: 2000
   worker_count: 1
@@ -57,7 +69,7 @@ pipeline:
   services:
     - name: "nginx"
       enabled: true
-      rule_file: "nginx.yml"
+      rule_file: "services/nginx.yml"
       source_indices:
         - "*"
       start_time: "now-60m"
@@ -66,7 +78,7 @@ pipeline:
           event.module: "nginx"
     - name: "rabbitmq"
       enabled: true
-      rule_file: "rabbitmq.yml"
+      rule_file: "services/rabbitmq.yml"
       source_indices:
         - "*"
       start_time: "now-60m"
@@ -75,7 +87,7 @@ pipeline:
           event.module: "rabbitmq"
     - name: "mongodb"
       enabled: true
-      rule_file: "mongodb.yml"
+      rule_file: "services/mongodb.yml"
       source_indices:
         - "*"
       start_time: "now-60m"
@@ -84,7 +96,7 @@ pipeline:
           event.module: "mongodb"
     - name: "redis"
       enabled: true
-      rule_file: "redis.yml"
+      rule_file: "services/redis.yml"
       source_indices:
         - "*"
       start_time: "now-60m"
@@ -93,7 +105,7 @@ pipeline:
           event.module: "redis"
     - name: "kafka"
       enabled: true
-      rule_file: "kafka.yml"
+      rule_file: "services/kafka.yml"
       source_indices:
         - "*"
       start_time: "now-60m"
@@ -102,7 +114,7 @@ pipeline:
           event.module: "kafka"
     - name: "postgres"
       enabled: true
-      rule_file: "postgres.yml"
+      rule_file: "services/postgres.yml"
       source_indices:
         - "*"
       start_time: "now-60m"
@@ -111,7 +123,7 @@ pipeline:
           event.module: "postgresql"
     # - name: "system"
     #   enabled: true
-    #   rule_file: "system.yml"
+    #   rule_file: "services/system.yml"
     #   source_indices:
     #     - "*"
     #   start_time: "now-60m"
@@ -138,7 +150,7 @@ pipeline:
     #       minimum_should_match: 1
     - name: "auth"
       enabled: true
-      rule_file: "auth.yml"
+      rule_file: "services/auth.yml"
       source_indices:
         - "*"
       start_time: "now-60m"
@@ -156,3 +168,9 @@ pipeline:
             - wildcard:
                 log.file.path: "*/secure*"
           minimum_should_match: 1
+    - name: "network"
+      enabled: true
+      rule_file: "services/network.yml"
+      source_indices:
+        - "network-*"
+      start_time: "now-60m"

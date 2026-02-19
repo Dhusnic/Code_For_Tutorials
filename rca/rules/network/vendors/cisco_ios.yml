@@ -1,0 +1,78 @@
+service: network
+rules:
+  - id: NETWORK_CISCO_IOS_LINK_UPDOWN
+    signal_key: network_cisco_ios_link_updown
+    level: critical
+    description: Cisco IOS reported interface/link transition to down.
+    tags: [vendor, cisco, ios, physical, link]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '%LINK-[0-9]-UPDOWN:.*(down|notconnect|administratively down)'
+        - field: msg
+          op: regex
+          value: '%LINK-[0-9]-UPDOWN:.*(down|notconnect|administratively down)'
+        - field: message
+          op: regex
+          value: '%LINEPROTO-[0-9]-UPDOWN:.*(down|notconnect|administratively down)'
+        - field: msg
+          op: regex
+          value: '%LINEPROTO-[0-9]-UPDOWN:.*(down|notconnect|administratively down)'
+
+  - id: NETWORK_CISCO_IOS_BGP_ADJCHANGE_DOWN
+    signal_key: network_cisco_ios_bgp_adjchange_down
+    level: critical
+    description: Cisco IOS BGP adjacency changed to down.
+    tags: [vendor, cisco, ios, bgp, control_plane]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '%BGP-[0-9]-ADJCHANGE:.*(Down|Idle|reset|hold time expired|notification sent)'
+        - field: msg
+          op: regex
+          value: '%BGP-[0-9]-ADJCHANGE:.*(Down|Idle|reset|hold time expired|notification sent)'
+
+  - id: NETWORK_CISCO_IOS_OSPF_ADJCHANGE_DOWN
+    signal_key: network_cisco_ios_ospf_adjchange_down
+    level: critical
+    description: Cisco IOS OSPF neighbor adjacency changed to a degraded/down state.
+    tags: [vendor, cisco, ios, ospf, control_plane]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '%OSPF-[0-9]-ADJCHG:.*(down|FULL to|LOADING to|EXSTART to|2WAY to)'
+        - field: msg
+          op: regex
+          value: '%OSPF-[0-9]-ADJCHG:.*(down|FULL to|LOADING to|EXSTART to|2WAY to)'
+
+  - id: NETWORK_CISCO_IOS_CONFIG_CHANGE
+    signal_key: network_cisco_ios_config_change
+    level: info
+    description: Cisco IOS configuration change detected.
+    tags: [vendor, cisco, ios, config_change, audit]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: '%SYS-5-CONFIG_I'
+        - field: msg
+          op: contains
+          value: '%SYS-5-CONFIG_I'
+
+  - id: NETWORK_CISCO_IOS_ENV_ALARM
+    signal_key: network_cisco_ios_env_alarm
+    level: critical
+    description: Cisco IOS environmental or hardware alarm event.
+    tags: [vendor, cisco, ios, hardware, thermal, power]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '%(ENVMON|PLATFORM|PWR|PM)-[0-9]-.*(FAIL|FAULT|ALARM|shutdown|overtemperature)'
+        - field: msg
+          op: regex
+          value: '%(ENVMON|PLATFORM|PWR|PM)-[0-9]-.*(FAIL|FAULT|ALARM|shutdown|overtemperature)'
+

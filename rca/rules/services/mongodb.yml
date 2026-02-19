@@ -185,6 +185,34 @@ rules:
           op: contains
           value: InterruptedDueToReplStateChange
 
+  - id: MONGODB_INTERRUPTED_CLIENT_DISCONNECTED
+    signal_key: mongodb_interrupted_client_disconnected
+    level: warning
+    description: Operation interrupted because the client disconnected.
+    tags: [client, disconnect, interrupt]
+    condition:
+      or:
+        - field: msg
+          op: contains
+          value: Interrupted operation as its client disconnected
+        - field: message
+          op: contains
+          value: Interrupted operation as its client disconnected
+
+  - id: MONGODB_ERROR_SENDING_RESPONSE_TO_CLIENT
+    signal_key: mongodb_error_sending_response_to_client
+    level: warning
+    description: MongoDB failed while sending response back to client.
+    tags: [client, network, response, io]
+    condition:
+      or:
+        - field: msg
+          op: contains
+          value: Error sending response to client
+        - field: message
+          op: contains
+          value: Error sending response to client
+
   - id: MONGODB_HOST_UNREACHABLE
     signal_key: mongodb_host_unreachable
     level: critical

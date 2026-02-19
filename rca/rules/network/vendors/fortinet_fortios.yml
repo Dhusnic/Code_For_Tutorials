@@ -1,0 +1,58 @@
+service: network
+rules:
+  - id: NETWORK_FORTINET_FORTIOS_INTERFACE_DOWN
+    signal_key: network_fortinet_fortios_interface_down
+    level: critical
+    description: FortiGate interface/link monitor reported down.
+    tags: [vendor, fortinet, fortios, physical, link]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(logdesc|msg)=.*(interface .* down|link monitor.*down|port.*down)\b'
+        - field: msg
+          op: regex
+          value: '\b(interface .* down|link monitor.*down|port.*down)\b'
+
+  - id: NETWORK_FORTINET_FORTIOS_ROUTING_NEIGHBOR_DOWN
+    signal_key: network_fortinet_fortios_routing_neighbor_down
+    level: critical
+    description: FortiGate dynamic routing neighbor/session down.
+    tags: [vendor, fortinet, fortios, routing, control_plane]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(BGP|OSPF)\b.*\b(neighbor|peer|session)\b.*\b(down|reset|timeout|idle)\b'
+        - field: msg
+          op: regex
+          value: '\b(BGP|OSPF)\b.*\b(neighbor|peer|session)\b.*\b(down|reset|timeout|idle)\b'
+
+  - id: NETWORK_FORTINET_FORTIOS_RESOURCE_HIGH
+    signal_key: network_fortinet_fortios_resource_high
+    level: warning
+    description: FortiGate high CPU/memory utilization warning.
+    tags: [vendor, fortinet, fortios, resource, cpu, memory]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(logdesc|msg)=.*\b(CPU usage high|memory usage high|conserve mode)\b'
+        - field: msg
+          op: regex
+          value: '\b(CPU usage high|memory usage high|conserve mode)\b'
+
+  - id: NETWORK_FORTINET_FORTIOS_DEVICE_REBOOT
+    signal_key: network_fortinet_fortios_device_reboot
+    level: critical
+    description: FortiGate reboot/restart/crash indication.
+    tags: [vendor, fortinet, fortios, lifecycle, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(system reboot|device restart|kernel panic|watchdog)\b'
+        - field: msg
+          op: regex
+          value: '\b(system reboot|device restart|kernel panic|watchdog)\b'
+
