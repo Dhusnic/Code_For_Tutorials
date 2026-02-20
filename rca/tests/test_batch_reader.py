@@ -35,6 +35,10 @@ def test_uses_configured_index_and_stable_sort() -> None:
         {"_shard_doc": {"order": "asc"}},
     ]
     assert client.calls[0]["body"]["track_total_hits"] is False
+    assert client.calls[0]["body"]["query"]["bool"]["must_not"] == [
+        {"term": {"signal_present": True}},
+        {"term": {"signal_present": "true"}},
+    ]
 
 
 def test_ignores_legacy_single_value_checkpoint_sort() -> None:

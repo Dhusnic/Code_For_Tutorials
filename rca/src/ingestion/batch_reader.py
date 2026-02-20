@@ -19,6 +19,7 @@ class BatchReader:
         timestamp_field: str,
         start_time: str,
         base_query: dict[str, Any] | None = None,
+        exclude_already_signaled: bool = True,
     ) -> None:
         self._client = client
         self._index = index
@@ -26,6 +27,7 @@ class BatchReader:
         self._timestamp_field = timestamp_field
         self._start_time = start_time
         self._base_query = base_query
+        self._exclude_already_signaled = exclude_already_signaled
         self._logger = logging.getLogger(self.__class__.__name__)
 
     def iter_hits(self, checkpoint_sort: list[Any] | None = None) -> Iterator[dict[str, Any]]:
@@ -90,11 +92,24 @@ class BatchReader:
         ]
         if self._base_query:
             bool_filter.append(self._base_query)
+        must_not: list[dict[str, Any]] = []
+        if self._exclude_already_signaled:
+            must_not.extend(
+                [
+                    {"term": {"signal_present": True}},
+                    {"term": {"signal_present": "true"}},
+                ]
+            )
 
         body: dict[str, Any] = {
             "size": self._batch_size,
             "track_total_hits": False,
-            "query": {"bool": {"filter": bool_filter}},
+            "query": {
+                "bool": {
+                    "filter": bool_filter,
+                    "must_not": must_not,
+                }
+            },
             "sort": [
                 {self._timestamp_field: {"order": "asc"}},
                 {"_shard_doc": {"order": "asc"}},

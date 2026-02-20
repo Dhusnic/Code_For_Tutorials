@@ -19,6 +19,7 @@ from src.rules.rule_engine import RuleEngine
 from src.rules.rule_loader import RuleLoader
 from src.state.checkpoint_store import CheckpointStoreBase
 from src.utils.dicts import get_nested
+from src.writer.action_batcher import ActionBatcher
 from src.writer.async_bulk_writer import AsyncBulkWriter
 from src.writer.bulk_updater import BulkActionFactory
 
@@ -50,6 +51,20 @@ class SignalEnrichmentService:
             worker_count=max(1, int(self._config.pipeline.bulk_worker_count)),
             queue_size=max(1, int(self._config.pipeline.bulk_queue_size)),
             logger=self._logger,
+            autoscaling_enabled=bool(self._config.pipeline.bulk_autoscaling_enabled),
+            min_worker_count=max(1, int(self._config.pipeline.bulk_autoscaling_min_workers)),
+            max_worker_count=max(1, int(self._config.pipeline.bulk_autoscaling_max_workers)),
+            scale_up_queue_ratio=float(self._config.pipeline.bulk_autoscaling_scale_up_queue_ratio),
+            scale_down_queue_ratio=float(self._config.pipeline.bulk_autoscaling_scale_down_queue_ratio),
+            cpu_limit_percent=float(self._config.pipeline.bulk_autoscaling_cpu_limit_percent),
+            memory_limit_percent=float(self._config.pipeline.bulk_autoscaling_memory_limit_percent),
+            autoscale_check_interval_seconds=float(self._config.pipeline.bulk_autoscaling_check_interval_seconds),
+            autoscale_cooldown_seconds=float(self._config.pipeline.bulk_autoscaling_cooldown_seconds),
+            spool_enabled=bool(self._config.pipeline.bulk_spool_enabled),
+            spool_directory=str(self._config.pipeline.bulk_spool_directory),
+            spool_max_bytes=int(self._config.pipeline.bulk_spool_max_bytes),
+            spool_replay_interval_seconds=float(self._config.pipeline.bulk_spool_replay_interval_seconds),
+            queue_enqueue_timeout_seconds=float(self._config.pipeline.bulk_queue_enqueue_timeout_seconds),
         )
         self._validate_runtime_config()
 
@@ -176,20 +191,31 @@ class SignalEnrichmentService:
             timestamp_field=self._config.pipeline.timestamp_field,
             start_time=start_time,
             base_query=service.query,
+            exclude_already_signaled=True,
         )
 
-        actions: list[dict[str, Any]] = []
+        batcher = ActionBatcher(
+            max_actions=effective_batch_size,
+            max_bytes=max(1, int(self._config.pipeline.bulk_max_batch_bytes)),
+        )
         processed = 0
         taken_events = 0
         matched_events = 0
         unmatched_events = 0
+        skipped_already_signaled_events = 0
         latest_sort: list[Any] | None = checkpoint
         latest_event_at: datetime | None = None
         destination_indices_seen: set[str] = set()
 
         for hit in reader.iter_hits(checkpoint_sort=checkpoint):
             taken_events += 1
+            latest_sort = hit.get("sort", latest_sort)
+            source_event_index = hit.get("_index", index_name)
             source_doc = hit.get("_source", {})
+            if self._is_already_signaled_doc(source_doc):
+                skipped_already_signaled_events += 1
+                continue
+
             event_ts = self._extract_event_timestamp(source_doc)
             if event_ts and (latest_event_at is None or event_ts > latest_event_at):
                 latest_event_at = event_ts
@@ -202,10 +228,8 @@ class SignalEnrichmentService:
             )
             selected_signal = signals[0] if signals else None
             matched_rule_ids = [selected_signal["rule_id"]] if selected_signal else []
-            source_event_index = hit.get("_index", index_name)
             destination_indices = self._resolve_destination_indices(source_event_index)
             destination_indices_seen.update(destination_indices)
-            latest_sort = hit.get("sort", latest_sort)
 
             if selected_signal:
                 matched_events += 1
@@ -219,7 +243,9 @@ class SignalEnrichmentService:
                         selected_signal=selected_signal,
                         use_source_id=destination_index == source_event_index,
                     )
-                    actions.append(action)
+                    flushed = batcher.add(action)
+                    if flushed:
+                        self._enqueue_actions(flushed)
                     processed += 1
                 self._logger.debug(
                     "Signal added for event",
@@ -249,12 +275,9 @@ class SignalEnrichmentService:
             else:
                 unmatched_events += 1
 
-            if len(actions) >= effective_batch_size:
-                self._enqueue_actions(actions)
-                actions = []
-
-        if actions:
-            self._enqueue_actions(actions)
+        remaining = batcher.flush_remaining()
+        if remaining:
+            self._enqueue_actions(remaining)
 
         if latest_sort:
             self._checkpoint_store.set(service.name, index_name, latest_sort)
@@ -271,9 +294,11 @@ class SignalEnrichmentService:
                 "target_indices_count": len(destination_indices_seen),
                 "target_indices_sample": sorted(list(destination_indices_seen))[:5],
                 "batch_size_used": effective_batch_size,
+                "bulk_max_batch_bytes": int(self._config.pipeline.bulk_max_batch_bytes),
                 "total_taken_from_index": taken_events,
                 "matched_events": matched_events,
                 "unmatched_events": unmatched_events,
+                "skipped_already_signaled_events": skipped_already_signaled_events,
                 "total_processed": processed,
                 "lag_seconds": lag_seconds,
             },
@@ -432,7 +457,17 @@ class SignalEnrichmentService:
         ]
         if service.query:
             bool_filter.append(service.query)
-        return {"query": {"bool": {"filter": bool_filter}}}
+        return {
+            "query": {
+                "bool": {
+                    "filter": bool_filter,
+                    "must_not": [
+                        {"term": {"signal_present": True}},
+                        {"term": {"signal_present": "true"}},
+                    ],
+                }
+            }
+        }
 
     def _resolve_destination_indices(self, source_index: str) -> list[str]:
         destinations: list[str] = []
@@ -441,11 +476,24 @@ class SignalEnrichmentService:
             destinations.append(source_index)
 
         if self._config.pipeline.write_to_target_index:
-            target_index = f"{source_index}{self._config.pipeline.target_suffix}"
+            suffix = self._config.pipeline.target_suffix
+            target_index = source_index if source_index.endswith(suffix) else f"{source_index}{suffix}"
             if target_index not in destinations:
                 destinations.append(target_index)
 
         return destinations
+
+    @staticmethod
+    def _is_already_signaled_doc(source_doc: dict[str, Any]) -> bool:
+        """Return True when event already has signal marker."""
+        value = source_doc.get("signal_present")
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value == 1
+        if isinstance(value, str):
+            return value.strip().lower() in {"true", "1", "yes"}
+        return False
 
     def _emit_autoscaling_metrics(
         self,

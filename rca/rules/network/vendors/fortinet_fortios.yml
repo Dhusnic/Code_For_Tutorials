@@ -3,16 +3,16 @@ rules:
   - id: NETWORK_FORTINET_FORTIOS_INTERFACE_DOWN
     signal_key: network_fortinet_fortios_interface_down
     level: critical
-    description: FortiGate interface/link monitor reported down.
+    description: FortiGate interface or link monitor reported down.
     tags: [vendor, fortinet, fortios, physical, link]
     condition:
       or:
         - field: message
           op: regex
-          value: '\b(logdesc|msg)=.*(interface .* down|link monitor.*down|port.*down)\b'
+          value: '(interface .* down|link monitor.*down|port.*down)'
         - field: msg
           op: regex
-          value: '\b(interface .* down|link monitor.*down|port.*down)\b'
+          value: '(interface .* down|link monitor.*down|port.*down)'
 
   - id: NETWORK_FORTINET_FORTIOS_ROUTING_NEIGHBOR_DOWN
     signal_key: network_fortinet_fortios_routing_neighbor_down
@@ -28,6 +28,42 @@ rules:
           op: regex
           value: '\b(BGP|OSPF)\b.*\b(neighbor|peer|session)\b.*\b(down|reset|timeout|idle)\b'
 
+  - id: NETWORK_FORTINET_FORTIOS_VPN_TUNNEL_DOWN
+    signal_key: network_fortinet_fortios_vpn_tunnel_down
+    level: critical
+    description: FortiGate IPsec/SSL VPN tunnel down or negotiation failed.
+    tags: [vendor, fortinet, fortios, vpn, availability]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '(subtype=\"vpn\"|ipsec|ike)'
+            - field: msg
+              op: regex
+              value: '(subtype=\"vpn\"|ipsec|ike)'
+        - or:
+            - field: message
+              op: regex
+              value: '(down|failed|phase1.*fail|phase2.*fail|negotiation failed)'
+            - field: msg
+              op: regex
+              value: '(down|failed|phase1.*fail|phase2.*fail|negotiation failed)'
+
+  - id: NETWORK_FORTINET_FORTIOS_CONSERVE_MODE
+    signal_key: network_fortinet_fortios_conserve_mode
+    level: critical
+    description: FortiGate entered conserve mode due to memory pressure.
+    tags: [vendor, fortinet, fortios, memory, resource]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(logid=\"0100022011\"|conserve mode)'
+        - field: msg
+          op: regex
+          value: '(logid=\"0100022011\"|conserve mode)'
+
   - id: NETWORK_FORTINET_FORTIOS_RESOURCE_HIGH
     signal_key: network_fortinet_fortios_resource_high
     level: warning
@@ -37,10 +73,60 @@ rules:
       or:
         - field: message
           op: regex
-          value: '\b(logdesc|msg)=.*\b(CPU usage high|memory usage high|conserve mode)\b'
+          value: '(CPU usage high|memory usage high|resource.*high)'
         - field: msg
           op: regex
-          value: '\b(CPU usage high|memory usage high|conserve mode)\b'
+          value: '(CPU usage high|memory usage high|resource.*high)'
+
+  - id: NETWORK_FORTINET_FORTIOS_TRAFFIC_BLOCKED
+    signal_key: network_fortinet_fortios_traffic_blocked
+    level: warning
+    description: FortiGate blocked or denied traffic.
+    tags: [vendor, fortinet, fortios, security_policy]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '(type=\"traffic\"|subtype=\"forward\")'
+            - field: msg
+              op: regex
+              value: '(type=\"traffic\"|subtype=\"forward\")'
+        - or:
+            - field: message
+              op: regex
+              value: '(action=\"deny\"|action=\"drop\"|action=\"blocked\")'
+            - field: msg
+              op: regex
+              value: '(action=\"deny\"|action=\"drop\"|action=\"blocked\")'
+
+  - id: NETWORK_FORTINET_FORTIOS_ADMIN_LOGIN_FAILED
+    signal_key: network_fortinet_fortios_admin_login_failed
+    level: warning
+    description: FortiGate administrator login failed.
+    tags: [vendor, fortinet, fortios, aaa, authentication]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Administrator login failed|admin login failed|auth failed)'
+        - field: msg
+          op: regex
+          value: '(Administrator login failed|admin login failed|auth failed)'
+
+  - id: NETWORK_FORTINET_FORTIOS_CONFIG_CHANGE
+    signal_key: network_fortinet_fortios_config_change
+    level: info
+    description: FortiGate configuration change detected.
+    tags: [vendor, fortinet, fortios, config_change, audit]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Configuration changed|cfg changed|execute backup config|Admin login successful)'
+        - field: msg
+          op: regex
+          value: '(Configuration changed|cfg changed|execute backup config|Admin login successful)'
 
   - id: NETWORK_FORTINET_FORTIOS_DEVICE_REBOOT
     signal_key: network_fortinet_fortios_device_reboot
@@ -55,4 +141,3 @@ rules:
         - field: msg
           op: regex
           value: '\b(system reboot|device restart|kernel panic|watchdog)\b'
-

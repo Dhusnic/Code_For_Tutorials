@@ -1,0 +1,358 @@
+{
+  "version": 1,
+  "target": {
+    "host": "10.0.4.132",
+    "port": 5046,
+    "proto": "udp",
+    "tcp_framing": "newline",
+    "connect_timeout_s": 5.0,
+    "reconnect_delay_s": 1.0
+  },
+  "runtime": {
+    "rate": 5.0,
+    "batch_size": 25,
+    "count": 0,
+    "dry_run": false,
+    "include_pri": true,
+    "timestamp_timezone": "local",
+    "random_seed": 42
+  },
+  "categories": {
+    "switch": true,
+    "router": true,
+    "firewall": true,
+    "loadbalancer": true,
+    "security-appliance": true,
+    "wireless": true,
+    "other": true
+  },
+  "defaults": {
+    "facility": 23
+  },
+  "severity_weights": {
+    "critical": 0.30,
+    "error": 0.50,
+    "warning": 0.15,
+    "info": 0.05
+  },
+  "seed": {
+    "private_ips": ["10.0.0.10", "10.0.10.25", "10.34.195.36", "192.168.88.90", "172.16.50.10"],
+    "public_ips": ["1.1.1.1", "8.8.8.8", "9.9.9.9", "216.58.220.46"],
+    "usernames": ["admin", "netops", "secops", "vty2"],
+    "domains": ["example.com", "corp.example", "test.local"],
+    "interfaces": {
+      "cisco_ios": ["GigabitEthernet0/1", "GigabitEthernet0/2", "Port-channel1", "Vlan1"],
+      "juniper_srx": ["ge-0/0/0.0", "ge-0/0/1.0", "st0.0"],
+      "arista_eos": ["Ethernet1", "Ethernet23", "Port-Channel6"],
+      "mikrotik_ros": ["ether1", "ether8", "bridge", "vlan10"],
+      "f5_bigip": ["tmm", "mcpd", "sod"],
+      "default": ["eth0", "eth1"]
+    },
+    "zones": ["trust", "untrust", "inside", "outside"],
+    "policies": ["default-deny", "policy-deny", "Allow-Internet", "Cleanup rule"],
+    "apps": ["junos-ssh", "junos-dns-udp", "web-browsing", "ssl"],
+    "messages": ["test message from console", "authentication failed", "disk usage high"]
+  },
+  "vendors": {
+    "cisco_ios": {
+      "display_name": "Cisco IOS/NX-OS style",
+      "default_facility": 23,
+      "default_severity_weights": { "critical": 0.20, "error": 0.60, "warning": 0.15, "info": 0.05 },
+      "templates": [
+        {
+          "id": "link_updown",
+          "envelope": "rfc3164",
+          "severity": "error",
+          "categories": ["switch", "router", "wireless"],
+          "message": "%LINK-3-UPDOWN: Interface {{iface}}, changed state to {{state}}",
+          "weight": 2.0
+        },
+        {
+          "id": "lineproto_updown",
+          "envelope": "rfc3164",
+          "severity": "warning",
+          "categories": ["switch", "router"],
+          "message": "%LINEPROTO-5-UPDOWN: Line protocol on Interface {{iface}}, changed state to {{state}}",
+          "weight": 1.5
+        },
+        {
+          "id": "config_i",
+          "envelope": "rfc3164",
+          "severity": "info",
+          "categories": ["switch", "router"],
+          "message": "%SYS-5-CONFIG_I: Configured from console by {{username}} ({{src_ip}})",
+          "weight": 0.8
+        },
+        {
+          "id": "mallocfail",
+          "envelope": "rfc3164",
+          "severity": "critical",
+          "categories": ["switch", "router"],
+          "message": "%SYS-2-MALLOCFAIL: Memory allocation of {{bytes}} bytes failed from 0x{{hex}}, alignment 0",
+          "weight": 0.6
+        }
+      ]
+    },
+    "juniper_srx": {
+      "display_name": "Juniper SRX RT_FLOW style",
+      "default_facility": 23,
+      "default_severity_weights": { "critical": 0.25, "error": 0.55, "warning": 0.15, "info": 0.05 },
+      "templates": [
+        {
+          "id": "rt_flow_deny",
+          "envelope": "rfc3164",
+          "severity": "error",
+          "categories": ["firewall", "security-appliance"],
+          "message": "RT_FLOW: RT_FLOW_SESSION_DENY: session denied {{src_ip}}/{{src_port}}->{{dst_ip_public}}/{{dst_port}} {{app}} {{proto_num}}(0) {{policy}} {{zone_src}} {{zone_dst}} UNKNOWN UNKNOWN N/A(N/A) {{iface}} UNKNOWN policy deny",
+          "weight": 2.0
+        },
+        {
+          "id": "rt_flow_create",
+          "envelope": "rfc3164",
+          "severity": "info",
+          "categories": ["firewall", "security-appliance"],
+          "message": "RT_FLOW: RT_FLOW_SESSION_CREATE: session created {{src_ip}}/{{src_port}}->{{dst_ip_public}}/{{dst_port}} {{app}} {{proto_num}}(0) {{policy}} {{zone_src}} {{zone_dst}} {{iface}}",
+          "weight": 0.6
+        }
+      ]
+    },
+    "fortigate": {
+      "display_name": "FortiGate key=value style",
+      "default_facility": 23,
+      "default_severity_weights": { "critical": 0.25, "error": 0.55, "warning": 0.15, "info": 0.05 },
+      "templates": [
+        {
+          "id": "utm_appctrl_error",
+          "envelope": "rfc3164",
+          "severity": "error",
+          "categories": ["firewall", "security-appliance"],
+          "message": "date={{date}} time={{time}} logid=\"0100022920\" type=\"utm\" subtype=\"app-ctrl\" level=\"error\" devid=\"{{device_id}}\" vd=\"root\" eventtime={{eventtime}} tz=\"+0000\" srcip={{src_ip}} srcport={{src_port}} dstip={{dst_ip_public}} dstport={{dst_port}} proto={{proto_num}} service=\"{{app}}\" action=\"blocked\" msg=\"Application control blocked\"",
+          "weight": 1.2
+        },
+        {
+          "id": "system_critical",
+          "envelope": "rfc3164",
+          "severity": "critical",
+          "categories": ["firewall", "security-appliance"],
+          "message": "date={{date}} time={{time}} logid=\"0100032001\" type=\"event\" subtype=\"system\" level=\"critical\" devid=\"{{device_id}}\" vd=\"root\" eventtime={{eventtime}} tz=\"+0000\" msg=\"CPU usage high\"",
+          "weight": 0.6
+        }
+      ]
+    },
+    "paloalto": {
+      "display_name": "Palo Alto CSV syslog style",
+      "default_facility": 23,
+      "default_severity_weights": { "critical": 0.20, "error": 0.50, "warning": 0.20, "info": 0.10 },
+      "templates": [
+        {
+          "id": "traffic_csv",
+          "envelope": "rfc3164",
+          "categories": ["firewall"],
+          "message": "{{pa_receive_time}},{{serial}},TRAFFIC,end,{{severity}},{{src_ip}},{{dst_ip_public}},{{src_port}},{{dst_port}},{{proto}},{{action}},{{policy}},{{zone_src}},{{zone_dst}},{{app}},{{url}}",
+          "weight": 1.0
+        }
+      ]
+    },
+    "f5_bigip": {
+      "display_name": "F5 BIG-IP syslog style",
+      "default_facility": 16,
+      "default_severity_weights": { "critical": 0.20, "error": 0.50, "warning": 0.20, "info": 0.10 },
+      "templates": [
+        {
+          "id": "tmm_caught_signal",
+          "envelope": "rfc3164",
+          "severity": "error",
+          "categories": ["loadbalancer"],
+          "message": "notice tmm[{{pid}}]: 01010019:5: Caught signal 2, exiting",
+          "weight": 1.0
+        },
+        {
+          "id": "pool_member_down",
+          "envelope": "rfc3164",
+          "severity": "error",
+          "categories": ["loadbalancer"],
+          "static_ctx": { "pool": "app_pool_1" },
+          "message": "notice mcpd[{{pid}}]: 01070638:5: Pool /Common/{{pool}} member /Common/{{dst_ip_private}}:{{dst_port}} monitor status down.",
+          "weight": 1.2
+        }
+      ]
+    },
+    "checkpoint": {
+      "display_name": "Check Point RFC5424 style",
+      "default_facility": 23,
+      "default_severity_weights": { "critical": 0.25, "error": 0.55, "warning": 0.15, "info": 0.05 },
+      "templates": [
+        {
+          "id": "cp_drop_rfc5424",
+          "envelope": "rfc5424",
+          "severity": "error",
+          "categories": ["security-appliance", "firewall"],
+          "message": "action=Drop rule={{policy}} src={{src_ip}} dst={{dst_ip_public}} spt={{src_port}} dpt={{dst_port}} proto={{proto}} user={{username}}",
+          "rfc5424": {
+            "app": "cpLogExporter",
+            "procid": "-",
+            "msgid": "drop",
+            "structured_data": "[cp@2620 action=\"Drop\" rule=\"{{policy}}\" src=\"{{src_ip}}\" dst=\"{{dst_ip_public}}\" spt=\"{{src_port}}\" dpt=\"{{dst_port}}\" proto=\"{{proto}}\" user=\"{{username}}\"]"
+          },
+          "weight": 1.0
+        },
+        {
+          "id": "cp_leef_payload_over_syslog",
+          "envelope": "rfc3164",
+          "severity": "error",
+          "categories": ["security-appliance"],
+          "message": "LEEF:2.0|Check Point|Log Exporter|R81|1001|src={{src_ip}}\tdst={{dst_ip_public}}\tsev={{severity_num}}\tusrName={{username}}\tcat={{policy}}\taction={{action}}",
+          "weight": 0.6
+        }
+      ]
+    },
+    "arista_eos": {
+      "display_name": "Arista EOS syslog mnemonics",
+      "default_facility": 23,
+      "default_severity_weights": { "critical": 0.15, "error": 0.35, "warning": 0.30, "info": 0.20 },
+      "templates": [
+        {
+          "id": "sys_logmsg_alert",
+          "envelope": "rfc3164",
+          "severity": "critical",
+          "categories": ["switch"],
+          "message": "Cli: %SYS-1-LOGMSG_ALERT: Message from {{username}} on con0 ({{src_ip}}): {{msg_text}}",
+          "weight": 0.8
+        },
+        {
+          "id": "sand_serdes_withdrawn",
+          "envelope": "rfc3164",
+          "severity": "warning",
+          "categories": ["switch"],
+          "message": "%SAND-4-SERDES_WITHDRAWN_FROM_FABRIC: Serdes withdrawn from the switch fabric.",
+          "weight": 1.0
+        }
+      ]
+    },
+    "mikrotik_ros": {
+      "display_name": "MikroTik RouterOS topics style",
+      "default_facility": 3,
+      "default_severity_weights": { "critical": 0.10, "error": 0.25, "warning": 0.25, "info": 0.40 },
+      "templates": [
+        {
+          "id": "firewall_drop",
+          "envelope": "rfc3164",
+          "severity": "warning",
+          "categories": ["router", "wireless"],
+          "message": "firewall,info input: in:{{iface}} out:(none), src-mac {{src_mac}}, proto {{proto}}, {{src_ip}}:{{src_port}}->{{dst_ip_public}}:{{dst_port}}, len {{pkt_len}}",
+          "weight": 1.0
+        },
+        {
+          "id": "account_login",
+          "envelope": "rfc3164",
+          "severity": "info",
+          "categories": ["router", "wireless"],
+          "message": "system,info,account user {{username}} logged in from {{src_ip}} via ssh",
+          "weight": 0.6
+        }
+      ]
+    }
+  },
+  "devices": [
+    {
+      "id": "cisco-switch-1",
+      "vendor": "cisco_ios",
+      "hostname": "C9300-EDGE",
+      "device_id": "FOC1234A1BC",
+      "serial": "FOC1234A1BC",
+      "devicetype": "switch",
+      "category": "switch",
+      "facility": 23
+    },
+    {
+      "id": "cisco-router-1",
+      "vendor": "cisco_ios",
+      "hostname": "ISR-EDGE-1",
+      "device_id": "FTX9876Z9XY",
+      "serial": "FTX9876Z9XY",
+      "devicetype": "router",
+      "category": "router",
+      "facility": 23
+    },
+    {
+      "id": "juniper-srx-1",
+      "vendor": "juniper_srx",
+      "hostname": "SRX-DC-1",
+      "device_id": "JNPRSRX0001",
+      "serial": "JNPRSRX0001",
+      "devicetype": "firewall",
+      "category": "firewall",
+      "facility": 23
+    },
+    {
+      "id": "fortigate-1",
+      "vendor": "fortigate",
+      "hostname": "FGT-EDGE-1",
+      "device_id": "FGT60E3X19000001",
+      "serial": "FGT60E3X19000001",
+      "devicetype": "security-appliance",
+      "category": "security-appliance",
+      "facility": 23
+    },
+    {
+      "id": "paloalto-1",
+      "vendor": "paloalto",
+      "hostname": "PA-VM-1",
+      "device_id": "0123456789",
+      "serial": "0123456789",
+      "devicetype": "firewall",
+      "category": "firewall",
+      "facility": 23
+    },
+    {
+      "id": "f5-1",
+      "vendor": "f5_bigip",
+      "hostname": "BIGIP-1",
+      "device_id": "F5BIGIP0001",
+      "serial": "F5BIGIP0001",
+      "devicetype": "loadbalancer",
+      "category": "loadbalancer",
+      "facility": 16
+    },
+    {
+      "id": "checkpoint-1",
+      "vendor": "checkpoint",
+      "hostname": "CP-GW-1",
+      "device_id": "CPR81GW0001",
+      "serial": "CPR81GW0001",
+      "devicetype": "security-appliance",
+      "category": "security-appliance",
+      "facility": 23
+    },
+    {
+      "id": "arista-1",
+      "vendor": "arista_eos",
+      "hostname": "ARISTA-LEAF-1",
+      "device_id": "JPE123456789",
+      "serial": "JPE123456789",
+      "devicetype": "switch",
+      "category": "switch",
+      "facility": 23
+    },
+    {
+      "id": "mikrotik-1",
+      "vendor": "mikrotik_ros",
+      "hostname": "MTK-EDGE-1",
+      "device_id": "MTK0001",
+      "serial": "MTK0001",
+      "devicetype": "router",
+      "category": "router",
+      "facility": 3
+    },
+    {
+      "id": "mikrotik-ap-1",
+      "vendor": "mikrotik_ros",
+      "hostname": "MTK-AP-1",
+      "device_id": "MTKAP0001",
+      "serial": "MTKAP0001",
+      "devicetype": "wireless",
+      "category": "wireless",
+      "facility": 3
+    }
+  ]
+}

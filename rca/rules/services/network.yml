@@ -6,5 +6,8 @@ imports:
   - ../network/vendors/juniper_junos.yml
   - ../network/vendors/arista_eos.yml
   - ../network/vendors/fortinet_fortios.yml
+  - ../network/vendors/checkpoint.yml
+  - ../network/vendors/paloalto_panos.yml
+  - ../network/vendors/f5_bigip.yml
+  - ../network/vendors/mikrotik_ros.yml
 rules: []
-

@@ -28,6 +28,28 @@ rules:
           op: regex
           value: '%BGP-[0-9]-ADJCHANGE:.*(Down|Idle|Reset|hold time expired)'
 
+  - id: NETWORK_ARISTA_EOS_BFD_SESSION_DOWN
+    signal_key: network_arista_eos_bfd_session_down
+    level: critical
+    description: Arista EOS BFD session down.
+    tags: [vendor, arista, eos, bfd, control_plane]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: contains
+              value: BFD
+            - field: msg
+              op: contains
+              value: BFD
+        - or:
+            - field: message
+              op: regex
+              value: '(down|session down|timed out)'
+            - field: msg
+              op: regex
+              value: '(down|session down|timed out)'
+
   - id: NETWORK_ARISTA_EOS_MLAG_PEER_ISSUE
     signal_key: network_arista_eos_mlag_peer_issue
     level: critical
@@ -42,6 +64,48 @@ rules:
           op: regex
           value: '\b(MLAG|peer-link)\b.*\b(down|inactive|mismatch|disabled)\b'
 
+  - id: NETWORK_ARISTA_EOS_STP_EVENT
+    signal_key: network_arista_eos_stp_event
+    level: warning
+    description: Arista EOS spanning-tree topology/state event detected.
+    tags: [vendor, arista, eos, stp, layer2]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(SPANTREE|STP).*(change|blocking|inconsistent|loop)'
+        - field: msg
+          op: regex
+          value: '(SPANTREE|STP).*(change|blocking|inconsistent|loop)'
+
+  - id: NETWORK_ARISTA_EOS_ENV_ALARM
+    signal_key: network_arista_eos_env_alarm
+    level: critical
+    description: Arista EOS hardware environment alarm.
+    tags: [vendor, arista, eos, hardware, thermal, power]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(temperature|thermal|power|fan).*(critical|alarm|shutdown|failed)'
+        - field: msg
+          op: regex
+          value: '(temperature|thermal|power|fan).*(critical|alarm|shutdown|failed)'
+
+  - id: NETWORK_ARISTA_EOS_AGENT_CRASH
+    signal_key: network_arista_eos_agent_crash
+    level: critical
+    description: Arista EOS daemon/agent crash or restart indication.
+    tags: [vendor, arista, eos, process, crash]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(daemon|agent).*(crash|terminated|restarted|core)'
+        - field: msg
+          op: regex
+          value: '(daemon|agent).*(crash|terminated|restarted|core)'
+
   - id: NETWORK_ARISTA_EOS_CONFIG_CHANGE
     signal_key: network_arista_eos_config_change
     level: info
@@ -55,4 +119,3 @@ rules:
         - field: msg
           op: regex
           value: '\b(configured from|configuration saved|copy running-config startup-config)\b'
-

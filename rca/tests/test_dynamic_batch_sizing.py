@@ -78,8 +78,13 @@ def test_dynamic_mode_uses_recent_events_per_second(tmp_path) -> None:
     # eps = 30000/20 = 1500; batch = eps * 2.0 = 3000, clamped to [500, 5000]
     assert batch == 3000
     assert client.calls[0]["index"] == "linux-*"
-    filters = client.calls[0]["body"]["query"]["bool"]["filter"]
+    query_bool = client.calls[0]["body"]["query"]["bool"]
+    filters = query_bool["filter"]
     assert {"term": {"event.module": "nginx"}} in filters
+    assert query_bool["must_not"] == [
+        {"term": {"signal_present": True}},
+        {"term": {"signal_present": "true"}},
+    ]
 
 
 def test_dynamic_mode_falls_back_to_static_on_error(tmp_path) -> None:
