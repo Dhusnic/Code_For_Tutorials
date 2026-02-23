@@ -37,7 +37,11 @@ class SignalEnrichmentService:
         self._config = config
         self._checkpoint_store = checkpoint_store
         self._rule_loader = RuleLoader(config.rules_directory)
-        self._rule_engine = RuleEngine()
+        self._rule_engine = RuleEngine(
+            vendor_anchor_enforcement_enabled=bool(
+                self._config.pipeline.vendor_anchor_enforcement_enabled
+            )
+        )
         self._rule_learner = AutoRuleLearner(
             config=self._config.rule_learning,
             rules_directory=self._config.rules_directory,

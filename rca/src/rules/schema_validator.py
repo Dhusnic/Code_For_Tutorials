@@ -77,8 +77,8 @@ class RuleSchemaValidator:
         self._validate_condition_leaf(node, prefix)
 
     def _validate_logical_group(self, nodes: Any, prefix: str) -> None:
-        if not isinstance(nodes, list) or len(nodes) < 2:
-            raise ValueError(f"{prefix} must be a list with at least 2 conditions")
+        if not isinstance(nodes, list) or len(nodes) < 1:
+            raise ValueError(f"{prefix} must be a list with at least 1 condition")
         for idx, child in enumerate(nodes):
             self._validate_condition_node(child, f"{prefix}[{idx}]")
 

@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
 
 from src.rules.models import ConditionNode, RuleCondition, RuleConditionGroup, RuleSet, SignalRule
+from src.rules.vendor_anchors import VendorAnchorSnapshot, infer_rule_vendor
 from src.utils.dicts import get_nested
 
 
 class RuleEngine:
     """Evaluate all rules and return matching signals."""
+
+    def __init__(self, *, vendor_anchor_enforcement_enabled: bool = True) -> None:
+        self._vendor_anchor_enforcement_enabled = bool(vendor_anchor_enforcement_enabled)
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def evaluate(
         self,
@@ -23,8 +29,9 @@ class RuleEngine:
     ) -> list[dict[str, Any]]:
         """Return all matched signals for the provided event."""
         scored_matches: list[tuple[int, int, dict[str, Any]]] = []
+        vendor_snapshot = self._build_vendor_snapshot(event)
         for rule in rule_set.rules:
-            matched, matched_count = self._matches_rule(event, rule)
+            matched, matched_count = self._matches_rule(event, rule, vendor_snapshot)
             if not matched:
                 continue
             severity = self._severity_rank(rule.level)
@@ -61,6 +68,14 @@ class RuleEngine:
             return signals[:max_signals]
         return signals
 
+    def _build_vendor_snapshot(self, event: dict[str, Any]) -> VendorAnchorSnapshot:
+        """Safely build vendor hint snapshot for one event."""
+        try:
+            return VendorAnchorSnapshot.from_event(event)
+        except Exception:
+            self._logger.exception("Failed building vendor anchor snapshot; continuing without anchors")
+            return VendorAnchorSnapshot(strict_values=(), soft_values=())
+
     @classmethod
     def _prefer_specific_matches(
         cls,
@@ -85,7 +100,16 @@ class RuleEngine:
         signal_key = str(signal.get("signal", "")).strip().lower()
         return signal_key.endswith("_unclassified_failure")
 
-    def _matches_rule(self, event: dict[str, Any], rule: SignalRule) -> tuple[bool, int]:
+    def _matches_rule(
+        self,
+        event: dict[str, Any],
+        rule: SignalRule,
+        vendor_snapshot: VendorAnchorSnapshot,
+    ) -> tuple[bool, int]:
+        if self._vendor_anchor_enforcement_enabled and vendor_snapshot.has_strict_hints:
+            vendor = infer_rule_vendor(rule.tags)
+            if vendor is not None and not vendor_snapshot.matches_vendor(vendor):
+                return False, 0
         if not rule.condition:
             return False, 0
         return self._matches_node(event, rule.condition)

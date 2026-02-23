@@ -1,4 +1,4 @@
-# RCA Engine Configuration
+﻿# RCA Engine Configuration
 # Supported readable units:
 # - Size: B, KB, MB, GB, TB (binary base 1024)
 # - Duration: ms, s, m, h, d
@@ -35,7 +35,7 @@ checkpoints:
 
 logging:
   # Global log level. Use DEBUG only during troubleshooting.
-  level: "INFO"
+  level: "DEBUG"
   # Emit structured JSON logs (recommended for production ingestion).
   json: true
   # Log unmatched events at debug-level details; can create high log volume.
@@ -73,9 +73,9 @@ pipeline:
   bulk_max_batch_bytes: "8MB"
 
   # Number of horizontal RCA instances expected for deterministic partitioning.
-  worker_count: 1
+  worker_count: 2
   # Current instance ID in range [0, worker_count-1].
-  worker_id: 0
+  worker_id: 1
 
   # Initial number of async bulk writer threads.
   bulk_worker_count: 4

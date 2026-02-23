@@ -1,4 +1,4 @@
-# RCA Engine Configuration
+﻿# RCA Engine Configuration
 # Supported readable units:
 # - Size: B, KB, MB, GB, TB (binary base 1024)
 # - Duration: ms, s, m, h, d
@@ -73,7 +73,7 @@ pipeline:
   bulk_max_batch_bytes: "8MB"
 
   # Number of horizontal RCA instances expected for deterministic partitioning.
-  worker_count: 1
+  worker_count: 2
   # Current instance ID in range [0, worker_count-1].
   worker_id: 0
 

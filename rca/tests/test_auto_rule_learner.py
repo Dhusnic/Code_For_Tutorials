@@ -137,3 +137,37 @@ def test_append_mode_writes_to_main_rule_file(tmp_path: Path) -> None:
     assert len(payload["rules"]) == 2
     assert payload["rules"][-1]["signal_key"].startswith("auth_auto_")
 
+
+def test_extracts_embedded_msg_for_condition_filter(tmp_path: Path) -> None:
+    rules_dir = tmp_path / "rules"
+    suggestions_dir = tmp_path / "rules" / "suggestions"
+    config = RuleLearningConfig(
+        enabled=True,
+        mode="suggest",
+        output_directory=str(suggestions_dir),
+        min_occurrences=2,
+        max_candidates_per_service=10,
+        min_keyword_count=2,
+        max_keywords_per_signal=4,
+    )
+    learner = AutoRuleLearner(
+        config=config,
+        rules_directory=str(rules_dir),
+        service_rule_files={"network": "network.yml"},
+    )
+    event_message = (
+        '<187>Feb 20 12:16:41 FGT-EDGE-1 date=2026-02-20 time=12:16:41 '
+        'logid="0100022920" type="utm" subtype="app-ctrl" level="error" '
+        'devid="FGT60E3X19000001" vd="root" eventtime=1771570001785 tz="+0000" '
+        'srcip=10.34.195.36 srcport=40308 dstip=8.8.8.8 dstport=161 proto=17 '
+        'service="web-browsing" action="blocked" msg="Application control blocked"'
+    )
+
+    learner.observe("network", {"message": event_message}, _fallback_signal())
+    learner.observe("network", {"message": event_message}, _fallback_signal())
+    written = learner.flush()
+
+    assert written == {"network": 1}
+    payload = yaml.safe_load((suggestions_dir / "network.yml").read_text(encoding="utf-8"))
+    condition_value = payload["rules"][0]["condition"]["value"]
+    assert condition_value == "application control blocked"

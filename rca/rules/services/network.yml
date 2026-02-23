@@ -5,6 +5,10 @@ imports:
   - ../network/vendors/cisco_nxos.yml
   - ../network/vendors/juniper_junos.yml
   - ../network/vendors/arista_eos.yml
+  - ../network/vendors/aruba_aos.yml
+  - ../network/vendors/huawei_vrp.yml
+  - ../network/vendors/dell_os10.yml
+  - ../network/vendors/crontab_cron.yml
   - ../network/vendors/fortinet_fortios.yml
   - ../network/vendors/checkpoint.yml
   - ../network/vendors/paloalto_panos.yml

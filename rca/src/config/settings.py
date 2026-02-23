@@ -106,6 +106,7 @@ class PipelineConfig:
     retry_backoff_multiplier: float = 2.0
     signal_max_per_event: int = 2
     signal_select_highest_only: bool = True
+    vendor_anchor_enforcement_enabled: bool = True
     services: list[ServiceConfig] = field(default_factory=list)
 
 
@@ -367,6 +368,7 @@ def load_app_config(path: str) -> AppConfig:
             retry_backoff_multiplier=pipe_raw.get("retry_backoff_multiplier", 2.0),
             signal_max_per_event=pipe_raw.get("signal_max_per_event", 2),
             signal_select_highest_only=pipe_raw.get("signal_select_highest_only", True),
+            vendor_anchor_enforcement_enabled=pipe_raw.get("vendor_anchor_enforcement_enabled", True),
             services=services,
         ),
         rules_directory=raw.get("rules_directory", "rules"),
@@ -383,4 +385,3 @@ def load_app_config(path: str) -> AppConfig:
             level=rule_learning_raw.get("level", "critical"),
         ),
     )
-

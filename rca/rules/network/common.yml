@@ -280,3 +280,19 @@ rules:
         - field: msg
           op: regex
           value: '\b(reload|reboot|system restarted|cold start|warm start|kernel panic|watchdog reset|crash)\b'
+
+  - id: NETWORK_APPLICATION_CONTROL_BLOCKED
+    signal_key: network_application_control_blocked
+    level: critical
+    description: 'Auto-learned from recurring unclassified critical logs: application
+      control blocked'
+    tags:
+    - auto_generated
+    - unclassified_learning
+    - network
+    - critical
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: application control blocked

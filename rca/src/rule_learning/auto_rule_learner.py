@@ -76,7 +76,21 @@ class AutoRuleLearner:
         "alert",
         "warning",
     }
-    _MESSAGE_FIELDS = ("message", "error.message", "log.original")
+    _MESSAGE_FIELDS = (
+        "msg",
+        "message",
+        "error.message",
+        "log.message",
+        "log.original",
+        "event.original",
+    )
+    _EMBEDDED_MESSAGE_PATTERNS = (
+        re.compile(r"(?i)\b(?:msg|message|logmsg|description|reason)\s*=\s*\"([^\"]+)\""),
+        re.compile(r"(?i)\b(?:msg|message|logmsg|description|reason)\s*=\s*'([^']+)'"),
+        re.compile(r'(?i)"(?:msg|message|logmsg|description|reason)"\s*:\s*"([^"]+)"'),
+        re.compile(r"(?i)\b(?:msg|message|logmsg|description|reason)\s*:\s*\"([^\"]+)\""),
+        re.compile(r"(?i)\b(?:msg|message|logmsg|description|reason)\s*=\s*([^,\s][^,\r\n]*)"),
+    )
 
     def __init__(
         self,
@@ -371,13 +385,31 @@ class AutoRuleLearner:
 
     @classmethod
     def _extract_message(cls, source_doc: dict[str, Any]) -> str | None:
-        """Resolve message text from common log fields."""
+        """Resolve message text, preferring embedded msg/message payloads."""
+        fallback: str | None = None
         for field_name in cls._MESSAGE_FIELDS:
             value = get_nested(source_doc, field_name)
             if value is None and "." not in field_name:
                 value = source_doc.get(field_name)
             if isinstance(value, str) and value.strip():
-                return value.strip()
+                text = value.strip()
+                if fallback is None:
+                    fallback = text
+                extracted = cls._extract_embedded_message(text)
+                if extracted:
+                    return extracted
+        return fallback
+
+    @classmethod
+    def _extract_embedded_message(cls, text: str) -> str | None:
+        """Extract focused message payload from key-value formatted log strings."""
+        for pattern in cls._EMBEDDED_MESSAGE_PATTERNS:
+            match = pattern.search(text)
+            if not match:
+                continue
+            captured = match.group(1).strip()
+            if captured:
+                return captured
         return None
 
     @staticmethod

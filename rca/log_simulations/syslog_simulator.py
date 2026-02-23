@@ -317,7 +317,38 @@ def resolve_iface(seed: Dict[str, Any], vendor_id: str, rng: random.Random) -> s
         cand = interfaces.get(vendor_id) or interfaces.get("default") or []
         if isinstance(cand, list) and cand:
             return rng.choice(cand)
-    return rng.choice(["eth0", "eth1"])
+    vendor_defaults: Dict[str, List[str]] = {
+        "hpe_aruba": [
+            "1/1/1",
+            "1/1/2",
+            "1/1/48",
+            "lag10",
+            "lag100",
+            "vlan100",
+        ],
+        "dell_os10": [
+            "Ethernet1/1/1",
+            "Ethernet1/1/2",
+            "Ethernet1/1/48",
+            "Port-channel10",
+            "Port-channel100",
+            "mgmt1/1/1",
+        ],
+        "huawei_vrp": [
+            "10GE1/0/1",
+            "10GE1/0/2",
+            "Eth-Trunk10",
+            "GE0/0/1",
+            "Vlanif100",
+        ],
+        "crontab_cron": [
+            "lo",
+            "eth0",
+            "mgmt0",
+            "vlan100",
+        ],
+    }
+    return rng.choice(vendor_defaults.get(vendor_id, ["eth0", "eth1"]))
 
 
 def select_device(cfg: Dict[str, Any], rng: random.Random) -> Dict[str, Any]:
@@ -407,6 +438,93 @@ def build_context(cfg: Dict[str, Any], vendor_id: str, device: Dict[str, Any], t
     action = rng.choice(["accept", "deny", "drop", "alert"])
     reason = rng.choice(["Denied by policy", "policy deny", "timeout", "signature match"])
     url = f"www.{domain}/path/{rng.randint(1,999)}"
+    peer_ip = pick_seed(rng, seed.get("private_ips"), random_private_ip)
+    peer_unit = rng.choice([1, 2])
+    vlt_domain = rng.choice([1, 10, 100, 4000, 4094])
+    port_channel = rng.choice([1, 10, 20, 100, 200])
+    vrf = rng.choice(["default", "management", "tenant-a", "tenant-b"])
+    old_state = rng.choice(["ESTABLISHED", "ACTIVE", "CONNECT", "OPENCONFIRM"])
+    new_state = rng.choice(["IDLE", "DOWN", "ACTIVE", "CONNECT"])
+    sensor = rng.choice(["TempSensor-1", "TempSensor-2", "ASIC-Core", "PSU-1"])
+    temperature = rng.choice([78, 82, 87, 92, 96])
+    fan_tray = rng.choice([1, 2, 3, 4])
+    role = rng.choice(["netadmin", "operator", "secadmin", "sysadmin"])
+    password_expiry_days = rng.choice([1, 3, 5, 7, 14])
+    ospf_nbr_event = rng.choice([7, 9, 12, 13])
+    cpu_usage_percent = rng.choice([85, 89, 92, 95, 98])
+    board = rng.choice(["MPU0", "LPU1", "LPU2", "SFU1"])
+    chassis = rng.choice(["CE12800", "CE6857", "NE40E"])
+    command = pick_seed(
+        rng,
+        seed.get("commands"),
+        lambda r: r.choice(
+            [
+                "display current-configuration",
+                "display interface brief",
+                "interface 10GE1/0/1",
+                "bgp 65000",
+            ]
+        ),
+    )
+    cron_user = pick_seed(
+        rng,
+        seed.get("cron_users"),
+        lambda r: r.choice(["root", "admin", "netops"]),
+    )
+    cron_command = pick_seed(
+        rng,
+        seed.get("cron_commands"),
+        lambda r: r.choice(
+            [
+                "/usr/local/bin/config-backup.sh",
+                "/usr/local/bin/export-telemetry.sh --push",
+                "/usr/sbin/logrotate /etc/logrotate.conf",
+                "/usr/lib/sa/sa1 1 1",
+            ]
+        ),
+    )
+    cron_file = pick_seed(
+        rng,
+        seed.get("cron_files"),
+        lambda r: r.choice(
+            [
+                "/etc/crontab",
+                "/etc/cron.d/network-maintenance",
+                "/var/spool/cron/root",
+            ]
+        ),
+    )
+    cron_line = rng.choice([1, 3, 7, 12, 20, 31, 45])
+    cron_uid = rng.choice([0, 1000, 1001, 1002])
+    cron_mta_status = f"0x{rng.randint(1, 255):02x}"
+    peer_asn = rng.choice([65001, 65002, 65100, 65200])
+    dell_model = pick_seed(
+        rng,
+        seed.get("dell_models"),
+        lambda r: r.choice(["S5248F-ON", "Z9432F-ON", "S5232F-ON", "S4148U-ON"]),
+    )
+    dell_os10_version = pick_seed(
+        rng,
+        seed.get("dell_os10_versions"),
+        lambda r: r.choice(["10.5.4.6", "10.5.5.3", "10.5.6.1"]),
+    )
+    hpe_aruba_model = pick_seed(
+        rng,
+        seed.get("hpe_aruba_models"),
+        lambda r: r.choice(["8360-48Y6C", "8325-48Y8C", "6300M", "6200F"]),
+    )
+    hpe_aruba_version = pick_seed(
+        rng,
+        seed.get("hpe_aruba_versions"),
+        lambda r: r.choice(["10.14.1000", "10.13.1040", "10.12.1050", "WC.16.11"]),
+    )
+    aruba_central_host = pick_seed(
+        rng,
+        seed.get("aruba_central_hosts"),
+        lambda r: "device.arubanetworks.com:443",
+    )
+    aruba_central_vrf = rng.choice(["default", "mgmt", "management"])
+    dell_prefix = "%Dell EMC (OS10)"
 
     date_iso = now.astimezone().strftime("%Y-%m-%d")
     time_hms = now.astimezone().strftime("%H:%M:%S")
@@ -455,6 +573,37 @@ def build_context(cfg: Dict[str, Any], vendor_id: str, device: Dict[str, Any], t
         "state": state,
         "action": action,
         "reason": reason,
+        "peer_ip": peer_ip,
+        "peer_unit": peer_unit,
+        "vlt_domain": vlt_domain,
+        "port_channel": port_channel,
+        "vrf": vrf,
+        "old_state": old_state,
+        "new_state": new_state,
+        "sensor": sensor,
+        "temperature": temperature,
+        "fan_tray": fan_tray,
+        "role": role,
+        "password_expiry_days": password_expiry_days,
+        "ospf_nbr_event": ospf_nbr_event,
+        "cpu_usage_percent": cpu_usage_percent,
+        "board": board,
+        "chassis": chassis,
+        "command": command,
+        "cron_user": cron_user,
+        "cron_command": cron_command,
+        "cron_file": cron_file,
+        "cron_line": cron_line,
+        "cron_uid": cron_uid,
+        "cron_mta_status": cron_mta_status,
+        "peer_asn": peer_asn,
+        "dell_model": dell_model,
+        "dell_os10_version": dell_os10_version,
+        "hpe_aruba_model": hpe_aruba_model,
+        "hpe_aruba_version": hpe_aruba_version,
+        "aruba_central_host": aruba_central_host,
+        "aruba_central_vrf": aruba_central_vrf,
+        "dell_prefix": dell_prefix,
     }
 
     static_ctx = template.get("static_ctx")
