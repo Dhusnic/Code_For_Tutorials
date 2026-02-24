@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+import types
 
 import pytest
 
@@ -73,3 +75,84 @@ pipeline:
     with pytest.raises(ValueError, match="pipeline.bulk_max_batch_bytes"):
         load_app_config(str(config_file))
 
+
+def test_load_config_uses_settings_log_hosts_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_settings = types.ModuleType("settings")
+    fake_settings.LOG_HOSTS = "10.0.0.10:9200,https://10.0.0.11:9200"
+    monkeypatch.setitem(sys.modules, "settings", fake_settings)
+
+    config_file = tmp_path / "config-settings-hosts.yml"
+    config_file.write_text(
+        """
+elasticsearch:
+  hosts: ["http://localhost:9200"]
+
+pipeline:
+  services: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_app_config(str(config_file))
+    assert config.elasticsearch.hosts == [
+        "http://10.0.0.10:9200",
+        "https://10.0.0.11:9200",
+    ]
+
+
+def test_load_config_falls_back_to_yaml_hosts_without_settings_log_hosts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_settings = types.ModuleType("settings")
+    monkeypatch.setitem(sys.modules, "settings", fake_settings)
+
+    config_file = tmp_path / "config-fallback-hosts.yml"
+    config_file.write_text(
+        """
+elasticsearch:
+  hosts:
+    - "es-a:9200"
+    - "http://es-b:9200"
+
+pipeline:
+  services: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_app_config(str(config_file))
+    assert config.elasticsearch.hosts == [
+        "http://es-a:9200",
+        "http://es-b:9200",
+    ]
+
+
+def test_rules_directory_is_resolved_relative_to_config_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_settings = types.ModuleType("settings")
+    monkeypatch.setitem(sys.modules, "settings", fake_settings)
+
+    cfg_dir = tmp_path / "rca-engine"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    config_file = cfg_dir / "config.yml"
+    config_file.write_text(
+        """
+elasticsearch:
+  hosts: ["http://localhost:9200"]
+
+rules_directory: "rules"
+
+pipeline:
+  services: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_app_config(str(config_file))
+    assert config.rules_directory == str((cfg_dir / "rules").resolve())

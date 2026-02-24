@@ -123,7 +123,18 @@ class SignalEnrichmentService:
             self._logger.warning("No source indices configured", extra={"service": service.name})
             return 0, 0, None
 
-        owned_indices = [idx for idx in source_indices if self._owns_partition(service.name, idx)]
+        resolved_source_indices = self._resolve_source_indices(service.name, source_indices)
+        if not resolved_source_indices:
+            self._logger.warning(
+                "No concrete source indices resolved for service",
+                extra={"service": service.name, "source_indices": source_indices},
+            )
+            return 0, 0, None
+
+        owned_indices = [
+            idx for idx in resolved_source_indices
+            if self._owns_partition(service.name, idx)
+        ]
         if not owned_indices:
             self._logger.debug(
                 "Worker has no assigned partitions for service",
@@ -330,6 +341,10 @@ class SignalEnrichmentService:
             raise ValueError("pipeline.worker_count must be >= 1")
         if worker_id < 0 or worker_id >= worker_count:
             raise ValueError("pipeline.worker_id must satisfy 0 <= worker_id < worker_count")
+        self._logger.info(
+            "Worker partitioning initialized",
+            extra={"worker_id": worker_id, "worker_count": worker_count},
+        )
 
         if (
             self._config.pipeline.write_to_source_index
@@ -342,6 +357,63 @@ class SignalEnrichmentService:
                     "write_to_target_index": True,
                 },
             )
+
+    def _resolve_source_indices(
+        self,
+        service_name: str,
+        source_indices: list[str],
+    ) -> list[str]:
+        """Resolve wildcard index patterns to concrete indices and deduplicate."""
+        resolved: list[str] = []
+        seen: set[str] = set()
+        for source_index in source_indices:
+            if not source_index:
+                continue
+            concrete_indices = self._expand_source_index_pattern(service_name, source_index)
+            for concrete_index in concrete_indices:
+                if concrete_index in seen:
+                    continue
+                seen.add(concrete_index)
+                resolved.append(concrete_index)
+        return resolved
+
+    def _expand_source_index_pattern(self, service_name: str, source_index: str) -> list[str]:
+        """Expand wildcard source index pattern using Elasticsearch index metadata."""
+        if not self._is_wildcard_index(source_index):
+            return [source_index]
+
+        try:
+            response = self._es_client.indices.get(
+                index=source_index,
+                allow_no_indices=True,
+                ignore_unavailable=True,
+                expand_wildcards="open,hidden",
+            )
+        except Exception:
+            self._logger.warning(
+                "Failed resolving wildcard source index; using pattern as-is",
+                extra={"service": service_name, "source_index": source_index},
+                exc_info=True,
+            )
+            return [source_index]
+
+        if not isinstance(response, dict):
+            return [source_index]
+
+        concrete_indices = sorted(response.keys())
+        if not concrete_indices:
+            self._logger.debug(
+                "Wildcard source index resolved to zero concrete indices",
+                extra={"service": service_name, "source_index": source_index},
+            )
+            return []
+
+        return concrete_indices
+
+    @staticmethod
+    def _is_wildcard_index(source_index: str) -> bool:
+        """Return True when source index string contains wildcard syntax."""
+        return any(token in source_index for token in ("*", "?", "["))
 
     def _owns_partition(self, service_name: str, index_name: str) -> bool:
         worker_count = max(1, int(self._config.pipeline.worker_count))

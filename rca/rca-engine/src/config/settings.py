@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -162,6 +163,104 @@ def _require(data: dict[str, Any], key: str) -> Any:
     return data[key]
 
 
+def _normalize_elasticsearch_hosts(raw_hosts: Any) -> list[str]:
+    """Normalize host input from YAML/settings into Elasticsearch URL list."""
+    values: list[str] = []
+    if isinstance(raw_hosts, str):
+        text = raw_hosts.strip()
+        if not text:
+            return []
+        try:
+            parsed = yaml.safe_load(text)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, list):
+            values = [str(item).strip() for item in parsed if str(item).strip()]
+        elif "," in text or ";" in text:
+            values = [part.strip() for part in re.split(r"[;,]", text) if part.strip()]
+        else:
+            values = [text]
+    elif isinstance(raw_hosts, (list, tuple, set)):
+        values = [str(item).strip() for item in raw_hosts if str(item).strip()]
+    else:
+        return []
+
+    normalized: list[str] = []
+    for host in values:
+        if "://" in host:
+            normalized.append(host)
+        else:
+            normalized.append(f"http://{host}")
+    return normalized
+
+
+def _load_log_hosts_from_legacy_settings() -> list[str]:
+    """Best-effort LOG_HOSTS lookup from root settings package."""
+    try:
+        import settings as legacy_settings  # type: ignore[import-not-found]
+    except (Exception, SystemExit):
+        return []
+
+    raw_hosts = getattr(legacy_settings, "LOG_HOSTS", None)
+    return _normalize_elasticsearch_hosts(raw_hosts)
+
+
+def _resolve_elasticsearch_hosts(es_raw: dict[str, Any]) -> list[str]:
+    """Resolve Elasticsearch hosts with settings.LOG_HOSTS priority."""
+    hosts_from_settings = _load_log_hosts_from_legacy_settings()
+    if hosts_from_settings:
+        return hosts_from_settings
+
+    hosts_from_yaml = _normalize_elasticsearch_hosts(es_raw.get("hosts"))
+    if hosts_from_yaml:
+        return hosts_from_yaml
+
+    raise ValueError("Missing Elasticsearch hosts: set settings.LOG_HOSTS or elasticsearch.hosts")
+
+
+def _read_int_from_env(var_names: tuple[str, ...]) -> int | None:
+    """Return first non-empty integer environment variable value."""
+    for var_name in var_names:
+        raw = os.getenv(var_name)
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if not text:
+            continue
+        try:
+            return int(text)
+        except ValueError as exc:
+            raise ValueError(f"{var_name} must be an integer, got: {raw!r}") from exc
+    return None
+
+
+def _resolve_worker_runtime(pipe_raw: dict[str, Any]) -> tuple[int, int]:
+    """Resolve worker_count/worker_id from config with process-manager overrides."""
+    worker_count = int(pipe_raw.get("worker_count", 1))
+    worker_id = int(pipe_raw.get("worker_id", 0))
+
+    env_worker_count = _read_int_from_env(
+        ("RCA_WORKER_COUNT", "WORKER_COUNT", "PM2_INSTANCES", "INSTANCE_COUNT")
+    )
+    if env_worker_count is not None:
+        worker_count = env_worker_count
+
+    env_worker_id = _read_int_from_env(
+        ("RCA_WORKER_ID", "WORKER_ID", "NODE_APP_INSTANCE", "PM2_INSTANCE_ID", "pm_id")
+    )
+    if env_worker_id is not None:
+        worker_id = env_worker_id
+
+    if worker_count < 1:
+        raise ValueError("pipeline.worker_count must be >= 1")
+    if worker_id < 0:
+        raise ValueError("pipeline.worker_id must be >= 0")
+    if worker_id >= worker_count:
+        raise ValueError("pipeline.worker_id must satisfy 0 <= worker_id < worker_count")
+
+    return worker_count, worker_id
+
+
 def _require_mapping(value: Any, name: str) -> dict[str, Any]:
     """Return a mapping value or raise a configuration error."""
     if not isinstance(value, dict):
@@ -242,9 +341,18 @@ def _coerce_seconds_int(value: Any, key_name: str, minimum: int = 1) -> int:
     return coerced
 
 
+def _resolve_path_from_config(config_path: Path, value: str) -> str:
+    """Resolve relative config paths against the config file directory."""
+    path_value = Path(value)
+    if path_value.is_absolute():
+        return str(path_value)
+    return str((config_path.parent / path_value).resolve())
+
+
 def load_app_config(path: str) -> AppConfig:
     """Load application config from YAML file."""
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    config_path = Path(path).resolve()
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError("Configuration root must be a mapping")
 
@@ -253,6 +361,8 @@ def load_app_config(path: str) -> AppConfig:
     rule_learning_raw = raw.get("rule_learning", {})
     if not isinstance(rule_learning_raw, dict):
         raise ValueError("rule_learning must be a mapping when provided")
+    worker_count, worker_id = _resolve_worker_runtime(pipe_raw)
+    es_hosts = _resolve_elasticsearch_hosts(es_raw)
 
     services: list[ServiceConfig] = []
     for item in pipe_raw.get("services", []):
@@ -271,7 +381,7 @@ def load_app_config(path: str) -> AppConfig:
 
     return AppConfig(
         elasticsearch=ElasticsearchConfig(
-            hosts=_require(es_raw, "hosts"),
+            hosts=es_hosts,
             username=es_raw.get("username"),
             password=es_raw.get("password"),
             api_key=es_raw.get("api_key"),
@@ -289,8 +399,8 @@ def load_app_config(path: str) -> AppConfig:
                 pipe_raw.get("bulk_max_batch_bytes", 8 * 1024 * 1024),
                 "pipeline.bulk_max_batch_bytes",
             ),
-            worker_count=pipe_raw.get("worker_count", 1),
-            worker_id=pipe_raw.get("worker_id", 0),
+            worker_count=worker_count,
+            worker_id=worker_id,
             bulk_worker_count=pipe_raw.get("bulk_worker_count", 4),
             bulk_queue_size=pipe_raw.get("bulk_queue_size", 32),
             bulk_queue_enqueue_timeout_seconds=_coerce_seconds_float(
@@ -371,7 +481,10 @@ def load_app_config(path: str) -> AppConfig:
             vendor_anchor_enforcement_enabled=pipe_raw.get("vendor_anchor_enforcement_enabled", True),
             services=services,
         ),
-        rules_directory=raw.get("rules_directory", "rules"),
+        rules_directory=_resolve_path_from_config(
+            config_path,
+            str(raw.get("rules_directory", "rules")),
+        ),
         rule_learning=RuleLearningConfig(
             enabled=rule_learning_raw.get("enabled", False),
             mode=rule_learning_raw.get("mode", "suggest"),
