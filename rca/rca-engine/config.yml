@@ -1,4 +1,4 @@
-# RCA Engine Configuration
+﻿# RCA Engine Configuration
 # Supported readable units:
 # - Size: B, KB, MB, GB, TB (binary base 1024)
 # - Duration: ms, s, m, h, d
@@ -166,9 +166,9 @@ pipeline:
   source_indices:
     - "*"
   # When true, update original source documents with signal fields.
-  write_to_source_index: false
+  write_to_source_index: true
   # When true, write enriched docs into target suffix index.
-  write_to_target_index: true
+  write_to_target_index: false
   # Target index suffix for enriched copy.
   target_suffix: "-rca"
   # Dead-letter index suffix for permanent write failures.

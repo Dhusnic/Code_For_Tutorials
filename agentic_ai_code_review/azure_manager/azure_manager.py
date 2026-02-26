@@ -248,6 +248,176 @@ class AzureDevOpsClient:
 
         raise AzureDevOpsError(f"Repository not found: {repository_name}")
 
+    def get_work_item(self, work_item_id: int) -> Dict[str, Any]:
+        """
+        Fetch one work item with relation links.
+
+        Args:
+            work_item_id: Azure Boards work item ID.
+
+        Returns:
+            Work item payload including `fields` and `relations`.
+        """
+        return self._get(
+            f"/_apis/wit/workitems/{int(work_item_id)}",
+            params={"api-version": "7.1-preview.3", "$expand": "relations"},
+        )
+
+    def list_identity_users(
+        self,
+        limit: int = 100,
+        preferred_emails: Optional[List[str]] = None,
+    ) -> List[Dict[str, str]]:
+        """
+        List organization user identities for reviewer selection.
+
+        Args:
+            limit: Maximum users to return.
+
+        Returns:
+            List of normalized identity entries.
+        """
+        url = f"https://vssps.dev.azure.com/{self.organization}/_apis/identities"
+        users: List[Dict[str, str]] = []
+        seen_ids: set[str] = set()
+        safe_limit = max(1, int(limit))
+
+        # Azure identities API rejects null/empty general search value.
+        explicit_values = [
+            str(email or "").strip()
+            for email in (preferred_emails or [])
+            if str(email or "").strip()
+        ]
+        search_seeds = [
+            *explicit_values,
+            "a",
+            "e",
+            "i",
+            "o",
+            "u",
+            "s",
+            "r",
+            "n",
+            "t",
+            "m",
+            "l",
+            "d",
+            "p",
+        ]
+        deduped_search_seeds: list[str] = []
+        seen_seed_values: set[str] = set()
+        for seed in search_seeds:
+            lowered = seed.lower()
+            if lowered in seen_seed_values:
+                continue
+            seen_seed_values.add(lowered)
+            deduped_search_seeds.append(seed)
+        last_error: Exception | None = None
+        for seed in deduped_search_seeds:
+            try:
+                response = self._get(
+                    url,
+                    params={
+                        "api-version": "7.1-preview.1",
+                        "searchFilter": "General",
+                        "filterValue": seed,
+                        "queryMembership": "None",
+                    },
+                )
+            except AzureDevOpsError as exc:
+                last_error = exc
+                LOGGER.warning("Reviewer identity lookup failed for seed=%s: %s", seed, exc)
+                continue
+
+            for entry in response.get("value", []):
+                identity_id = str(entry.get("id", "") or "").strip()
+                if not identity_id or identity_id in seen_ids:
+                    continue
+                seen_ids.add(identity_id)
+                properties = entry.get("properties", {}) or {}
+                mail_value = ""
+                if isinstance(properties, dict):
+                    for key in ("Mail", "mail", "Email", "Account"):
+                        property_entry = properties.get(key)
+                        if isinstance(property_entry, dict) and property_entry.get("$value"):
+                            mail_value = str(property_entry.get("$value", ""))
+                            break
+
+                users.append(
+                    {
+                        "id": identity_id,
+                        "display_name": str(
+                            entry.get("providerDisplayName")
+                            or entry.get("customDisplayName")
+                            or entry.get("displayName")
+                            or ""
+                        ).strip(),
+                        "email": mail_value.strip(),
+                    }
+                )
+                if len(users) >= safe_limit:
+                    return users
+
+        if users:
+            return users
+
+        if last_error is not None:
+            raise AzureDevOpsError(f"Unable to list reviewer identities: {last_error}") from last_error
+        raise AzureDevOpsError("Unable to list reviewer identities from Azure DevOps.")
+
+    def create_pull_request(
+        self,
+        *,
+        repository_name: str,
+        source_branch: str,
+        target_branch: str,
+        title: str,
+        description: str,
+        reviewer_ids: Optional[List[str]] = None,
+        work_item_ids: Optional[List[int]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a pull request and optionally associate reviewers and work items.
+
+        Args:
+            repository_name: Repository name.
+            source_branch: Source branch name (without refs prefix).
+            target_branch: Target branch name (without refs prefix).
+            title: Pull request title.
+            description: Pull request description.
+            reviewer_ids: Optional reviewer identity IDs.
+            work_item_ids: Optional work item IDs.
+
+        Returns:
+            Pull request payload from Azure DevOps.
+        """
+        repository_id = self.get_repository_id(repository_name)
+
+        def _ref(branch: str) -> str:
+            cleaned = str(branch or "").strip()
+            if cleaned.startswith("refs/heads/"):
+                return cleaned
+            return f"refs/heads/{cleaned}"
+
+        payload: Dict[str, Any] = {
+            "sourceRefName": _ref(source_branch),
+            "targetRefName": _ref(target_branch),
+            "title": title,
+            "description": description,
+        }
+        normalized_reviewers = [value.strip() for value in (reviewer_ids or []) if value and value.strip()]
+        if normalized_reviewers:
+            payload["reviewers"] = [{"id": reviewer_id} for reviewer_id in normalized_reviewers]
+        normalized_work_items = [int(item_id) for item_id in (work_item_ids or []) if int(item_id) > 0]
+        if normalized_work_items:
+            payload["workItemRefs"] = [{"id": str(item_id)} for item_id in normalized_work_items]
+
+        return self._post(
+            f"/_apis/git/repositories/{repository_id}/pullrequests",
+            payload=payload,
+            params={"api-version": "7.1"},
+        )
+
     def get_last_iteration_id(self, repository_name: str, pull_request_id: int) -> int:
         """
         Get the latest iteration ID for a pull request.

@@ -1,0 +1,15 @@
+{
+  "base_branches": {
+    "main": "main",
+    "prerelease": "PreRelease/3.13/2026/Mar/18"
+  },
+  "branch_templates": {
+    "main": "Feature/#{feature_id}/{feature_slug}",
+    "prerelease": "Feature/#{feature_id}/{feature_slug}_{month_abbr}"
+  },
+  "commit_message_template": "[Feature #{feature_id}] {feature_title}",
+  "pr_title_template": "[Feature #{feature_id}] {feature_title}",
+  "pr_description_template": "Auto-created by Agentic AI PR workflow for Feature #{feature_id}.",
+  "month_source": "prerelease_base_branch",
+  "workspace_repo_path": "D:\\Product\\Infraon_debug"
+}
