@@ -1,0 +1,114 @@
+service: nginx
+rules:
+- id: NGINX_AUTO_FEB_GET_INFRAON_INTERNAL_D3CAF463
+  signal_key: nginx_auto_feb_get_infraon_internal_d3ca
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: feb get infraon
+    internal'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - nginx
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: feb get infraon internal
+- id: NGINX_AUTO_FEB_GET_INFRAON_BUNDLES_6989347D
+  signal_key: nginx_auto_feb_get_infraon_bundles_6989
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: feb get infraon
+    bundles'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - nginx
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: feb get infraon bundles
+- id: NGINX_AUTO_FEB_GET_INFRAON_BOOTSTRAP_C175AE54
+  signal_key: nginx_auto_feb_get_infraon_bootstrap_c175
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: feb get infraon
+    bootstrap'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - nginx
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: feb get infraon bootstrap
+- id: NGINX_AUTO_FEB_GET_INFRAON_API_EB6C26AE
+  signal_key: nginx_auto_feb_get_infraon_api_eb6c
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: feb get infraon
+    api'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - nginx
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: feb get infraon api
+- id: NGINX_AUTO_FEB_GET_SVG_HTTP_7573BB31
+  signal_key: nginx_auto_feb_get_svg_http_7573
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: feb get svg
+    http'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - nginx
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: feb get svg http
+- id: NGINX_AUTO_FEB_GET_INFRAON_135098068173316952064_8664B799
+  signal_key: nginx_auto_feb_get_infraon_135098068173316952064_8664
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: feb get infraon
+    135098068173316952064'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - nginx
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: feb get infraon 135098068173316952064
+- id: NGINX_AUTO_FEB_GET_UX_LOGMANAGEMENT_A24B1186
+  signal_key: nginx_auto_feb_get_ux_logmanagement_a24b
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: feb get ux
+    logmanagement'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - nginx
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: feb get ux logmanagement
+- id: NGINX_AUTO_FEB_GET_UX_COMMON_5E04CACB
+  signal_key: nginx_auto_feb_get_ux_common_5e04
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: feb get ux
+    common'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - nginx
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: feb get ux common

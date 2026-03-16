@@ -1,0 +1,147 @@
+service: network
+rules:
+  - id: NETWORK_PALOALTO_TRAFFIC_DENIED_OR_RESET
+    signal_key: network_paloalto_traffic_denied_or_reset
+    level: critical
+    description: Palo Alto traffic log indicates deny/drop/reset action.
+    tags: [vendor, paloalto, panos, traffic, security_policy]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '(,TRAFFIC,|type=TRAFFIC)'
+            - field: msg
+              op: regex
+              value: '(,TRAFFIC,|type=TRAFFIC)'
+        - or:
+            - field: message
+              op: regex
+              value: '(,deny,|,drop,|,reset-both,|,reset-client,|,reset-server,|action=deny|action=drop)'
+            - field: msg
+              op: regex
+              value: '(,deny,|,drop,|,reset-both,|,reset-client,|,reset-server,|action=deny|action=drop)'
+
+  - id: NETWORK_PALOALTO_THREAT_HIGH_SEVERITY
+    signal_key: network_paloalto_threat_high_severity
+    level: critical
+    description: Palo Alto threat log indicates high/critical severity event.
+    tags: [vendor, paloalto, panos, threat, security]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '(,THREAT,|type=THREAT)'
+            - field: msg
+              op: regex
+              value: '(,THREAT,|type=THREAT)'
+        - or:
+            - field: message
+              op: regex
+              value: '(,high,|,critical,|severity=high|severity=critical)'
+            - field: msg
+              op: regex
+              value: '(,high,|,critical,|severity=high|severity=critical)'
+
+  - id: NETWORK_PALOALTO_TUNNEL_DOWN
+    signal_key: network_paloalto_tunnel_down
+    level: critical
+    description: Palo Alto tunnel/IKE/IPsec service went down.
+    tags: [vendor, paloalto, panos, vpn, availability]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '(,SYSTEM,|type=SYSTEM|ike|ipsec|tunnel)'
+            - field: msg
+              op: regex
+              value: '(,SYSTEM,|type=SYSTEM|ike|ipsec|tunnel)'
+        - or:
+            - field: message
+              op: regex
+              value: '(down|failed|phase 1 failed|phase 2 failed|negotiation failed|rekey failed)'
+            - field: msg
+              op: regex
+              value: '(down|failed|phase 1 failed|phase 2 failed|negotiation failed|rekey failed)'
+
+  - id: NETWORK_PALOALTO_HA_FAILOVER
+    signal_key: network_paloalto_ha_failover
+    level: warning
+    description: Palo Alto HA state changed or failover occurred.
+    tags: [vendor, paloalto, panos, ha, availability]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '(,SYSTEM,|type=SYSTEM|high availability|HA)'
+            - field: msg
+              op: regex
+              value: '(,SYSTEM,|type=SYSTEM|high availability|HA)'
+        - or:
+            - field: message
+              op: regex
+              value: '(failover|state change|active to passive|passive to active|peer down)'
+            - field: msg
+              op: regex
+              value: '(failover|state change|active to passive|passive to active|peer down)'
+
+  - id: NETWORK_PALOALTO_COMMIT_FAILED
+    signal_key: network_paloalto_commit_failed
+    level: critical
+    description: Palo Alto commit or configuration apply failed.
+    tags: [vendor, paloalto, panos, config_change]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '(,CONFIG,|type=CONFIG)'
+            - field: msg
+              op: regex
+              value: '(,CONFIG,|type=CONFIG)'
+        - or:
+            - field: message
+              op: regex
+              value: '(failed|failure|error|validation error|rollback)'
+            - field: msg
+              op: regex
+              value: '(failed|failure|error|validation error|rollback)'
+
+  - id: NETWORK_PALOALTO_COMMIT_SUCCESS
+    signal_key: network_paloalto_commit_success
+    level: info
+    description: Palo Alto commit or configuration update succeeded.
+    tags: [vendor, paloalto, panos, config_change, audit]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '(,CONFIG,|type=CONFIG)'
+            - field: msg
+              op: regex
+              value: '(,CONFIG,|type=CONFIG)'
+        - or:
+            - field: message
+              op: regex
+              value: '(succeeded|successful|completed|complete)'
+            - field: msg
+              op: regex
+              value: '(succeeded|successful|completed|complete)'
+
+  - id: NETWORK_PALOALTO_AUTH_FAILURE
+    signal_key: network_paloalto_auth_failure
+    level: warning
+    description: Palo Alto authentication or admin login failure.
+    tags: [vendor, paloalto, panos, aaa, authentication]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(authentication failed|login failed|invalid user|admin auth failed)'
+        - field: msg
+          op: regex
+          value: '(authentication failed|login failed|invalid user|admin auth failed)'

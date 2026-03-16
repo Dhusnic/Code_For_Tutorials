@@ -1,0 +1,20 @@
+{
+  "apps": [
+    {
+      "name": "rca-engine",
+      "cwd": "D:\\Code for tutorials\\rca\\signalizing\\signalizing_go",
+      "script": "D:\\Code for tutorials\\rca\\signalizing\\signalizing_go\\bin\\rca-engine.exe",
+      "args": ["--config", "D:\\Code for tutorials\\rca\\signalizing\\config.yml"],
+      "instances": 4,
+      "exec_mode": "fork",
+      "instance_var": "RCA_WORKER_ID",
+      "wait_ready": false,
+      "autorestart": true,
+      "max_restarts": 5,
+      "interpreter": "none",
+      "env": {
+        "PM2_APP_NAME": "rca-engine"
+      }
+    }
+  ]
+}

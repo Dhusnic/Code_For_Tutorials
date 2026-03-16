@@ -1,0 +1,145 @@
+service: network
+rules:
+  - id: NETWORK_MIKROTIK_FIREWALL_DROP
+    signal_key: network_mikrotik_firewall_drop
+    level: warning
+    description: MikroTik firewall log indicates dropped traffic.
+    tags: [vendor, mikrotik, routeros, security_policy]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: contains
+              value: firewall
+            - field: msg
+              op: contains
+              value: firewall
+        - or:
+            - field: message
+              op: regex
+              value: '(drop|dropped|input:)'
+            - field: msg
+              op: regex
+              value: '(drop|dropped|input:)'
+
+  - id: NETWORK_MIKROTIK_INTERFACE_DOWN
+    signal_key: network_mikrotik_interface_down
+    level: critical
+    description: MikroTik interface or link transitioned down.
+    tags: [vendor, mikrotik, routeros, physical, link]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(interface[, :]|\\bether[0-9]+\\b|\\bwlan[0-9]+\\b|\\bbridge\\b).*(down|not running|link down)'
+        - field: msg
+          op: regex
+          value: '(interface[, :]|\\bether[0-9]+\\b|\\bwlan[0-9]+\\b|\\bbridge\\b).*(down|not running|link down)'
+
+  - id: NETWORK_MIKROTIK_BGP_PEER_DOWN
+    signal_key: network_mikrotik_bgp_peer_down
+    level: critical
+    description: MikroTik BGP peer/session is down.
+    tags: [vendor, mikrotik, routeros, bgp, control_plane]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '(route,bgp|bgp)'
+            - field: msg
+              op: regex
+              value: '(route,bgp|bgp)'
+        - or:
+            - field: message
+              op: regex
+              value: '(down|idle|stopped|hold timer expired|connection lost)'
+            - field: msg
+              op: regex
+              value: '(down|idle|stopped|hold timer expired|connection lost)'
+
+  - id: NETWORK_MIKROTIK_IPSEC_FAILURE
+    signal_key: network_mikrotik_ipsec_failure
+    level: critical
+    description: MikroTik IPsec/IKE negotiation or tunnel failure.
+    tags: [vendor, mikrotik, routeros, vpn, availability]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '(ipsec|ike)'
+            - field: msg
+              op: regex
+              value: '(ipsec|ike)'
+        - or:
+            - field: message
+              op: regex
+              value: '(failed|down|expired|timeout|phase1 failed|phase2 failed)'
+            - field: msg
+              op: regex
+              value: '(failed|down|expired|timeout|phase1 failed|phase2 failed)'
+
+  - id: NETWORK_MIKROTIK_WATCHDOG_REBOOT
+    signal_key: network_mikrotik_watchdog_reboot
+    level: critical
+    description: MikroTik watchdog-triggered reboot or restart event.
+    tags: [vendor, mikrotik, routeros, lifecycle, crash]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(watchdog).*(reboot|restart|triggered)'
+        - field: msg
+          op: regex
+          value: '(watchdog).*(reboot|restart|triggered)'
+
+  - id: NETWORK_MIKROTIK_RESOURCE_PRESSURE
+    signal_key: network_mikrotik_resource_pressure
+    level: warning
+    description: MikroTik CPU/memory resource pressure detected.
+    tags: [vendor, mikrotik, routeros, cpu, memory, resource]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(cpu|memory).*(high|low|exhausted|out of memory)'
+        - field: msg
+          op: regex
+          value: '(cpu|memory).*(high|low|exhausted|out of memory)'
+
+  - id: NETWORK_MIKROTIK_LOGIN_FAILED
+    signal_key: network_mikrotik_login_failed
+    level: warning
+    description: MikroTik login/authentication failed.
+    tags: [vendor, mikrotik, routeros, aaa, authentication]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(login failure|authentication failed|invalid user|failed login)'
+        - field: msg
+          op: regex
+          value: '(login failure|authentication failed|invalid user|failed login)'
+
+  - id: NETWORK_MIKROTIK_LOGIN_SUCCESS
+    signal_key: network_mikrotik_login_success
+    level: info
+    description: MikroTik user login success event.
+    tags: [vendor, mikrotik, routeros, audit, authentication]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: contains
+              value: system,info,account
+            - field: msg
+              op: contains
+              value: system,info,account
+        - or:
+            - field: message
+              op: contains
+              value: logged in
+            - field: msg
+              op: contains
+              value: logged in
