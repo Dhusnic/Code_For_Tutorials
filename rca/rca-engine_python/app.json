@@ -1,0 +1,20 @@
+{
+  "apps": [
+    {
+      "name": "rca-engine-python",
+      "cwd": "D:\\Code for tutorials\\rca\\rca-engine_python",
+      "script": "D:\\Code for tutorials\\rca\\rca-engine_python\\main.py",
+      "args": ["--config", "D:\\Code for tutorials\\rca\\config.yml"],
+      "instances": 4,
+      "exec_mode": "fork",
+      "instance_var": "RCA_WORKER_ID",
+      "wait_ready": false,
+      "autorestart": true,
+      "max_restarts": 5,
+      "interpreter": "D:\\Code for tutorials\\rca\\.venv\\Scripts\\python.exe",
+      "env": {
+        "PM2_APP_NAME": "rca-engine-python"
+      }
+    }
+  ]
+}

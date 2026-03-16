@@ -1,0 +1,679 @@
+service: postgres
+rules:
+  - id: A_POSTGRES_UNCLASSIFIED_FAILURE
+    signal_key: postgres_unclassified_failure
+    level: critical
+    description: PostgreSQL event indicates critical failure but no specific Postgres signature matched.
+    tags: [fallback, unclassified, postgres, critical, triage]
+    condition:
+      or:
+        - field: log.level
+          op: in
+          value: [FATAL, PANIC, ERROR, fatal, panic, error]
+        - field: level
+          op: in
+          value: [FATAL, PANIC, ERROR, fatal, panic, error]
+        - field: postgresql.log.level
+          op: in
+          value: [FATAL, PANIC, ERROR, fatal, panic, error]
+        - field: message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)'
+        - field: postgresql.log.message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)'
+
+  - id: POSTGRES_AUTH_FAILED
+    signal_key: postgres_auth_failed
+    level: warning
+    description: Password authentication failed (SQLSTATE 28P01).
+    tags: [security, auth, access]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 28P01
+        - field: sqlstate
+          op: equals
+          value: 28P01
+        - field: message
+          op: contains
+          value: password authentication failed for user
+
+  - id: POSTGRES_HBA_BLOCKED
+    signal_key: postgres_hba_blocked
+    level: warning
+    description: Connection rejected because no matching pg_hba.conf rule exists.
+    tags: [security, auth, config]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: no pg_hba.conf entry for host
+        - field: postgresql.log.message
+          op: contains
+          value: no pg_hba.conf entry for host
+
+  - id: POSTGRES_USER_MISSING
+    signal_key: postgres_user_missing
+    level: warning
+    description: Login attempted for non-existent database role.
+    tags: [security, auth, user]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: 'user ".*" does not exist'
+        - field: postgresql.log.detail
+          op: regex
+          value: 'Role ".*" does not exist'
+
+  - id: POSTGRES_DB_MISSING
+    signal_key: postgres_db_missing
+    level: warning
+    description: Target database does not exist (SQLSTATE 3D000).
+    tags: [catalog, database, connect]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 3D000
+        - field: sqlstate
+          op: equals
+          value: 3D000
+        - field: message
+          op: regex
+          value: 'database ".*" does not exist'
+
+  - id: POSTGRES_CONN_LIMIT
+    signal_key: postgres_conn_limit
+    level: critical
+    description: Connection capacity exhausted (SQLSTATE 53300 / reserved slot message).
+    tags: [connections, capacity, availability]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 53300
+        - field: sqlstate
+          op: equals
+          value: 53300
+        - field: message
+          op: contains
+          value: remaining connection slots are reserved
+
+  - id: POSTGRES_CONN_FAILED
+    signal_key: postgres_conn_failed
+    level: critical
+    description: SQL client connection failure/rejection detected (Class 08).
+    tags: [connections, network, client]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: in
+          value: [08000, 08001, 08004, 08006]
+        - field: sqlstate
+          op: in
+          value: [08000, 08001, 08004, 08006]
+        - field: message
+          op: regex
+          value: '(connection refused|could not connect|connection failure|terminating connection due to administrator command)'
+
+  - id: POSTGRES_CONNECT_WAIT
+    signal_key: postgres_connect_wait
+    level: warning
+    description: Server cannot accept new connections yet (SQLSTATE 57P03).
+    tags: [startup, connect, availability]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 57P03
+        - field: sqlstate
+          op: equals
+          value: 57P03
+        - field: message
+          op: contains
+          value: the database system is starting up
+
+  - id: POSTGRES_ADMIN_SHUTDOWN
+    signal_key: postgres_admin_shutdown
+    level: critical
+    description: Server terminated by administrator command (SQLSTATE 57P01).
+    tags: [service, shutdown, operator]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 57P01
+        - field: sqlstate
+          op: equals
+          value: 57P01
+        - field: message
+          op: contains
+          value: terminating connection due to administrator command
+
+  - id: POSTGRES_CRASH_SHUTDOWN
+    signal_key: postgres_crash_shutdown
+    level: critical
+    description: Crash shutdown state detected (SQLSTATE 57P02).
+    tags: [service, crash, availability]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 57P02
+        - field: sqlstate
+          op: equals
+          value: 57P02
+        - field: message
+          op: regex
+          value: '(crash shutdown|aborting startup due to startup process failure)'
+
+  - id: POSTGRES_QUERY_CANCEL
+    signal_key: postgres_query_cancel
+    level: warning
+    description: Query canceled by timeout/operator intervention (SQLSTATE 57014).
+    tags: [query, timeout, intervention]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 57014
+        - field: sqlstate
+          op: equals
+          value: 57014
+        - field: message
+          op: regex
+          value: '(canceling statement due to|query canceled)'
+
+  - id: POSTGRES_LOCK_TIMEOUT
+    signal_key: postgres_lock_timeout
+    level: warning
+    description: Lock wait timeout/lock unavailable (SQLSTATE 55P03).
+    tags: [locks, concurrency, timeout]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 55P03
+        - field: sqlstate
+          op: equals
+          value: 55P03
+        - field: message
+          op: regex
+          value: '(lock timeout|could not obtain lock|canceling statement due to lock timeout)'
+
+  - id: POSTGRES_DEADLOCK_FOUND
+    signal_key: postgres_deadlock_found
+    level: warning
+    description: Deadlock detected and transaction aborted (SQLSTATE 40P01).
+    tags: [locks, deadlock, transactions]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 40P01
+        - field: sqlstate
+          op: equals
+          value: 40P01
+        - field: message
+          op: contains
+          value: deadlock detected
+
+  - id: POSTGRES_SERIAL_FAIL
+    signal_key: postgres_serial_fail
+    level: warning
+    description: Serializable transaction failed and must be retried (SQLSTATE 40001).
+    tags: [transactions, serialization, retry]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 40001
+        - field: sqlstate
+          op: equals
+          value: 40001
+        - field: message
+          op: contains
+          value: could not serialize access
+
+  - id: POSTGRES_UNIQUE_VIOLATION
+    signal_key: postgres_unique_violation
+    level: warning
+    description: Unique constraint violation (SQLSTATE 23505).
+    tags: [constraints, data, write]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 23505
+        - field: sqlstate
+          op: equals
+          value: 23505
+        - field: message
+          op: contains
+          value: duplicate key value violates unique constraint
+
+  - id: POSTGRES_FK_VIOLATION
+    signal_key: postgres_fk_violation
+    level: warning
+    description: Foreign key constraint violation (SQLSTATE 23503).
+    tags: [constraints, relations, write]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 23503
+        - field: sqlstate
+          op: equals
+          value: 23503
+        - field: message
+          op: contains
+          value: violates foreign key constraint
+
+  - id: POSTGRES_CHECK_VIOLATION
+    signal_key: postgres_check_violation
+    level: warning
+    description: CHECK constraint violation (SQLSTATE 23514).
+    tags: [constraints, validation, write]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 23514
+        - field: sqlstate
+          op: equals
+          value: 23514
+        - field: message
+          op: contains
+          value: violates check constraint
+
+  - id: POSTGRES_NULL_VIOLATION
+    signal_key: postgres_null_violation
+    level: warning
+    description: NOT NULL constraint violation (SQLSTATE 23502).
+    tags: [constraints, validation, write]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 23502
+        - field: sqlstate
+          op: equals
+          value: 23502
+        - field: message
+          op: contains
+          value: null value in column
+
+  - id: POSTGRES_SYNTAX_ERROR
+    signal_key: postgres_syntax_error
+    level: warning
+    description: SQL syntax error (SQLSTATE 42601).
+    tags: [query, syntax, client]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 42601
+        - field: sqlstate
+          op: equals
+          value: 42601
+        - field: message
+          op: contains
+          value: syntax error at or near
+
+  - id: POSTGRES_TABLE_MISSING
+    signal_key: postgres_table_missing
+    level: warning
+    description: Undefined table referenced (SQLSTATE 42P01).
+    tags: [query, schema, metadata]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 42P01
+        - field: sqlstate
+          op: equals
+          value: 42P01
+        - field: message
+          op: contains
+          value: relation
+
+  - id: POSTGRES_COLUMN_MISSING
+    signal_key: postgres_column_missing
+    level: warning
+    description: Undefined column referenced (SQLSTATE 42703).
+    tags: [query, schema, metadata]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 42703
+        - field: sqlstate
+          op: equals
+          value: 42703
+        - field: message
+          op: regex
+          value: 'column ".*" does not exist'
+
+  - id: POSTGRES_DISK_FULL
+    signal_key: postgres_disk_full
+    level: critical
+    description: Insufficient storage space (SQLSTATE 53100 or OS disk-full errors).
+    tags: [storage, disk, capacity]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 53100
+        - field: sqlstate
+          op: equals
+          value: 53100
+        - field: message
+          op: regex
+          value: '(No space left on device|disk full|could not write to file)'
+
+  - id: POSTGRES_MEM_FULL
+    signal_key: postgres_mem_full
+    level: critical
+    description: Out-of-memory condition (SQLSTATE 53200).
+    tags: [memory, capacity, process]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 53200
+        - field: sqlstate
+          op: equals
+          value: 53200
+        - field: message
+          op: regex
+          value: '(out of memory|cannot allocate memory)'
+
+  - id: POSTGRES_FD_EXHAUSTED
+    signal_key: postgres_fd_exhausted
+    level: critical
+    description: File descriptor exhaustion.
+    tags: [os, files, capacity]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: Too many open files
+        - field: postgresql.log.message
+          op: contains
+          value: Too many open files
+
+  - id: POSTGRES_DATA_CORRUPT
+    signal_key: postgres_data_corrupt
+    level: critical
+    description: Internal data corruption detected (SQLSTATE XX001).
+    tags: [integrity, storage, internal]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: XX001
+        - field: sqlstate
+          op: equals
+          value: XX001
+        - field: message
+          op: regex
+          value: '(data corrupted|could not read block|invalid page in block)'
+
+  - id: POSTGRES_INDEX_CORRUPT
+    signal_key: postgres_index_corrupt
+    level: critical
+    description: Index corruption detected (SQLSTATE XX002).
+    tags: [integrity, index, internal]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: XX002
+        - field: sqlstate
+          op: equals
+          value: XX002
+        - field: message
+          op: regex
+          value: '(index .* contains unexpected|index corrupted|could not read block)'
+
+  - id: POSTGRES_WAL_MISSING
+    signal_key: postgres_wal_missing
+    level: critical
+    description: Requested WAL segment is unavailable/removed.
+    tags: [replication, wal, recovery]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 58P01
+        - field: sqlstate
+          op: equals
+          value: 58P01
+        - field: message
+          op: regex
+          value: 'requested WAL segment .* has already been removed'
+
+  - id: POSTGRES_WAL_STREAM
+    signal_key: postgres_wal_stream
+    level: critical
+    description: Streaming replication WAL receiver/sender connectivity failure.
+    tags: [replication, wal, network]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(could not receive data from WAL stream|could not send data to WAL stream|replication terminated by primary server)'
+        - field: postgresql.log.backend_type
+          op: in
+          value: [walreceiver, walsender]
+
+  - id: POSTGRES_ARCHIVE_FAILED
+    signal_key: postgres_archive_failed
+    level: critical
+    description: WAL archive command failed.
+    tags: [archive, wal, backup]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: archive command failed
+        - field: postgresql.log.message
+          op: contains
+          value: archive command failed
+
+  - id: POSTGRES_CHECKPOINT_HOT
+    signal_key: postgres_checkpoint_hot
+    level: warning
+    description: Checkpoints occurring too frequently.
+    tags: [checkpoint, wal, performance]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: checkpoints are occurring too frequently
+        - field: postgresql.log.message
+          op: contains
+          value: checkpoints are occurring too frequently
+
+  - id: POSTGRES_RECOVERY_CONFLICT
+    signal_key: postgres_recovery_conflict
+    level: warning
+    description: Session terminated due to standby recovery conflict.
+    tags: [recovery, standby, query]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: terminating connection due to conflict with recovery
+        - field: postgresql.log.message
+          op: contains
+          value: terminating connection due to conflict with recovery
+
+  - id: POSTGRES_READONLY_TX
+    signal_key: postgres_readonly_tx
+    level: warning
+    description: Write attempted in read-only transaction (SQLSTATE 25006).
+    tags: [transactions, readonly, write]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 25006
+        - field: sqlstate
+          op: equals
+          value: 25006
+        - field: message
+          op: contains
+          value: cannot execute
+
+  - id: POSTGRES_SSL_FAILED
+    signal_key: postgres_ssl_failed
+    level: warning
+    description: SSL/TLS connection failure in PostgreSQL listener.
+    tags: [security, tls, network]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(SSL error|could not accept SSL connection|TLS handshake failure)'
+        - field: postgresql.log.message
+          op: regex
+          value: '(SSL error|could not accept SSL connection|TLS handshake failure)'
+
+  - id: POSTGRES_CONFIG_ERROR
+    signal_key: postgres_config_error
+    level: critical
+    description: Configuration file/lock file issues (Class F0).
+    tags: [startup, config, service]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: in
+          value: [F0000, F0001]
+        - field: sqlstate
+          op: in
+          value: [F0000, F0001]
+        - field: message
+          op: regex
+          value: '(configuration file contains errors|lock file .* already exists)'
+
+  - id: POSTGRES_STARTUP_WAIT
+    signal_key: postgres_startup_wait
+    level: warning
+    description: Database system is in startup/recovery and not fully ready.
+    tags: [startup, recovery, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(database system is starting up|database system is in recovery mode)'
+        - field: postgresql.log.backend_type
+          op: equals
+          value: startup
+
+  - id: POSTGRES_XID_WRAP
+    signal_key: postgres_xid_wrap
+    level: critical
+    description: Anti-wraparound protection triggered; database may reject commands.
+    tags: [maintenance, autovacuum, wraparound]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(database is not accepting commands to avoid wraparound data loss|must be vacuumed within)'
+        - field: postgresql.log.message
+          op: regex
+          value: '(database is not accepting commands to avoid wraparound data loss|must be vacuumed within)'
+
+  - id: POSTGRES_AUTOVACUUM_SKIP
+    signal_key: postgres_autovacuum_skip
+    level: warning
+    description: Autovacuum action skipped due to locks/dropped relation.
+    tags: [maintenance, autovacuum, lock]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(autovacuum.*skipped due to conflicting lock|autovacuum.*skipped due to a concurrently dropped relation)'
+        - field: postgresql.log.message
+          op: regex
+          value: '(autovacuum.*skipped due to conflicting lock|autovacuum.*skipped due to a concurrently dropped relation)'
+
+  - id: POSTGRES_REPLICA_LAG
+    signal_key: postgres_replica_lag
+    level: warning
+    description: Replication lag is above threshold.
+    tags: [replication, lag, performance]
+    condition:
+      or:
+        - field: postgresql.replication.write_lag.ms
+          op: gte
+          value: 10000
+        - field: postgresql.replication.flush_lag.ms
+          op: gte
+          value: 10000
+        - field: postgresql.replication.replay_lag.ms
+          op: gte
+          value: 10000
+
+  - id: POSTGRES_SLOT_INVALID
+    signal_key: postgres_slot_invalid
+    level: warning
+    description: Replication slot invalid/missing/active conflict.
+    tags: [replication, slots, wal]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(replication slot .* does not exist|replication slot .* is active|invalid replication slot)'
+        - field: postgresql.log.message
+          op: regex
+          value: '(replication slot .* does not exist|replication slot .* is active|invalid replication slot)'
+
+  - id: POSTGRES_LOGICAL_LEVEL
+    signal_key: postgres_logical_level
+    level: warning
+    description: Logical replication/decoding blocked due to wal_level or replication config.
+    tags: [replication, logical, config]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(logical decoding requires wal_level >= logical|replication slot .* cannot be created)'
+        - field: postgresql.log.message
+          op: regex
+          value: '(logical decoding requires wal_level >= logical|replication slot .* cannot be created)'
+
+  - id: POSTGRES_SNAPSHOT_OLD
+    signal_key: postgres_snapshot_old
+    level: warning
+    description: Snapshot too old (SQLSTATE 72000).
+    tags: [query, snapshot, retention]
+    condition:
+      or:
+        - field: postgresql.log.sql_state_code
+          op: equals
+          value: 72000
+        - field: sqlstate
+          op: equals
+          value: 72000
+        - field: message
+          op: contains
+          value: snapshot too old
+
+  - id: POSTGRES_SERVICE_DOWN
+    signal_key: postgres_service_down
+    level: critical
+    description: Server shutdown/termination lifecycle messages.
+    tags: [service, lifecycle, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(database system is shut down|received fast shutdown request|received immediate shutdown request|shutting down)'
+        - field: postgresql.log.message
+          op: regex
+          value: '(database system is shut down|received fast shutdown request|received immediate shutdown request|shutting down)'

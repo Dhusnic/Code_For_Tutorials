@@ -48,3 +48,8 @@ src/environments/*.ts
 
 #Large Datasets
 large_datasets/
+
+#GO files
+*.go
+.gocache/
+.gomodcache/

@@ -1,0 +1,99 @@
+service: network
+rules:
+  - id: NETWORK_F5_BIGIP_TMM_CAUGHT_SIGNAL
+    signal_key: network_f5_bigip_tmm_caught_signal
+    level: critical
+    description: F5 BIG-IP TMM process caught fatal signal and is exiting.
+    tags: [vendor, f5, bigip, process, crash]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(01010019:5: Caught signal|tmm.*Caught signal)'
+        - field: msg
+          op: regex
+          value: '(01010019:5: Caught signal|tmm.*Caught signal)'
+
+  - id: NETWORK_F5_BIGIP_NO_POOL_MEMBERS
+    signal_key: network_f5_bigip_no_pool_members
+    level: critical
+    description: F5 BIG-IP virtual server has no available pool members.
+    tags: [vendor, f5, bigip, loadbalancer, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(01010028|No members available|pool has no members available)'
+        - field: msg
+          op: regex
+          value: '(01010028|No members available|pool has no members available)'
+
+  - id: NETWORK_F5_BIGIP_POOL_MEMBER_DOWN
+    signal_key: network_f5_bigip_pool_member_down
+    level: critical
+    description: F5 BIG-IP pool member monitor status down.
+    tags: [vendor, f5, bigip, loadbalancer, healthcheck]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(01070638:5:.*monitor status down|Pool .* monitor status down)'
+        - field: msg
+          op: regex
+          value: '(01070638:5:.*monitor status down|Pool .* monitor status down)'
+
+  - id: NETWORK_F5_BIGIP_POOL_MEMBER_UP
+    signal_key: network_f5_bigip_pool_member_up
+    level: info
+    description: F5 BIG-IP pool member recovered and monitor status is up.
+    tags: [vendor, f5, bigip, loadbalancer, recovery]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(01070727:5:.*monitor status up|Pool .* monitor status up)'
+        - field: msg
+          op: regex
+          value: '(01070727:5:.*monitor status up|Pool .* monitor status up)'
+
+  - id: NETWORK_F5_BIGIP_VIRTUAL_UNAVAILABLE
+    signal_key: network_f5_bigip_virtual_unavailable
+    level: critical
+    description: F5 BIG-IP virtual server became unavailable.
+    tags: [vendor, f5, bigip, loadbalancer, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(virtual server .* unavailable|has become unavailable)'
+        - field: msg
+          op: regex
+          value: '(virtual server .* unavailable|has become unavailable)'
+
+  - id: NETWORK_F5_BIGIP_CONFIG_SYNC_FAILURE
+    signal_key: network_f5_bigip_config_sync_failure
+    level: warning
+    description: F5 BIG-IP config sync or failover subsystem error.
+    tags: [vendor, f5, bigip, config_change, ha]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(config sync failed|csyncd.*error|failover.*error)'
+        - field: msg
+          op: regex
+          value: '(config sync failed|csyncd.*error|failover.*error)'
+
+  - id: NETWORK_F5_BIGIP_MEMORY_PRESSURE
+    signal_key: network_f5_bigip_memory_pressure
+    level: critical
+    description: F5 BIG-IP memory allocation or exhaustion issue.
+    tags: [vendor, f5, bigip, memory, resource]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(memory allocation failed|out of memory|malloc failed)'
+        - field: msg
+          op: regex
+          value: '(memory allocation failed|out of memory|malloc failed)'

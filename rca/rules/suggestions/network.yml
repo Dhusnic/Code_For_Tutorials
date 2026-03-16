@@ -1,0 +1,61 @@
+service: network
+rules:
+- id: NETWORK_AUTO_FEB_ARISTA_LEAF_CLI_40F1BA02
+  signal_key: network_auto_feb_arista_leaf_cli_40f1
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: >feb arista
+    leaf cli'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - network
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: '>feb arista leaf cli'
+
+- id: NETWORK_AUTO_FEB_SRX_DC_RT_2BA087C2
+  signal_key: network_auto_feb_srx_dc_rt_2ba0
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: >feb srx dc
+    rt'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - network
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: '>feb srx dc rt'
+
+- id: NETWORK_AUTO_FEB_PA_VM_TRAFFIC_D7626042
+  signal_key: network_auto_feb_pa_vm_traffic_d762
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: >feb pa vm
+    traffic'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - network
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: '>feb pa vm traffic'
+    
+- id: NETWORK_AUTO_FEB_CP_GW_LEEF_B9A412A6
+  signal_key: network_auto_feb_cp_gw_leef_b9a4
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: >feb cp gw
+    leef'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - network
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: '>feb cp gw leef'

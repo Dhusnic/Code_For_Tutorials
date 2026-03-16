@@ -1,0 +1,298 @@
+service: network
+rules:
+  - id: A_NETWORK_UNCLASSIFIED_FAILURE
+    signal_key: network_unclassified_failure
+    level: critical
+    description: Network event indicates critical failure but no specific network signature matched.
+    tags: [fallback, unclassified, network, critical, triage]
+    condition:
+      or:
+        - field: log.syslog.severity.code
+          op: lte
+          value: 3
+        - field: log.syslog.severity.name
+          op: in
+          value: [emerg, emergency, alert, crit, critical, err, error, fatal, panic, severe]
+        - field: log.level
+          op: in
+          value: [emerg, emergency, alert, crit, critical, err, error, fatal, panic, severe]
+        - field: level
+          op: in
+          value: [emerg, emergency, alert, crit, critical, err, error, fatal, panic, severe]
+        - field: severity
+          op: in
+          value: [emerg, emergency, alert, crit, critical, err, error, fatal, panic, severe]
+        - field: message
+          op: regex
+          value: '\b(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)\b'
+        - field: msg
+          op: regex
+          value: '\b(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)\b'
+
+  - id: NETWORK_LINK_DOWN
+    signal_key: network_link_down
+    level: critical
+    description: Physical/logical interface link is down.
+    tags: [physical, link, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(interface|port|link|line protocol)\b.*\b(down|notconnect|administratively down)\b'
+        - field: msg
+          op: regex
+          value: '\b(interface|port|link|line protocol)\b.*\b(down|notconnect|administratively down)\b'
+
+  - id: NETWORK_INTERFACE_FLAPPING
+    signal_key: network_interface_flapping
+    level: warning
+    description: Interface repeatedly transitions up/down.
+    tags: [physical, link, stability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(flapp|link up.*link down|changed state to down|changed state to up)\b'
+        - field: msg
+          op: regex
+          value: '\b(flapp|link up.*link down|changed state to down|changed state to up)\b'
+
+  - id: NETWORK_BGP_NEIGHBOR_DOWN
+    signal_key: network_bgp_neighbor_down
+    level: critical
+    description: BGP peering/session is down.
+    tags: [control_plane, routing, bgp, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\bbgp\b.*\b(neighbor|peer|session)\b.*\b(down|idle|reset|hold timer expired|not established|cease)\b'
+        - field: msg
+          op: regex
+          value: '\bbgp\b.*\b(neighbor|peer|session)\b.*\b(down|idle|reset|hold timer expired|not established|cease)\b'
+
+  - id: NETWORK_OSPF_ADJACENCY_DOWN
+    signal_key: network_ospf_adjacency_down
+    level: critical
+    description: OSPF adjacency/neighbor went down.
+    tags: [control_plane, routing, ospf, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\bospf\b.*\b(neighbor|adjacency)\b.*\b(down|full to|loading to|2-way to|init to)\b'
+        - field: msg
+          op: regex
+          value: '\bospf\b.*\b(neighbor|adjacency)\b.*\b(down|full to|loading to|2-way to|init to)\b'
+
+  - id: NETWORK_ISIS_ADJACENCY_DOWN
+    signal_key: network_isis_adjacency_down
+    level: critical
+    description: IS-IS adjacency/neighbor is down.
+    tags: [control_plane, routing, isis, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(isis|is-is)\b.*\b(adj|adjacency|neighbor)\b.*\b(down|lost|expired)\b'
+        - field: msg
+          op: regex
+          value: '\b(isis|is-is)\b.*\b(adj|adjacency|neighbor)\b.*\b(down|lost|expired)\b'
+
+  - id: NETWORK_CONFIG_COMMIT_FAILED
+    signal_key: network_config_commit_failed
+    level: critical
+    description: Configuration commit/apply failed.
+    tags: [config_change, commit, failure]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(commit failed|configuration failed|failed to apply configuration|syntax error|invalid input|rollback)\b'
+        - field: msg
+          op: regex
+          value: '\b(commit failed|configuration failed|failed to apply configuration|syntax error|invalid input|rollback)\b'
+
+  - id: NETWORK_CONFIG_CHANGE_DETECTED
+    signal_key: network_config_change_detected
+    level: info
+    description: Configuration change/commit was detected.
+    tags: [config_change, audit]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(configuration changed|commit complete|commit confirmed|running-config updated|configured from)\b'
+        - field: msg
+          op: regex
+          value: '\b(configuration changed|commit complete|commit confirmed|running-config updated|configured from)\b'
+
+  - id: NETWORK_CPU_EXHAUSTION
+    signal_key: network_cpu_exhaustion
+    level: critical
+    description: Device CPU is critically high or overloaded.
+    tags: [resource, cpu, saturation]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(cpu|processor)\b.*\b(9[0-9]%|100%|high|overload|hog|spike)\b'
+        - field: msg
+          op: regex
+          value: '\b(cpu|processor)\b.*\b(9[0-9]%|100%|high|overload|hog|spike)\b'
+
+  - id: NETWORK_MEMORY_EXHAUSTION
+    signal_key: network_memory_exhaustion
+    level: critical
+    description: Device memory is exhausted or critically low.
+    tags: [resource, memory, saturation]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(out of memory|memory allocation failed|memory low|oom|malloc failed)\b'
+        - field: msg
+          op: regex
+          value: '\b(out of memory|memory allocation failed|memory low|oom|malloc failed)\b'
+
+  - id: NETWORK_TCAM_EXHAUSTION
+    signal_key: network_tcam_exhaustion
+    level: critical
+    description: TCAM/ACL hardware table is full or exhausted.
+    tags: [resource, tcam, forwarding]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(tcam|hardware table|acl table)\b.*\b(full|exhaust|overflow|insufficient)\b'
+        - field: msg
+          op: regex
+          value: '\b(tcam|hardware table|acl table)\b.*\b(full|exhaust|overflow|insufficient)\b'
+
+  - id: NETWORK_QUEUE_DROPS_HIGH
+    signal_key: network_queue_drops_high
+    level: warning
+    description: Queue/buffer drops indicate congestion.
+    tags: [resource, queue, congestion]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(queue|buffer)\b.*\b(drop|tail drop|discard|overflow|congestion)\b'
+        - field: msg
+          op: regex
+          value: '\b(queue|buffer)\b.*\b(drop|tail drop|discard|overflow|congestion)\b'
+
+  - id: NETWORK_PACKET_ERROR_RATE_HIGH
+    signal_key: network_packet_error_rate_high
+    level: warning
+    description: Packet error counters indicate degraded link quality.
+    tags: [physical, errors, quality]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(crc|fcs|input errors|output errors|runts|giants|alignment errors)\b'
+        - field: msg
+          op: regex
+          value: '\b(crc|fcs|input errors|output errors|runts|giants|alignment errors)\b'
+
+  - id: NETWORK_AUTH_SERVER_UNREACHABLE
+    signal_key: network_auth_server_unreachable
+    level: critical
+    description: AAA backend (RADIUS/TACACS) is unreachable or timing out.
+    tags: [control_plane, aaa, authentication]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(radius|tacacs)\b.*\b(timeout|timed out|unreachable|no response|failed)\b'
+        - field: msg
+          op: regex
+          value: '\b(radius|tacacs)\b.*\b(timeout|timed out|unreachable|no response|failed)\b'
+
+  - id: NETWORK_POWER_SUPPLY_FAILURE
+    signal_key: network_power_supply_failure
+    level: critical
+    description: Power supply/PSU failure detected.
+    tags: [hardware, power, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(power supply|psu)\b.*\b(fail|fault|down|not present|removed)\b'
+        - field: msg
+          op: regex
+          value: '\b(power supply|psu)\b.*\b(fail|fault|down|not present|removed)\b'
+
+  - id: NETWORK_FAN_FAILURE
+    signal_key: network_fan_failure
+    level: critical
+    description: Fan failure detected.
+    tags: [hardware, fan, thermal]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\bfan\b.*\b(fail|fault|stopped|not present|removed)\b'
+        - field: msg
+          op: regex
+          value: '\bfan\b.*\b(fail|fault|stopped|not present|removed)\b'
+
+  - id: NETWORK_TEMPERATURE_CRITICAL
+    signal_key: network_temperature_critical
+    level: critical
+    description: Device temperature reached critical threshold.
+    tags: [hardware, thermal, safety]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(temperature|thermal)\b.*\b(critical|overheat|too high|shutdown)\b'
+        - field: msg
+          op: regex
+          value: '\b(temperature|thermal)\b.*\b(critical|overheat|too high|shutdown)\b'
+
+  - id: NETWORK_CONTROL_PLANE_POLICER_DROPS
+    signal_key: network_control_plane_policer_drops
+    level: warning
+    description: Control-plane policing drops detected.
+    tags: [control_plane, copp, drops]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(copp|control plane policing)\b.*\b(drop|exceed|rate limit)\b'
+        - field: msg
+          op: regex
+          value: '\b(copp|control plane policing)\b.*\b(drop|exceed|rate limit)\b'
+
+  - id: NETWORK_DEVICE_REBOOT_OR_CRASH
+    signal_key: network_device_reboot_or_crash
+    level: critical
+    description: Device reboot/crash/panic detected.
+    tags: [service, lifecycle, crash]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(reload|reboot|system restarted|cold start|warm start|kernel panic|watchdog reset|crash)\b'
+        - field: msg
+          op: regex
+          value: '\b(reload|reboot|system restarted|cold start|warm start|kernel panic|watchdog reset|crash)\b'
+
+  - id: NETWORK_APPLICATION_CONTROL_BLOCKED
+    signal_key: network_application_control_blocked
+    level: critical
+    description: 'Auto-learned from recurring unclassified critical logs: application
+      control blocked'
+    tags:
+    - auto_generated
+    - unclassified_learning
+    - network
+    - critical
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: application control blocked

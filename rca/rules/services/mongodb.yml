@@ -1,0 +1,719 @@
+service: mongodb
+rules:
+  - id: A_MONGODB_UNCLASSIFIED_FAILURE
+    signal_key: mongodb_unclassified_failure
+    level: critical
+    description: MongoDB event indicates critical failure but no specific MongoDB signature matched.
+    tags: [fallback, unclassified, mongodb, critical, triage]
+    condition:
+      or:
+        - field: log.level
+          op: in
+          value: [critical, crit, error, err, fatal, panic, emergency, alert]
+        - field: level
+          op: in
+          value: [critical, crit, error, err, fatal, panic, emergency, alert]
+        - field: mongodb.log.severity
+          op: in
+          value: [F, E, f, e, fatal, error, critical]
+        - field: s
+          op: in
+          value: [F, E, f, e]
+        - field: message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR|ERR)'
+        - field: msg
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR|ERR)'
+
+  - id: MONGODB_AUTH_FAILED
+    signal_key: mongodb_auth_failed
+    level: warning
+    description: Client authentication failed (error code 18 / AuthenticationFailed).
+    tags: [security, auth, access]
+    condition:
+      and:
+        - or:
+            - field: c
+              op: equals
+              value: ACCESS
+            - field: mongodb.log.component
+              op: equals
+              value: ACCESS
+        - or:
+            - field: attr.result
+              op: equals
+              value: 18
+            - field: attr.code
+              op: equals
+              value: 18
+            - field: code
+              op: equals
+              value: 18
+            - field: attr.error
+              op: contains
+              value: AuthenticationFailed
+            - field: msg
+              op: contains
+              value: Failed to authenticate
+            - field: message
+              op: contains
+              value: Failed to authenticate
+
+  - id: MONGODB_USER_NOT_FOUND
+    signal_key: mongodb_user_not_found
+    level: warning
+    description: Authentication attempted for a user that does not exist.
+    tags: [security, auth, user]
+    condition:
+      and:
+        - or:
+            - field: c
+              op: equals
+              value: ACCESS
+            - field: mongodb.log.component
+              op: equals
+              value: ACCESS
+        - or:
+            - field: attr.result
+              op: equals
+              value: 11
+            - field: code
+              op: equals
+              value: 11
+            - field: attr.error
+              op: contains
+              value: UserNotFound
+            - field: message
+              op: contains
+              value: UserNotFound
+
+  - id: MONGODB_UNAUTHORIZED
+    signal_key: mongodb_unauthorized
+    level: warning
+    description: Authenticated user attempted an operation without required privileges.
+    tags: [security, authz, permissions]
+    condition:
+      or:
+        - field: attr.code
+          op: equals
+          value: 13
+        - field: code
+          op: equals
+          value: 13
+        - field: attr.error
+          op: contains
+          value: Unauthorized
+        - field: message
+          op: regex
+          value: "\\b(Unauthorized|not authorized|permission denied)\\b"
+
+  - id: MONGODB_DUPLICATE_KEY
+    signal_key: mongodb_duplicate_key
+    level: warning
+    description: Unique index violation (error code 11000 / DuplicateKey).
+    tags: [write, index, constraint]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 11000
+        - field: attr.code
+          op: equals
+          value: 11000
+        - field: msg
+          op: contains
+          value: E11000 duplicate key error
+        - field: message
+          op: contains
+          value: E11000 duplicate key error
+
+  - id: MONGODB_NOT_WRITABLE_PRIMARY
+    signal_key: mongodb_not_writable_primary
+    level: critical
+    description: Write attempted on node that is not writable primary (error code 10107).
+    tags: [replication, write, primary]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 10107
+        - field: attr.code
+          op: equals
+          value: 10107
+        - field: attr.error
+          op: contains
+          value: NotWritablePrimary
+        - field: message
+          op: contains
+          value: NotWritablePrimary
+
+  - id: MONGODB_NOT_PRIMARY_SECONDARY
+    signal_key: mongodb_not_primary_secondary
+    level: critical
+    description: Node cannot serve requested operation due to replica role transition.
+    tags: [replication, availability, role]
+    condition:
+      or:
+        - field: code
+          op: in
+          value: [13435, 13436]
+        - field: attr.code
+          op: in
+          value: [13435, 13436]
+        - field: message
+          op: regex
+          value: "(NotPrimaryNoSecondaryOk|NotPrimaryOrSecondary)"
+        - field: attr.error
+          op: regex
+          value: "(NotPrimaryNoSecondaryOk|NotPrimaryOrSecondary)"
+
+  - id: MONGODB_INTERRUPTED_REPL_STATE_CHANGE
+    signal_key: mongodb_interrupted_repl_state_change
+    level: warning
+    description: Operation interrupted because replication state changed.
+    tags: [replication, interrupt, state]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 11602
+        - field: attr.code
+          op: equals
+          value: 11602
+        - field: message
+          op: contains
+          value: InterruptedDueToReplStateChange
+
+  - id: MONGODB_INTERRUPTED_CLIENT_DISCONNECTED
+    signal_key: mongodb_interrupted_client_disconnected
+    level: warning
+    description: Operation interrupted because the client disconnected.
+    tags: [client, disconnect, interrupt]
+    condition:
+      or:
+        - field: msg
+          op: contains
+          value: Interrupted operation as its client disconnected
+        - field: message
+          op: contains
+          value: Interrupted operation as its client disconnected
+
+  - id: MONGODB_ERROR_SENDING_RESPONSE_TO_CLIENT
+    signal_key: mongodb_error_sending_response_to_client
+    level: warning
+    description: MongoDB failed while sending response back to client.
+    tags: [client, network, response, io]
+    condition:
+      or:
+        - field: msg
+          op: contains
+          value: Error sending response to client
+        - field: message
+          op: contains
+          value: Error sending response to client
+
+  - id: MONGODB_HOST_UNREACHABLE
+    signal_key: mongodb_host_unreachable
+    level: critical
+    description: Peer host became unreachable (error code 6).
+    tags: [network, connectivity, cluster]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 6
+        - field: attr.code
+          op: equals
+          value: 6
+        - field: message
+          op: regex
+          value: "(HostUnreachable|No route to host|Network is unreachable)"
+
+  - id: MONGODB_HOST_NOT_FOUND
+    signal_key: mongodb_host_not_found
+    level: critical
+    description: DNS/hostname resolution failed for cluster peer (error code 7).
+    tags: [network, dns, cluster]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 7
+        - field: attr.code
+          op: equals
+          value: 7
+        - field: message
+          op: regex
+          value: "(HostNotFound|Name or service not known|Temporary failure in name resolution)"
+
+  - id: MONGODB_OUT_OF_DISK_SPACE
+    signal_key: mongodb_out_of_disk_space
+    level: critical
+    description: Node ran out of disk space (error code 14031 / OS disk-full signals).
+    tags: [storage, disk, capacity]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 14031
+        - field: attr.code
+          op: equals
+          value: 14031
+        - field: message
+          op: regex
+          value: "(OutOfDiskSpace|No space left on device|disk full)"
+        - field: attr.error
+          op: regex
+          value: "(OutOfDiskSpace|No space left on device|disk full)"
+
+  - id: MONGODB_TOO_MANY_OPEN_FILES
+    signal_key: mongodb_too_many_open_files
+    level: critical
+    description: Process/file descriptor exhaustion detected.
+    tags: [os, file, capacity]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: Too many open files
+        - field: attr.error
+          op: contains
+          value: Too many open files
+
+  - id: MONGODB_TLS_HANDSHAKE_FAILED
+    signal_key: mongodb_tls_handshake_failed
+    level: critical
+    description: TLS/SSL handshake failed for incoming or outgoing connection.
+    tags: [security, tls, network]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: "(TLS handshake failed|SSL handshake failed|ssl handshake failed)"
+        - field: attr.error
+          op: regex
+          value: "(TLS handshake failed|SSL handshake failed|ssl handshake failed)"
+
+  - id: MONGODB_TLS_CERTIFICATE_ERROR
+    signal_key: mongodb_tls_certificate_error
+    level: critical
+    description: TLS certificate validation/trust problem.
+    tags: [security, tls, certificate]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: "(certificate verify failed|unknown ca|bad certificate|self signed certificate)"
+        - field: attr.error
+          op: regex
+          value: "(certificate verify failed|unknown ca|bad certificate|self signed certificate)"
+
+  - id: MONGODB_TLS_LIBRARY_MISMATCH
+    signal_key: mongodb_tls_library_mismatch
+    level: warning
+    description: Runtime TLS library version mismatch warning from startup checks.
+    tags: [startup, tls, compatibility]
+    condition:
+      and:
+        - field: message
+          op: contains
+          value: no version information available
+        - or:
+            - field: message
+              op: contains
+              value: libssl.so
+            - field: message
+              op: contains
+              value: libcrypto.so
+
+  - id: MONGODB_REPLSET_REMOVED
+    signal_key: mongodb_replset_removed
+    level: critical
+    description: Member entered REMOVED state (logs include replSet REMOVED).
+    tags: [replication, topology, membership]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: replSet REMOVED
+        - field: msg
+          op: contains
+          value: replSet REMOVED
+
+  - id: MONGODB_REPLSET_ROLLBACK
+    signal_key: mongodb_replset_rollback
+    level: critical
+    description: Node entered ROLLBACK state after election divergence.
+    tags: [replication, rollback, data]
+    condition:
+      and:
+        - or:
+            - field: c
+              op: equals
+              value: REPL
+            - field: mongodb.log.component
+              op: equals
+              value: REPL
+        - or:
+            - field: message
+              op: regex
+              value: "\\bROLLBACK\\b"
+            - field: msg
+              op: regex
+              value: "\\bROLLBACK\\b"
+
+  - id: MONGODB_REPLSET_RECOVERING
+    signal_key: mongodb_replset_recovering
+    level: warning
+    description: Member is in RECOVERING state and not serving reads yet.
+    tags: [replication, state, recovery]
+    condition:
+      and:
+        - or:
+            - field: c
+              op: equals
+              value: REPL
+            - field: mongodb.log.component
+              op: equals
+              value: REPL
+        - or:
+            - field: message
+              op: regex
+              value: "\\bRECOVERING\\b"
+            - field: msg
+              op: regex
+              value: "\\bRECOVERING\\b"
+
+  - id: MONGODB_PRIMARY_STEPPED_DOWN
+    signal_key: mongodb_primary_stepped_down
+    level: warning
+    description: Primary stepped down and election/failover is in progress.
+    tags: [replication, failover, election]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: "(step[ -]?down|stepping down|stepped down)"
+        - field: msg
+          op: regex
+          value: "(step[ -]?down|stepping down|stepped down)"
+
+  - id: MONGODB_INITIAL_SYNC_RUNNING
+    signal_key: mongodb_initial_sync_running
+    level: warning
+    description: Member in STARTUP2/initial sync and not yet fully caught up.
+    tags: [replication, sync, startup]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: initial sync
+        - field: msg
+          op: contains
+          value: initial sync
+        - field: message
+          op: contains
+          value: STARTUP2
+
+  - id: MONGODB_WIREDTIGER_FATAL
+    signal_key: mongodb_wiredtiger_fatal
+    level: critical
+    description: WiredTiger component emitted error/fatal log.
+    tags: [storage, wiredtiger, fatal]
+    condition:
+      and:
+        - or:
+            - field: c
+              op: in
+              value: [WT, WTRECOV, WTRTS, WTSLVG, WTEVICT, WTCHKPT, WTWRTLOG]
+            - field: mongodb.log.component
+              op: in
+              value: [WT, WTRECOV, WTRTS, WTSLVG, WTEVICT, WTCHKPT, WTWRTLOG]
+        - or:
+            - field: s
+              op: in
+              value: [E, F]
+            - field: mongodb.log.severity
+              op: in
+              value: [E, F]
+            - field: log.level
+              op: in
+              value: [error, critical, fatal]
+
+  - id: MONGODB_STORAGE_RECOVERY_ERROR
+    signal_key: mongodb_storage_recovery_error
+    level: critical
+    description: Storage/journal/recovery component reports corruption or recovery failure.
+    tags: [storage, journal, recovery]
+    condition:
+      and:
+        - or:
+            - field: c
+              op: in
+              value: [STORAGE, JOURNAL, RECOVERY]
+            - field: mongodb.log.component
+              op: in
+              value: [STORAGE, JOURNAL, RECOVERY]
+        - or:
+            - field: message
+              op: regex
+              value: "(corrupt|corruption|checksum|recovery failed|fatal)"
+            - field: attr.error
+              op: regex
+              value: "(corrupt|corruption|checksum|recovery failed|fatal)"
+
+  - id: MONGODB_LOCK_TIMEOUT
+    signal_key: mongodb_lock_timeout
+    level: warning
+    description: Operation timed out waiting for lock (error code 24).
+    tags: [concurrency, lock, timeout]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 24
+        - field: attr.code
+          op: equals
+          value: 24
+        - field: message
+          op: contains
+          value: LockTimeout
+
+  - id: MONGODB_MAXTIME_EXPIRED
+    signal_key: mongodb_maxtime_expired
+    level: warning
+    description: Operation exceeded maxTimeMS limit (error code 50).
+    tags: [query, timeout, performance]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 50
+        - field: attr.code
+          op: equals
+          value: 50
+        - field: message
+          op: contains
+          value: MaxTimeMSExpired
+
+  - id: MONGODB_CURSOR_NOT_FOUND
+    signal_key: mongodb_cursor_not_found
+    level: warning
+    description: Referenced cursor no longer exists (error code 43).
+    tags: [query, cursor, state]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 43
+        - field: attr.code
+          op: equals
+          value: 43
+        - field: message
+          op: contains
+          value: CursorNotFound
+
+  - id: MONGODB_NAMESPACE_NOT_FOUND
+    signal_key: mongodb_namespace_not_found
+    level: warning
+    description: Requested namespace/collection was not found (error code 26).
+    tags: [metadata, namespace, query]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 26
+        - field: attr.code
+          op: equals
+          value: 26
+        - field: message
+          op: contains
+          value: NamespaceNotFound
+
+  - id: MONGODB_INDEX_NOT_FOUND
+    signal_key: mongodb_index_not_found
+    level: warning
+    description: Requested index was not found (error code 27).
+    tags: [index, metadata, query]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 27
+        - field: attr.code
+          op: equals
+          value: 27
+        - field: message
+          op: contains
+          value: IndexNotFound
+
+  - id: MONGODB_BSON_TOO_LARGE
+    signal_key: mongodb_bson_too_large
+    level: warning
+    description: BSON/document payload exceeded allowed size (error code 10334).
+    tags: [document, size, validation]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 10334
+        - field: attr.code
+          op: equals
+          value: 10334
+        - field: message
+          op: regex
+          value: "(BSONObjectTooLarge|object to insert too large|BSONObj size)"
+
+  - id: MONGODB_STALE_CONFIG
+    signal_key: mongodb_stale_config
+    level: warning
+    description: Operation failed due to stale sharding metadata (error code 13388).
+    tags: [sharding, metadata, routing]
+    condition:
+      or:
+        - field: code
+          op: equals
+          value: 13388
+        - field: attr.code
+          op: equals
+          value: 13388
+        - field: message
+          op: contains
+          value: StaleConfig
+
+  - id: MONGODB_OPLOG_APPLY_SLOW
+    signal_key: mongodb_oplog_apply_slow
+    level: warning
+    description: Secondary oplog apply exceeded slow operation threshold.
+    tags: [replication, oplog, performance]
+    condition:
+      and:
+        - or:
+            - field: c
+              op: equals
+              value: REPL
+            - field: mongodb.log.component
+              op: equals
+              value: REPL
+        - or:
+            - field: message
+              op: regex
+              value: "applied op:.*took [0-9]+ms"
+            - field: msg
+              op: regex
+              value: "applied op:.*took [0-9]+ms"
+
+  - id: MONGODB_SLOW_COMMAND
+    signal_key: mongodb_slow_command
+    level: warning
+    description: Command/query execution indicates slow operation behavior.
+    tags: [query, performance, command]
+    condition:
+      or:
+        - field: attr.durationMillis
+          op: gte
+          value: 1000
+        - field: attr.workingMillis
+          op: gte
+          value: 1000
+        - field: message
+          op: regex
+          value: "(Slow query|slow query|operation exceeded time limit)"
+
+  - id: MONGODB_STARTUP_ULIMIT_WARNING
+    signal_key: mongodb_startup_ulimit_warning
+    level: warning
+    description: Startup warning for low open-file ulimit that can degrade availability.
+    tags: [startup, os, capacity]
+    condition:
+      and:
+        - field: message
+          op: contains
+          value: ulimit
+        - field: message
+          op: regex
+          value: "(open files|nofile|too low)"
+
+  - id: MONGODB_THP_CONFIG_WARNING
+    signal_key: mongodb_thp_config_warning
+    level: warning
+    description: Transparent Huge Pages configuration warning for MongoDB workload profile.
+    tags: [startup, memory, tuning]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: Transparent Hugepages
+        - field: message
+          op: contains
+          value: Transparent Huge Pages
+
+  - id: MONGODB_NUMA_CONFIG_WARNING
+    signal_key: mongodb_numa_config_warning
+    level: warning
+    description: NUMA configuration warning that may impact performance/stability.
+    tags: [startup, memory, numa]
+    condition:
+      and:
+        - field: message
+          op: contains
+          value: NUMA
+        - field: message
+          op: regex
+          value: "(disable|recommended|performance)"
+
+  - id: MONGODB_WRITE_CONCERN_FAILED
+    signal_key: mongodb_write_concern_failed
+    level: warning
+    description: Write concern was not satisfied in required time/replica constraints.
+    tags: [write, concern, replication]
+    condition:
+      or:
+        - field: attr.writeConcernError
+          op: exists
+        - field: message
+          op: contains
+          value: WriteConcernFailed
+        - field: attr.error
+          op: contains
+          value: WriteConcernFailed
+
+  - id: MONGODB_FATAL_ASSERT
+    signal_key: mongodb_fatal_assert
+    level: critical
+    description: Fatal assertion/control failure requiring immediate operator action.
+    tags: [assert, fatal, process]
+    condition:
+      and:
+        - or:
+            - field: s
+              op: equals
+              value: F
+            - field: mongodb.log.severity
+              op: equals
+              value: F
+        - or:
+            - field: c
+              op: equals
+              value: ASSERT
+            - field: mongodb.log.component
+              op: equals
+              value: ASSERT
+            - field: message
+              op: regex
+              value: "(Fatal assertion|fassert|Fatal)"
+
+  - id: MONGODB_SERVICE_SHUTTING_DOWN
+    signal_key: mongodb_service_shutting_down
+    level: critical
+    description: Service is shutting down or was terminated.
+    tags: [service, lifecycle, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: "(shutting down|shutdown complete|received signal)"
+        - field: msg
+          op: regex
+          value: "(shutting down|shutdown complete|received signal)"
