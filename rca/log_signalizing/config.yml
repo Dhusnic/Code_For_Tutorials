@@ -1,0 +1,299 @@
+﻿# RCA Engine Configuration
+# Supported readable units:
+# - Size: B, KB, MB, GB, TB (binary base 1024)
+# - Duration: ms, s, m, h, d
+# Note: Elasticsearch DSL time fields (for queries) should remain like "now-15m", not "15m" unit parsing.
+
+elasticsearch:
+  # Elasticsearch node URLs used by the reader and writer clients.
+  hosts:
+    - "http://10.0.4.132:9200"
+  # Basic auth username for Elasticsearch.
+  username: "elastic"
+  # Basic auth password for Elasticsearch.
+  password: "elastic"
+  # TLS certificate validation toggle; false is only for lab/dev environments.
+  verify_certs: false
+  # Client-side request timeout for Elasticsearch API calls.
+  request_timeout_seconds: "30s"
+
+checkpoints:
+  # Checkpoint backend type. Controls where pagination state is stored.
+  provider: "elasticsearch"  # file | redis | postgres | elasticsearch
+  # Local file path used only when provider=file.
+  path: "state/checkpoints.json"
+  # Redis connection URL used only when provider=redis.
+  redis_url: null
+  # Key prefix in Redis for checkpoint records.
+  redis_prefix: "rca:checkpoint:"
+  # PostgreSQL DSN used only when provider=postgres.
+  postgres_dsn: null
+  # PostgreSQL table name used only when provider=postgres.
+  postgres_table: "rca_checkpoints"
+  # Elasticsearch index name used only when provider=elasticsearch.
+  elasticsearch_index: "rca-checkpoints"
+
+logging:
+  # Global log level. Use DEBUG only during troubleshooting.
+  level: "INFO"
+  # Emit structured JSON logs (recommended for production ingestion).
+  json: true
+  # Log unmatched events at debug-level details; can create high log volume.
+  log_unmatched_events: false
+
+# Root directory containing rule files.
+rules_directory: "rules"
+
+rule_learning:
+  # Enable automatic learning from recurring unclassified critical logs.
+  enabled: true
+  # suggest: write to suggestions folder, append: write into live rule files.
+  mode: "suggest"  # suggest | append
+  # Output folder for learned suggestions when mode=suggest.
+  output_directory: "rules/suggestions"
+  # Minimum repeats required before a learned pattern becomes a candidate rule.
+  min_occurrences: 5
+  # Max number of learned candidates generated per service per flush.
+  max_candidates_per_service: 20
+  # Minimum keyword count needed to build a learned signal.
+  min_keyword_count: 2
+  # Max keywords used while generating learned signal/rule IDs.
+  max_keywords_per_signal: 4
+  # Event field used by auto-learning condition.
+  condition_field: "message"
+  # Operator used for auto-learning condition.
+  condition_op: "contains"
+  # Severity assigned to learned rules.
+  level: "critical"
+
+pipeline:
+  # Max events read per ES search page and primary action-batch cap by count.
+  batch_size: 2000
+  # Secondary action-batch cap by payload size (controls RAM usage per flush).
+  bulk_max_batch_bytes: "8MB"
+
+  # Number of horizontal RCA instances expected for deterministic partitioning.
+  worker_count: 1
+  # Current instance ID in range [0, worker_count-1].
+  worker_id: 0
+
+  # Initial number of async bulk writer threads.
+  bulk_worker_count: 4
+  # Max in-memory queued batches before backpressure/spool behavior triggers.
+  bulk_queue_size: 32
+  # Time to wait for queue slot before spooling to disk (when spool enabled).
+  bulk_queue_enqueue_timeout_seconds: "250ms"
+
+  # Enable disk overflow buffer when in-memory queue is saturated.
+  bulk_spool_enabled: false
+  # Folder used to store spooled batch files.
+  bulk_spool_directory: "state/bulk_spool"
+  # Hard cap for total disk spool usage. Prevents unlimited disk growth.
+  bulk_spool_max_bytes: "10GB"
+  # How often spool replayer tries to move disk batches back into RAM queue.
+  bulk_spool_replay_interval_seconds: "1s"
+
+  # Enable dynamic thread scaling inside async bulk writer.
+  bulk_autoscaling_enabled: true
+  # Lower bound of bulk writer threads when autoscaling.
+  bulk_autoscaling_min_workers: 4
+  # Upper bound of bulk writer threads when autoscaling.
+  bulk_autoscaling_max_workers: 12
+  # Scale up when queue fill ratio is >= this threshold.
+  bulk_autoscaling_scale_up_queue_ratio: 0.75
+  # Scale down when queue fill ratio is <= this threshold.
+  bulk_autoscaling_scale_down_queue_ratio: 0.25
+  # Block scale-up when CPU is above this percent.
+  bulk_autoscaling_cpu_limit_percent: 85
+  # Block scale-up when memory is above this percent.
+  bulk_autoscaling_memory_limit_percent: 85
+  # Autoscaler loop interval for queue/resource checks.
+  bulk_autoscaling_check_interval_seconds: "2s"
+  # Minimum wait between scale decisions to avoid thrashing.
+  bulk_autoscaling_cooldown_seconds: "10s"
+
+  # Batch mode:
+  # - static: always uses batch_size
+  # - dynamic: estimates from recent event rate
+  batch_size_mode: "dynamic"  # static | dynamic
+  # Dynamic mode minimum page size.
+  dynamic_batch_min_size: 500
+  # Dynamic mode maximum page size.
+  dynamic_batch_max_size: 10000
+  # Dynamic mode lookback window for EPS estimation.
+  dynamic_batch_lookback_seconds: "30s"
+  # Dynamic mode target processing window to derive page size.
+  dynamic_batch_target_window_seconds: "1s"
+  # Smoothing factor for dynamic EPS estimate (0..1).
+  dynamic_batch_smoothing_alpha: 0.5
+
+  # Emit autoscaling recommendation logs for horizontal workers.
+  autoscaling_enabled: true
+  # Desired intake EPS each worker should handle before recommending scale-up.
+  autoscaling_target_events_per_worker_sec: 1500
+  # Lower bound for recommended horizontal worker count.
+  autoscaling_min_workers: 1
+  # Upper bound for recommended horizontal worker count.
+  autoscaling_max_workers: 64
+  # Recommend scale-up when lag goes above this threshold.
+  autoscaling_lag_scale_up_seconds: "60s"
+  # Recommend scale-down when lag stays below this threshold.
+  autoscaling_lag_scale_down_seconds: "10s"
+
+  # Sleep time between full processing cycles.
+  poll_interval_seconds: "10s"
+  # Event timestamp field used for ordering and lag calculation.
+  timestamp_field: "@timestamp"
+  # Elasticsearch DSL start time for global reads (kept as ES DSL string).
+  start_time: "now-15m"
+
+  # Bulk retry attempts before dead-letter routing.
+  retry_max_attempts: 4
+  # Initial retry delay for failed bulk writes.
+  retry_initial_backoff_seconds: "1s"
+  # Retry multiplier (exponential backoff factor).
+  retry_backoff_multiplier: 2.0
+
+  # Max matched signals retained per event from rule engine.
+  signal_max_per_event: 2
+  # If true, keeps only highest severity among matched signals.
+  signal_select_highest_only: true
+  # Enforce vendor-aware anchors when explicit vendor metadata exists in event fields.
+  # Helps reduce cross-vendor false positives in shared network indices.
+  vendor_anchor_enforcement_enabled: true
+
+  # Default indices used when a service does not override source_indices.
+  source_indices:
+    - "*"
+  # When true, update original source documents with signal fields.
+  write_to_source_index: true
+  # When true, write enriched docs into target suffix index.
+  write_to_target_index: false
+  # Target index suffix for enriched copy.
+  target_suffix: "-rca"
+  # Dead-letter index suffix for permanent write failures.
+  dead_letter_suffix: "-rca-dead-letter"
+
+  # Per-service processing definitions.
+  services:
+    # Logical service key (used for partitioning/checkpoints/rule lookup).
+    - name: "nginx"
+      # Enable/disable this service pipeline.
+      enabled: true
+      # Rule file path relative to rules_directory.
+      rule_file: "services/nginx.yml"
+      # Source indices for this service (overrides pipeline.source_indices).
+      source_indices:
+        - "*"
+      # Elasticsearch DSL start time for this service only.
+      start_time: "now-60m"
+      # Elasticsearch query filter to scope service events.
+      query:
+        term:
+          event.module: "nginx"
+
+    - name: "rabbitmq"
+      enabled: true
+      rule_file: "services/rabbitmq.yml"
+      source_indices:
+        - "*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "rabbitmq"
+
+    - name: "mongodb"
+      enabled: true
+      rule_file: "services/mongodb.yml"
+      source_indices:
+        - "*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "mongodb"
+
+    - name: "redis"
+      enabled: true
+      rule_file: "services/redis.yml"
+      source_indices:
+        - "*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "redis"
+
+    - name: "kafka"
+      enabled: true
+      rule_file: "services/kafka.yml"
+      source_indices:
+        - "*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "kafka"
+
+    - name: "postgres"
+      enabled: true
+      rule_file: "services/postgres.yml"
+      source_indices:
+        - "*"
+      start_time: "now-60m"
+      query:
+        term:
+          event.module: "postgresql"
+
+    # - name: "system"
+    #   enabled: true
+    #   rule_file: "services/system.yml"
+    #   source_indices:
+    #     - "*"
+    #   start_time: "now-60m"
+    #   query:
+    #     bool:
+    #       should:
+    #         - term:
+    #             event.module: "system"
+    #         - term:
+    #             event.dataset: "system.syslog"
+    #         - term:
+    #             data_stream.dataset: "system.syslog"
+    #       must_not:
+    #         - term:
+    #             event.dataset: "system.auth"
+    #         - term:
+    #             data_stream.dataset: "system.auth"
+    #         - term:
+    #             fileset.name: "auth"
+    #         - wildcard:
+    #             log.file.path: "*/auth.log*"
+    #         - wildcard:
+    #             log.file.path: "*/secure*"
+    #       minimum_should_match: 1
+
+    - name: "auth"
+      enabled: true
+      rule_file: "services/auth.yml"
+      source_indices:
+        - "*"
+      start_time: "now-60m"
+      query:
+        bool:
+          should:
+            - term:
+                event.dataset: "system.auth"
+            - term:
+                data_stream.dataset: "system.auth"
+            - term:
+                fileset.name: "auth"
+            - wildcard:
+                log.file.path: "*/auth.log*"
+            - wildcard:
+                log.file.path: "*/secure*"
+          minimum_should_match: 1
+
+    - name: "network"
+      enabled: true
+      rule_file: "services/network.yml"
+      source_indices:
+        - "network-*"
+      start_time: "now-60m"

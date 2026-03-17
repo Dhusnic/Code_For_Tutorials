@@ -1,0 +1,28 @@
+service: kafka
+rules:
+    - id: KAFKA_AUTO_PROCESSING_AUTOMATIC_PREFERRED_REPLICA_3DFB76CB
+      signal_key: kafka_auto_processing_automatic_preferred_replica_3dfb
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: processing automatic preferred replica'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: processing automatic preferred replica
+    - id: KAFKA_AUTO_TOPICS_NOT_IN_PREFERRED_0FB63FF0
+      signal_key: kafka_auto_topics_not_in_preferred_0fb6
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: topics not in preferred'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: topics not in preferred

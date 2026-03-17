@@ -1,0 +1,392 @@
+service: network
+rules:
+  - id: NETWORK_DELL_OS10_BGP_NEIGHBOR_DOWN
+    signal_key: network_dell_os10_bgp_neighbor_down
+    level: critical
+    description: Dell OS10 BGP neighbor moved backward from established state or closed.
+    tags: [vendor, dell, os10, powerswitch, bgp, control_plane]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: 'BGP_NBR_BKWD_STATE_CH\s*G'
+            - field: msg
+              op: regex
+              value: 'BGP_NBR_BKWD_STATE_CH\s*G'
+        - or:
+            - field: message
+              op: regex
+              value: '(Backward state change occurred|ADJCHANGE|old state|new state)'
+            - field: msg
+              op: regex
+              value: '(Backward state change occurred|ADJCHANGE|old state|new state)'
+        - or:
+            - field: message
+              op: regex
+              value: '(IDLE|Down|hold time expired|notification sent|connection closed|peer reset)'
+            - field: msg
+              op: regex
+              value: '(IDLE|Down|hold time expired|notification sent|connection closed|peer reset)'
+
+  - id: NETWORK_DELL_OS10_BGP_NEIGHBOR_ESTABLISHED
+    signal_key: network_dell_os10_bgp_neighbor_established
+    level: info
+    description: Dell OS10 BGP peering session established notification.
+    tags: [vendor, dell, os10, powerswitch, bgp, control_plane, audit]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: 'BGP_NBR_NOTIFY_EST_STAT\s*E?'
+        - field: msg
+          op: regex
+          value: 'BGP_NBR_NOTIFY_EST_STAT\s*E?'
+
+  - id: NETWORK_DELL_OS10_BFD_SESSION_DEGRADED
+    signal_key: network_dell_os10_bfd_session_degraded
+    level: warning
+    description: Dell OS10 BFD session state changed to a degraded/down state.
+    tags: [vendor, dell, os10, powerswitch, bfd, control_plane]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: contains
+              value: BFD_STATE_CHANGE
+            - field: msg
+              op: contains
+              value: BFD_STATE_CHANGE
+        - or:
+            - field: message
+              op: regex
+              value: '(down|admin down|timeout|timed out|failed|init)'
+            - field: msg
+              op: regex
+              value: '(down|admin down|timeout|timed out|failed|init)'
+
+  - id: NETWORK_DELL_OS10_OSPFV2_NEIGHBOR_ADMIN_DOWN
+    signal_key: network_dell_os10_ospfv2_neighbor_admin_down
+    level: critical
+    description: Dell OS10 OSPFv2 neighbor transitioned to admin down state.
+    tags: [vendor, dell, os10, powerswitch, ospf, control_plane]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: OSPFV2_NBR_ADMN_DWN
+        - field: msg
+          op: contains
+          value: OSPFV2_NBR_ADMN_DWN
+
+  - id: NETWORK_DELL_OS10_STP_BPDU_GUARD_ERR
+    signal_key: network_dell_os10_stp_bpdu_guard_err
+    level: critical
+    description: Dell OS10 BPDU guard violation forced interface into err-disable.
+    tags: [vendor, dell, os10, powerswitch, stp, layer2]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: STP_BPDU_GUARD_ERR
+        - field: msg
+          op: contains
+          value: STP_BPDU_GUARD_ERR
+
+  - id: NETWORK_DELL_OS10_STP_MAX_INSTANCE_REACHED
+    signal_key: network_dell_os10_stp_max_instance_reached
+    level: critical
+    description: Dell OS10 Rapid-PVST instance capacity reached hardware limit.
+    tags: [vendor, dell, os10, powerswitch, stp, layer2]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: STP_MAX_INST_REACHED
+        - field: msg
+          op: contains
+          value: STP_MAX_INST_REACHED
+
+  - id: NETWORK_DELL_OS10_UFD_INTERFACE_DISABLED
+    signal_key: network_dell_os10_ufd_interface_disabled
+    level: warning
+    description: Dell OS10 UFD disabled downstream interface because upstream failed.
+    tags: [vendor, dell, os10, powerswitch, ufd, availability]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: UFD_ERROR_SET
+        - field: msg
+          op: contains
+          value: UFD_ERROR_SET
+        - field: message
+          op: contains
+          value: UFD_GRP_ERROR_SET
+        - field: msg
+          op: contains
+          value: UFD_GRP_ERROR_SET
+
+  - id: NETWORK_DELL_OS10_VLTI_LINK_DOWN
+    signal_key: network_dell_os10_vlti_link_down
+    level: critical
+    description: Dell OS10 VLT interconnect link is down.
+    tags: [vendor, dell, os10, powerswitch, vlt, availability]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: VLT_VLTi_LINK_DOWN
+        - field: msg
+          op: contains
+          value: VLT_VLTi_LINK_DOWN
+
+  - id: NETWORK_DELL_OS10_VLT_PEER_DOWN
+    signal_key: network_dell_os10_vlt_peer_down
+    level: critical
+    description: Dell OS10 VLT peer is down or disconnected.
+    tags: [vendor, dell, os10, powerswitch, vlt, availability]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: VLT_PEER_DOWN
+        - field: msg
+          op: contains
+          value: VLT_PEER_DOWN
+
+  - id: NETWORK_DELL_OS10_VLT_PORT_CHANNEL_DOWN
+    signal_key: network_dell_os10_vlt_port_channel_down
+    level: critical
+    description: Dell OS10 VLT port-channel is down on both peers.
+    tags: [vendor, dell, os10, powerswitch, vlt, availability]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: VLT_PORT_CHANNEL_DOWN
+        - field: msg
+          op: contains
+          value: VLT_PORT_CHANNEL_DOWN
+
+  - id: NETWORK_DELL_OS10_VLT_PORT_ERROR_DISABLED
+    signal_key: network_dell_os10_vlt_port_error_disabled
+    level: critical
+    description: Dell OS10 VLT port-channel entered error-disabled state.
+    tags: [vendor, dell, os10, powerswitch, vlt, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: 'VLT_PORT_ERROR_DISABLE\s*D'
+        - field: msg
+          op: regex
+          value: 'VLT_PORT_ERROR_DISABLE\s*D'
+
+  - id: NETWORK_DELL_OS10_VLT_SOFTWARE_VERSION_MISMATCH
+    signal_key: network_dell_os10_vlt_software_version_mismatch
+    level: warning
+    description: Dell OS10 VLT peers are running mismatched internal software version.
+    tags: [vendor, dell, os10, powerswitch, vlt, config_change]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: 'VLT_SOFTWARE_VERSION_M\s*ISMATCH'
+        - field: msg
+          op: regex
+          value: 'VLT_SOFTWARE_VERSION_M\s*ISMATCH'
+
+  - id: NETWORK_DELL_OS10_VLT_ACL_CAM_TABLE_FULL
+    signal_key: network_dell_os10_vlt_acl_cam_table_full
+    level: warning
+    description: Dell OS10 VLT application cannot program ACL forwarding rules in hardware.
+    tags: [vendor, dell, os10, powerswitch, vlt, acl]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: VLT_ACL_ERROR
+        - field: msg
+          op: contains
+          value: VLT_ACL_ERROR
+
+  - id: NETWORK_DELL_OS10_ETL_HOST_UNREACHABLE
+    signal_key: network_dell_os10_etl_host_unreachable
+    level: warning
+    description: Dell OS10 cannot reach configured remote logging destination.
+    tags: [vendor, dell, os10, powerswitch, logging, etl]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: ETL_HOST_UNREACHABLE
+        - field: msg
+          op: contains
+          value: ETL_HOST_UNREACHABLE
+
+  - id: NETWORK_DELL_OS10_ETL_RELOAD_CONFIG_FAIL
+    signal_key: network_dell_os10_etl_reload_config_fail
+    level: warning
+    description: Dell OS10 syslog manager failed to reload logging configuration.
+    tags: [vendor, dell, os10, powerswitch, logging, etl]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: ETL_RELOAD_CFG_FAIL
+        - field: msg
+          op: contains
+          value: ETL_RELOAD_CFG_FAIL
+
+  - id: NETWORK_DELL_OS10_EQM_UNIT_DOWN
+    signal_key: network_dell_os10_eqm_unit_down
+    level: critical
+    description: Dell OS10 equipment manager reports unit/card down or reset.
+    tags: [vendor, dell, os10, powerswitch, hardware, availability]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: EQM_UNIT_DOWN
+        - field: msg
+          op: contains
+          value: EQM_UNIT_DOWN
+
+  - id: NETWORK_DELL_OS10_EQM_FAN_TRAY_OFF
+    signal_key: network_dell_os10_eqm_fan_tray_off
+    level: critical
+    description: Dell OS10 fan tray is removed or powered off.
+    tags: [vendor, dell, os10, powerswitch, hardware, fan, thermal]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: EQM_FAN_TRAY_OFF
+        - field: msg
+          op: contains
+          value: EQM_FAN_TRAY_OFF
+
+  - id: NETWORK_DELL_OS10_EQM_THERMAL_CROSSED
+    signal_key: network_dell_os10_eqm_thermal_crossed
+    level: critical
+    description: Dell OS10 temperature sensor crossed major or critical thermal threshold.
+    tags: [vendor, dell, os10, powerswitch, hardware, thermal]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: EQM_TML_MAJOR_CROSSED
+        - field: msg
+          op: contains
+          value: EQM_TML_MAJOR_CROSSED
+        - field: message
+          op: contains
+          value: EQM_TML_CRIT_CROSSED
+        - field: msg
+          op: contains
+          value: EQM_TML_CRIT_CROSSED
+        - field: message
+          op: contains
+          value: EQM_TML_WARN_CROSSED
+        - field: msg
+          op: contains
+          value: EQM_TML_WARN_CROSSED
+
+  - id: NETWORK_DELL_OS10_EQM_LPC_FAULT
+    signal_key: network_dell_os10_eqm_lpc_fault
+    level: critical
+    description: Dell OS10 hardware fault detected due to LPC bus error.
+    tags: [vendor, dell, os10, powerswitch, hardware, fault]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: EQM_LPC_FAULT
+        - field: msg
+          op: contains
+          value: EQM_LPC_FAULT
+
+  - id: NETWORK_DELL_OS10_IFM_INTERFACE_DOWN
+    signal_key: network_dell_os10_ifm_interface_down
+    level: warning
+    description: Dell OS10 interface operational state changed to down.
+    tags: [vendor, dell, os10, powerswitch, physical, link]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: IFM_OSTATE_DN
+        - field: msg
+          op: contains
+          value: IFM_OSTATE_DN
+
+  - id: NETWORK_DELL_OS10_IFM_PORTCHANNEL_SPEED_MISMATCH
+    signal_key: network_dell_os10_ifm_portchannel_speed_mismatch
+    level: warning
+    description: Dell OS10 disabled a port-channel member because of speed mismatch.
+    tags: [vendor, dell, os10, powerswitch, lag, interface]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: IFM_PMBR_SPEED_MISMATCH
+        - field: msg
+          op: contains
+          value: IFM_PMBR_SPEED_MISMATCH
+
+  - id: NETWORK_DELL_OS10_EVPN_MAC_MOVE_ERROR
+    signal_key: network_dell_os10_evpn_mac_move_error
+    level: warning
+    description: Dell OS10 detected repeated EVPN MAC moves between VTEPs.
+    tags: [vendor, dell, os10, powerswitch, evpn, vxlan]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: EVPN_MAC_ERROR
+        - field: msg
+          op: contains
+          value: EVPN_MAC_ERROR
+
+  - id: NETWORK_DELL_OS10_USER_ROLE_CHANGE
+    signal_key: network_dell_os10_user_role_change
+    level: info
+    description: Dell OS10 user role changed.
+    tags: [vendor, dell, os10, powerswitch, aaa, audit]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: USER_ROLE_CHANGE
+        - field: msg
+          op: contains
+          value: USER_ROLE_CHANGE
+
+  - id: NETWORK_DELL_OS10_PASSWORD_EXPIRY_WARNING
+    signal_key: network_dell_os10_password_expiry_warning
+    level: warning
+    description: Dell OS10 indicates user password is approaching expiry.
+    tags: [vendor, dell, os10, powerswitch, aaa, security]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: WARN_CHANGE
+        - field: msg
+          op: contains
+          value: WARN_CHANGE
+
+  - id: NETWORK_DELL_OS10_ALM_SYSTEM_RESTART
+    signal_key: network_dell_os10_alm_system_restart
+    level: warning
+    description: Dell OS10 event and alarm subsystem restarted unexpectedly.
+    tags: [vendor, dell, os10, powerswitch, lifecycle]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: ALM_SYSTEM_RESTART
+        - field: msg
+          op: contains
+          value: ALM_SYSTEM_RESTART

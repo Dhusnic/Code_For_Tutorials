@@ -1,0 +1,31 @@
+{
+  "apps": [
+    {
+      "name": "signaled-logs-collector",
+      "cwd": ".",
+      "script": "./bin/signaled-logs-collector.exe",
+      "args": [
+        "--config",
+        "./config.yml"
+      ],
+      "exec_mode": "fork",
+      "instances": 2,
+      "instance_var": "SLP_PM2_INSTANCE_ID",
+      "exec_interpreter": "none",
+      "autorestart": true,
+      "max_restarts": 10,
+      "restart_delay": 5000,
+      "combine_logs": true,
+      "out_file": "./logs/signaled-logs-collector.out.log",
+      "error_file": "./logs/signaled-logs-collector.err.log",
+      "env": {
+        "PM2_APP_NAME": "signaled-logs-collector",
+        "SLP_PM2_APP_NAME": "signaled-logs-collector",
+        "SLP_PM2_INSTANCES": "2",
+        "SLP_SCHEDULER_INTERVAL": "1m",
+        "SLP_ELASTICSEARCH_WINDOW": "10m",
+        "SLP_REDIS_RETENTION_WINDOW": "30m"
+      }
+    }
+  ]
+}

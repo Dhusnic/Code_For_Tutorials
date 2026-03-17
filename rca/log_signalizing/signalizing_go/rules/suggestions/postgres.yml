@@ -1,0 +1,28 @@
+service: postgres
+rules:
+    - id: POSTGRES_AUTO_IST_STATEMENT_INSERT_EVENTS_44848F87
+      signal_key: postgres_auto_ist_statement_insert_events_4484
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: ist statement insert events'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - postgres
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: ist statement insert events
+    - id: POSTGRES_AUTO_IST_VALUE_TOO_LONG_B92813E9
+      signal_key: postgres_auto_ist_value_too_long_b928
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: ist value too long'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - postgres
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: ist value too long

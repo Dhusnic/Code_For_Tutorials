@@ -1,0 +1,512 @@
+service: system
+rules:
+  - id: A_SYSTEM_UNCLASSIFIED_FAILURE
+    signal_key: system_unclassified_failure
+    level: critical
+    description: System event indicates critical failure but no specific system signature matched.
+    tags: [fallback, unclassified, system, critical, triage]
+    condition:
+      or:
+        - field: log.level
+          op: in
+          value: [emerg, emergency, alert, crit, critical, err, error, fatal, panic]
+        - field: level
+          op: in
+          value: [emerg, emergency, alert, crit, critical, err, error, fatal, panic]
+        - field: PRIORITY
+          op: in
+          value: [0, 1, 2, 3, "0", "1", "2", "3"]
+        - field: message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)'
+        - field: system.syslog.message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|EMERG|ALERT|SEVERE|ERROR)'
+
+  - id: SYSTEM_SSH_AUTH_FAILED
+    signal_key: system_ssh_auth_failed
+    level: warning
+    description: SSH authentication failures detected.
+    tags: [security, ssh, auth]
+    condition:
+      or:
+        - field: system.auth.ssh.event
+          op: equals
+          value: Failed
+        - field: message
+          op: regex
+          value: 'Failed password for( invalid user)?'
+
+  - id: SYSTEM_SSH_INVALID_USER
+    signal_key: system_ssh_invalid_user
+    level: warning
+    description: SSH attempt with invalid user account.
+    tags: [security, ssh, user]
+    condition:
+      or:
+        - field: system.auth.ssh.event
+          op: equals
+          value: Invalid
+        - field: message
+          op: contains
+          value: Invalid user
+
+  - id: SYSTEM_SSH_ROOT_DENIED
+    signal_key: system_ssh_root_denied
+    level: warning
+    description: Root SSH login attempt denied by policy.
+    tags: [security, ssh, policy]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(ROOT LOGIN REFUSED|root login attempt denied|PermitRootLogin)'
+        - field: system.auth.message
+          op: regex
+          value: '(ROOT LOGIN REFUSED|root login attempt denied|PermitRootLogin)'
+
+  - id: SYSTEM_SSH_BRUTE_HINT
+    signal_key: system_ssh_brute_hint
+    level: warning
+    description: SSH brute-force pattern (excessive auth attempts).
+    tags: [security, ssh, brute]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(maximum authentication attempts exceeded|Too many authentication failures)'
+        - field: system.auth.message
+          op: regex
+          value: '(maximum authentication attempts exceeded|Too many authentication failures)'
+
+  - id: SYSTEM_SUDO_DENIED
+    signal_key: system_sudo_denied
+    level: warning
+    description: Sudo authorization denied for user.
+    tags: [security, sudo, authz]
+    condition:
+      or:
+        - field: system.auth.sudo.error
+          op: exists
+        - field: message
+          op: regex
+          value: '(user NOT in sudoers|sudo: .*authentication failure)'
+
+  - id: SYSTEM_PAM_AUTH_FAILURE
+    signal_key: system_pam_auth_failure
+    level: warning
+    description: PAM authentication failure across login services.
+    tags: [security, pam, auth]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(pam_unix\\(.*\\): authentication failure|pam_faillock|PAM .* authentication error)'
+        - field: system.auth.message
+          op: regex
+          value: '(pam_unix\\(.*\\): authentication failure|pam_faillock|PAM .* authentication error)'
+
+  - id: SYSTEM_ACCOUNT_LOCKED
+    signal_key: system_account_locked
+    level: warning
+    description: Account locked due to repeated authentication failures.
+    tags: [security, account, lock]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(account is locked|user account locked|authentication failure.*locked)'
+        - field: system.auth.message
+          op: regex
+          value: '(account is locked|user account locked|authentication failure.*locked)'
+
+  - id: SYSTEM_SELINUX_DENIED
+    signal_key: system_selinux_denied
+    level: warning
+    description: SELinux AVC denial event.
+    tags: [security, selinux, policy]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: 'avc:  denied'
+        - field: auditd.log.avc.action
+          op: equals
+          value: denied
+
+  - id: SYSTEM_APPARMOR_DENIED
+    signal_key: system_apparmor_denied
+    level: warning
+    description: AppArmor denied action in enforced profile.
+    tags: [security, apparmor, policy]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(apparmor="DENIED"|AppArmor DENIED)'
+        - field: auditd.log.apparmor
+          op: contains
+          value: DENIED
+
+  - id: SYSTEM_AUDIT_BACKLOG
+    signal_key: system_audit_backlog
+    level: warning
+    description: Linux audit subsystem backlog pressure/loss detected.
+    tags: [audit, security, queue]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(audit: backlog limit exceeded|audit backlog is full|lost [0-9]+ audit messages)'
+        - field: auditd.log.audit_failure
+          op: exists
+
+  - id: SYSTEMD_UNIT_FAILED
+    signal_key: systemd_unit_failed
+    level: critical
+    description: systemd unit entered failed state or failed to start.
+    tags: [systemd, service, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Failed to start .*|entered the ''failed'' state|failed \\(Result: exit-code\\)|Main process exited, code=exited, status=[1-9][0-9]*)'
+        - field: system.syslog.message
+          op: regex
+          value: '(Failed to start .*|entered the ''failed'' state|failed \\(Result: exit-code\\)|Main process exited, code=exited, status=[1-9][0-9]*)'
+
+  - id: SYSTEMD_START_LIMIT
+    signal_key: systemd_start_limit
+    level: critical
+    description: systemd start-rate limit hit, service restart suppressed.
+    tags: [systemd, service, restart]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Start request repeated too quickly|start-limit hit)'
+        - field: system.syslog.message
+          op: regex
+          value: '(Start request repeated too quickly|start-limit hit)'
+
+  - id: SYSTEMD_WATCHDOG_TIMEOUT
+    signal_key: systemd_watchdog_timeout
+    level: critical
+    description: systemd service watchdog timeout triggered.
+    tags: [systemd, watchdog, timeout]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Watchdog timeout|watchdog timeout)'
+        - field: system.syslog.message
+          op: regex
+          value: '(Watchdog timeout|watchdog timeout)'
+
+  - id: SYSTEMD_OOMD_KILL
+    signal_key: systemd_oomd_kill
+    level: critical
+    description: systemd-oomd terminated a cgroup due to memory pressure/swap usage.
+    tags: [systemd, memory, oomd]
+    condition:
+      or:
+        - and:
+            - field: _SYSTEMD_UNIT
+              op: equals
+              value: systemd-oomd.service
+            - field: message
+              op: regex
+              value: '(Killed cgroup|killing|memory pressure|swap used|oomd)'
+        - field: message
+          op: regex
+          value: '(systemd-oomd.*Killed|Killed cgroup .* due to memory pressure|memory pressure relief)'
+        - field: system.syslog.message
+          op: regex
+          value: '(systemd-oomd.*Killed|Killed cgroup .* due to memory pressure|memory pressure relief)'
+
+  - id: SYSTEM_KERNEL_PANIC
+    signal_key: system_kernel_panic
+    level: critical
+    description: Kernel panic condition detected.
+    tags: [kernel, panic, availability]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: Kernel panic - not syncing
+        - field: system.syslog.message
+          op: contains
+          value: Kernel panic - not syncing
+
+  - id: SYSTEM_KERNEL_OOPS
+    signal_key: system_kernel_oops
+    level: critical
+    description: Kernel oops/fatal exception detected.
+    tags: [kernel, oops, crash]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(BUG: unable to handle kernel|Oops:|general protection fault|invalid opcode)'
+        - field: system.syslog.message
+          op: regex
+          value: '(BUG: unable to handle kernel|Oops:|general protection fault|invalid opcode)'
+
+  - id: SYSTEM_LOCKUP_DETECTED
+    signal_key: system_lockup_detected
+    level: critical
+    description: Soft/hard lockup watchdog detection.
+    tags: [kernel, watchdog, lockup]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(soft lockup|hard LOCKUP|watchdog: BUG)'
+        - field: system.syslog.message
+          op: regex
+          value: '(soft lockup|hard LOCKUP|watchdog: BUG)'
+
+  - id: SYSTEM_HUNG_TASK
+    signal_key: system_hung_task
+    level: warning
+    description: Kernel detected task blocked for excessive time.
+    tags: [kernel, task, stall]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: 'task .* blocked for more than [0-9]+ seconds'
+        - field: system.syslog.message
+          op: regex
+          value: 'task .* blocked for more than [0-9]+ seconds'
+
+  - id: SYSTEM_OOM_KILLER
+    signal_key: system_oom_killer
+    level: critical
+    description: Kernel OOM killer terminated process due to memory exhaustion.
+    tags: [kernel, memory, oom]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Out of memory: Killed process|oom-kill:)'
+        - field: system.syslog.message
+          op: regex
+          value: '(Out of memory: Killed process|oom-kill:)'
+
+  - id: SYSTEM_MACHINE_CHECK
+    signal_key: system_machine_check
+    level: critical
+    description: Hardware machine-check or ECC memory fault indication.
+    tags: [hardware, mce, cpu]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Machine check events logged|MCE:|Hardware Error|EDAC)'
+        - field: system.syslog.message
+          op: regex
+          value: '(Machine check events logged|MCE:|Hardware Error|EDAC)'
+
+  - id: SYSTEM_PROCESS_SEGFAULT
+    signal_key: system_process_segfault
+    level: warning
+    description: User-space process segmentation fault/core dump pattern.
+    tags: [process, crash, userspace]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(segfault at|segfault|core dumped)'
+        - field: system.syslog.message
+          op: regex
+          value: '(segfault at|segfault|core dumped)'
+
+  - id: SYSTEM_EXT4_ERROR
+    signal_key: system_ext4_error
+    level: critical
+    description: EXT4 filesystem error/journal abort detected.
+    tags: [filesystem, ext4, storage]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(EXT4-fs error|EXT4-fs warning|Detected aborted journal)'
+        - field: system.syslog.message
+          op: regex
+          value: '(EXT4-fs error|EXT4-fs warning|Detected aborted journal)'
+
+  - id: SYSTEM_XFS_ERROR
+    signal_key: system_xfs_error
+    level: critical
+    description: XFS metadata I/O error or forced shutdown.
+    tags: [filesystem, xfs, storage]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(XFS \\(.*\\): metadata I/O error|xfs_do_force_shutdown|Log I/O Error Detected)'
+        - field: system.syslog.message
+          op: regex
+          value: '(XFS \\(.*\\): metadata I/O error|xfs_do_force_shutdown|Log I/O Error Detected)'
+
+  - id: SYSTEM_BTRFS_ERROR
+    signal_key: system_btrfs_error
+    level: critical
+    description: Btrfs filesystem corruption/IO failure indicators.
+    tags: [filesystem, btrfs, storage]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(BTRFS.*error|parent transid verify failed|BTRFS: corruption)'
+        - field: system.syslog.message
+          op: regex
+          value: '(BTRFS.*error|parent transid verify failed|BTRFS: corruption)'
+
+  - id: SYSTEM_DISK_IO_ERROR
+    signal_key: system_disk_io_error
+    level: critical
+    description: Block device I/O error patterns.
+    tags: [storage, disk, io]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(I/O error, dev|blk_update_request: I/O error|Buffer I/O error on dev)'
+        - field: system.syslog.message
+          op: regex
+          value: '(I/O error, dev|blk_update_request: I/O error|Buffer I/O error on dev)'
+
+  - id: SYSTEM_RAID_DEGRADED
+    signal_key: system_raid_degraded
+    level: critical
+    description: Software RAID degraded/failure events (mdadm monitor events).
+    tags: [storage, raid, availability]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(DegradedArray|FailSpare|Fail|SparesMissing|md[0-9]+: .*degraded)'
+        - field: system.syslog.message
+          op: regex
+          value: '(DegradedArray|FailSpare|Fail|SparesMissing|md[0-9]+: .*degraded)'
+
+  - id: SYSTEM_SMART_FAILURE
+    signal_key: system_smart_failure
+    level: critical
+    description: SMART subsystem predicts imminent disk failure.
+    tags: [storage, smart, hardware]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(SMART.*FAILED|Device: .* Failed SMART usage Attribute|Disk failure is imminent)'
+        - field: system.syslog.message
+          op: regex
+          value: '(SMART.*FAILED|Device: .* Failed SMART usage Attribute|Disk failure is imminent)'
+
+  - id: SYSTEM_FILESYSTEM_READONLY
+    signal_key: system_filesystem_readonly
+    level: critical
+    description: Filesystem remounted read-only due to errors.
+    tags: [filesystem, readonly, storage]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Remounting filesystem read-only|EXT4-fs \\(.*\\): Remounting filesystem read-only|Read-only file system)'
+        - field: system.syslog.message
+          op: regex
+          value: '(Remounting filesystem read-only|EXT4-fs \\(.*\\): Remounting filesystem read-only|Read-only file system)'
+
+  - id: SYSTEM_NETWORK_LINK_DOWN
+    signal_key: system_network_link_down
+    level: warning
+    description: Network interface/link transitioned down.
+    tags: [network, link, connectivity]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(link is down|state DOWN|Network is down|carrier lost)'
+        - field: system.syslog.message
+          op: regex
+          value: '(link is down|state DOWN|Network is down|carrier lost)'
+
+  - id: SYSTEM_DNS_FAILURE
+    signal_key: system_dns_failure
+    level: warning
+    description: DNS resolution failure detected.
+    tags: [network, dns, resolver]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Temporary failure in name resolution|Name or service not known|DNSSEC validation failed)'
+        - field: system.syslog.message
+          op: regex
+          value: '(Temporary failure in name resolution|Name or service not known|DNSSEC validation failed)'
+
+  - id: SYSTEM_NTP_SYNC_ISSUE
+    signal_key: system_ntp_sync_issue
+    level: warning
+    description: Time synchronization drift/failure from NTP/chrony/systemd-timesyncd.
+    tags: [time, ntp, sync]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(No suitable source for synchronisation|timed out waiting for reply|Clock offset too large|time jump|clock .* not synchronized|synchronization lost|no servers reachable|Source .* unreachable)'
+        - field: system.syslog.message
+          op: regex
+          value: '(No suitable source for synchronisation|timed out waiting for reply|Clock offset too large|time jump|clock .* not synchronized|synchronization lost|no servers reachable|Source .* unreachable)'
+
+  - id: SYSTEM_THERMAL_THROTTLE
+    signal_key: system_thermal_throttle
+    level: warning
+    description: Thermal throttling or over-temperature condition.
+    tags: [hardware, thermal, cpu]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(temperature above threshold|CPU.*throttled|Thermal event|critical temperature reached)'
+        - field: system.syslog.message
+          op: regex
+          value: '(temperature above threshold|CPU.*throttled|Thermal event|critical temperature reached)'
+
+  - id: SYSTEM_CRON_FAILURE
+    signal_key: system_cron_failure
+    level: warning
+    description: Cron/periodic job failure pattern.
+    tags: [scheduler, cron, jobs]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(CRON.*\\(.*\\) (ERROR|FAILED)|systemd\\[1\\]: .*timer: Failed|anacron.*(Job .* terminated|ERROR)|run-parts: .* exited with return code [1-9][0-9]*)'
+        - field: system.syslog.message
+          op: regex
+          value: '(CRON.*\\(.*\\) (ERROR|FAILED)|systemd\\[1\\]: .*timer: Failed|anacron.*(Job .* terminated|ERROR)|run-parts: .* exited with return code [1-9][0-9]*)'
+        - and:
+            - field: process.name
+              op: in
+              value: [cron, crond, anacron]
+            - field: message
+              op: regex
+              value: '(error|failed|exit status [1-9][0-9]*)'
+
+  - id: SYSTEM_PACKAGE_MANAGER_LOCK
+    signal_key: system_package_manager_lock
+    level: warning
+    description: Package manager lock contention (apt/dnf/yum/zypper).
+    tags: [packages, lock, maintenance]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Could not get lock /var/lib/dpkg/lock|Another app is currently holding the yum lock|Failed to obtain the dpkg frontend lock|zypp.*System management is locked)'
+        - field: system.syslog.message
+          op: regex
+          value: '(Could not get lock /var/lib/dpkg/lock|Another app is currently holding the yum lock|Failed to obtain the dpkg frontend lock|zypp.*System management is locked)'

@@ -1,0 +1,72 @@
+service: mongodb
+rules:
+- id: MONGODB_AUTO_DATE_18T15_ID_CTX_4F09A3BE
+  signal_key: mongodb_auto_date_18t15_id_ctx_4f09
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: date 18t15
+    id ctx'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - mongodb
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: date 18t15 id ctx
+- id: MONGODB_AUTO_DATE_18T16_ID_CTX_7C63A20C
+  signal_key: mongodb_auto_date_18t16_id_ctx_7c63
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: date 18t16
+    id ctx'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - mongodb
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: date 18t16 id ctx
+- id: MONGODB_AUTO_DATE_18T17_ID_CTX_CD1AB50C
+  signal_key: mongodb_auto_date_18t17_id_ctx_cd1a
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: date 18t17
+    id ctx'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - mongodb
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: date 18t17 id ctx
+- id: MONGODB_AUTO_DATE_18T18_EXECUTOR_ID_DBEA7860
+  signal_key: mongodb_auto_date_18t18_executor_id_dbea
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: date 18t18
+    executor id'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - mongodb
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: date 18t18 executor id
+- id: MONGODB_AUTO_DATE_18T18_ID_CTX_6288CFA2
+  signal_key: mongodb_auto_date_18t18_id_ctx_6288
+  level: critical
+  description: 'Auto-learned from recurring unclassified critical logs: date 18t18
+    id ctx'
+  tags:
+  - auto_generated
+  - unclassified_learning
+  - mongodb
+  - critical
+  condition:
+    field: message
+    op: contains
+    value: date 18t18 id ctx

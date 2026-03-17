@@ -1,0 +1,143 @@
+service: network
+rules:
+  - id: NETWORK_JUNIPER_JUNOS_LINK_DOWN
+    signal_key: network_juniper_junos_link_down
+    level: critical
+    description: Juniper Junos interface/link down trap or event.
+    tags: [vendor, juniper, junos, physical, link]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(SNMP_TRAP_LINK_DOWN|IFDEV_(DOWN|DETACH)|interface .* down)\b'
+        - field: msg
+          op: regex
+          value: '\b(SNMP_TRAP_LINK_DOWN|IFDEV_(DOWN|DETACH)|interface .* down)\b'
+
+  - id: NETWORK_JUNIPER_JUNOS_BGP_NEIGHBOR_DOWN
+    signal_key: network_juniper_junos_bgp_neighbor_down
+    level: critical
+    description: Juniper Junos BGP neighbor transitioned out of established state.
+    tags: [vendor, juniper, junos, bgp, control_plane]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: regex
+              value: '\b(RPD_BGP_NEIGHBOR_STATE_CHANGED|BGP)\b'
+            - field: msg
+              op: regex
+              value: '\b(RPD_BGP_NEIGHBOR_STATE_CHANGED|BGP)\b'
+        - or:
+            - field: message
+              op: regex
+              value: '\b(Idle|Active|Connect|Down|Cease|Holdtime)\b'
+            - field: msg
+              op: regex
+              value: '\b(Idle|Active|Connect|Down|Cease|Holdtime)\b'
+
+  - id: NETWORK_JUNIPER_JUNOS_OSPF_NEIGHBOR_DOWN
+    signal_key: network_juniper_junos_ospf_neighbor_down
+    level: critical
+    description: Juniper Junos OSPF neighbor adjacency down.
+    tags: [vendor, juniper, junos, ospf, control_plane]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(RPD_OSPF_NBRDOWN|OSPF neighbor.*Down)\b'
+        - field: msg
+          op: regex
+          value: '\b(RPD_OSPF_NBRDOWN|OSPF neighbor.*Down)\b'
+
+  - id: NETWORK_JUNIPER_JUNOS_BFD_SESSION_DOWN
+    signal_key: network_juniper_junos_bfd_session_down
+    level: critical
+    description: Juniper Junos BFD session down or timed out.
+    tags: [vendor, juniper, junos, bfd, control_plane]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(RPD_BFD_SESSION_(DOWN|TIMEOUT)|BFD.*(Down|timeout))\b'
+        - field: msg
+          op: regex
+          value: '\b(RPD_BFD_SESSION_(DOWN|TIMEOUT)|BFD.*(Down|timeout))\b'
+
+  - id: NETWORK_JUNIPER_JUNOS_COMMIT_FAILED
+    signal_key: network_juniper_junos_commit_failed
+    level: critical
+    description: Juniper Junos configuration commit failed.
+    tags: [vendor, juniper, junos, config_change]
+    condition:
+      and:
+        - or:
+            - field: message
+              op: contains
+              value: UI_COMMIT
+            - field: msg
+              op: contains
+              value: UI_COMMIT
+        - or:
+            - field: message
+              op: regex
+              value: '(failed|error|rollback)'
+            - field: msg
+              op: regex
+              value: '(failed|error|rollback)'
+
+  - id: NETWORK_JUNIPER_JUNOS_COMMIT_COMPLETED
+    signal_key: network_juniper_junos_commit_completed
+    level: info
+    description: Juniper Junos configuration commit completed.
+    tags: [vendor, juniper, junos, config_change, audit]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: UI_COMMIT_COMPLETED
+        - field: msg
+          op: contains
+          value: UI_COMMIT_COMPLETED
+
+  - id: NETWORK_JUNIPER_JUNOS_LOGIN_FAILED
+    signal_key: network_juniper_junos_login_failed
+    level: warning
+    description: Juniper Junos user login/authentication failed.
+    tags: [vendor, juniper, junos, aaa, authentication]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(LOGIN_FAILED|authentication failed|UI_AUTH_EVENT.*failed)'
+        - field: msg
+          op: regex
+          value: '(LOGIN_FAILED|authentication failed|UI_AUTH_EVENT.*failed)'
+
+  - id: NETWORK_JUNIPER_JUNOS_LICENSE_EXPIRY
+    signal_key: network_juniper_junos_license_expiry
+    level: warning
+    description: Juniper Junos license nearing expiry or invalid.
+    tags: [vendor, juniper, junos, license]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(LICENSE_.*(EXPIRE|INVALID)|license.*(expir|invalid))'
+        - field: msg
+          op: regex
+          value: '(LICENSE_.*(EXPIRE|INVALID)|license.*(expir|invalid))'
+
+  - id: NETWORK_JUNIPER_JUNOS_CHASSIS_ALARM
+    signal_key: network_juniper_junos_chassis_alarm
+    level: critical
+    description: Juniper Junos chassis/environment alarm.
+    tags: [vendor, juniper, junos, hardware, thermal, power]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '\b(CHASSISD_.*(FAIL|ALARM)|FPC .* offline|PEM .* failed|temperature .* critical)\b'
+        - field: msg
+          op: regex
+          value: '\b(CHASSISD_.*(FAIL|ALARM)|FPC .* offline|PEM .* failed|temperature .* critical)\b'

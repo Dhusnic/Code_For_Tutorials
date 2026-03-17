@@ -1,0 +1,58 @@
+# Signaled logs collector configuration.
+# Environment variables with the SLP_ prefix can override the common fields.
+
+service_name: signaled-logs-collector
+
+logging:
+  level: info
+  format: json
+
+scheduler:
+  interval: 1m
+  run_timeout: 50s
+
+elasticsearch:
+  addresses:
+    - http://10.0.4.132:9200
+  username: "elastic"
+  password: "elastic"
+  api_key: ""
+  index: "*"
+  page_size: 500
+  max_pages: 0
+  request_timeout: 15s
+  query_timeout: 10s
+  window: 10m
+  use_point_in_time: true
+  pit_keep_alive: 2m
+  extra_filters: []
+
+redis:
+  address: 10.0.5.97:6379
+  username: ""
+  password: "InfraonRedis321"
+  db: 0
+  dial_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+  key_prefix: Rca
+  hash_field: signaled_logs
+  retention_window: 30m
+
+lock:
+  enabled: true
+  key: Rca:collector_lock
+  ttl: 90s
+  acquire_timeout: 2s
+
+mappings:
+  organization_field: event.organization
+  signal_field: signal
+  log_level_field: log.level
+  timestamp_field: "@timestamp"
+  doc_id_source: _id
+  doc_id_field: ""
+
+pm2:
+  app_name: signaled-logs-collector
+  instances: 2
