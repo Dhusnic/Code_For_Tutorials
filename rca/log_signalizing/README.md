@@ -79,6 +79,13 @@ cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
 pm2 start .\app.json
 ```
 
+Or start the full RCA stack from the repo root:
+
+```powershell
+cd "D:\Code for tutorials\rca"
+pm2 start .\ecosystem.config.js
+```
+
 ## Related Docs
 
 - [Go README](./signalizing_go/README.md)

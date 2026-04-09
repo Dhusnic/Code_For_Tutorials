@@ -1,0 +1,62 @@
+module.exports = {
+  apps: [
+    {
+      name: 'signaled-logs-collector',
+      cwd: './log_signal_processor',
+      script: './bin/signaled-logs-collector.exe',
+      args: ['--config', './config.yml'],
+      instances: 2,
+      exec_mode: 'fork',
+      instance_var: 'SLP_PM2_INSTANCE_ID',
+      exec_interpreter: 'none',
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      combine_logs: true,
+      out_file: './logs/signaled-logs-collector.out.log',
+      error_file: './logs/signaled-logs-collector.err.log',
+      env: {
+        PM2_APP_NAME: 'signaled-logs-collector',
+        SLP_PM2_APP_NAME: 'signaled-logs-collector',
+        SLP_PM2_INSTANCES: '2'
+      }
+    },
+    {
+      name: 'correlation-engine',
+      cwd: './log_correlation_engine',
+      script: './bin/correlation-engine.exe',
+      args: ['--config', './config/config.yml'],
+      instances: 1,
+      exec_mode: 'fork',
+      exec_interpreter: 'none',
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      combine_logs: true,
+      out_file: './logs/correlation-engine.out.log',
+      error_file: './logs/correlation-engine.err.log',
+      env: {
+        PM2_APP_NAME: 'correlation-engine'
+      }
+    },
+    {
+      name: 'rca-engine',
+      cwd: './log_signalizing/signalizing_go',
+      script: './bin/rca-engine.exe',
+      args: ['--config', '../config.yml'],
+      instances: 4,
+      exec_mode: 'fork',
+      instance_var: 'RCA_WORKER_ID',
+      exec_interpreter: 'none',
+      autorestart: true,
+      max_restarts: 5,
+      restart_delay: 5000,
+      combine_logs: true,
+      out_file: './logs/rca-engine.out.log',
+      error_file: './logs/rca-engine.err.log',
+      env: {
+        PM2_APP_NAME: 'rca-engine'
+      }
+    }
+  ]
+};

@@ -7,7 +7,7 @@ This folder contains a production-oriented Go background service that polls Elas
 On each cycle the service:
 
 1. Computes the sliding query window from `now - 10m` to `now` by default.
-2. Acquires a Redis distributed lock so only one PM2 worker performs the cycle.
+2. Acquires either a single Redis cycle lock or shard-specific Redis locks, depending on `lock.shard_count`.
 3. Queries Elasticsearch for documents that both fall in the window and contain the configured signal field.
 4. Normalizes each matching document into:
 
@@ -24,7 +24,9 @@ On each cycle the service:
 6. Merges the new records with the existing Redis payload for each organization.
 7. Dedupes by `doc_id`.
 8. Trims anything older than the configured retention window, 30 minutes by default.
-9. Writes the sorted JSON array back to the Redis hash field `signaled_logs`.
+9. Skips the Redis write completely if the merged organization payload is byte-for-byte unchanged.
+10. Persists organizations in parallel with a bounded worker pool.
+11. Writes the sorted JSON array back to the Redis hash field `signaled_logs` and keeps a lightweight Redis organization index in sync.
 
 ## Redis Storage Contract
 
@@ -67,6 +69,20 @@ Field value example:
 
 The service removes an organization key when its retained list becomes empty.
 
+Organization index key:
+
+```text
+Rca:organizations
+```
+
+Organization index type:
+
+```text
+SET
+```
+
+The collector uses this set to enumerate organizations cheaply on later cycles instead of scanning the full Redis keyspace every time. If the set is missing, the service falls back to a scan and repairs the index automatically.
+
 ## Configuration
 
 Primary config file: [config.yml](./config.yml)
@@ -75,6 +91,7 @@ Key settings:
 
 - `scheduler.interval`: job frequency. Default `1m`.
 - `scheduler.run_timeout`: maximum time allowed for one cycle. Default `50s`.
+- `scheduler.organization_workers`: number of parallel organization merge/save workers inside one cycle. Default `4`.
 - `elasticsearch.addresses`: list of Elasticsearch hosts.
 - `elasticsearch.index`: source index or index pattern.
 - `elasticsearch.page_size`: page size for `search_after` pagination.
@@ -89,6 +106,7 @@ Key settings:
 - `redis.retention_window`: retention cutoff. Default `30m`.
 - `lock.enabled`: enables the Redis leader lock. Default `true`.
 - `lock.key`: lock key. Default `Rca:collector_lock`.
+- `lock.shard_count`: number of shard locks used to split organizations across PM2 instances. Default `1`. The checked-in config uses `8`.
 - `lock.ttl`: lock TTL. Default `90s`.
 - `mappings.organization_field`: source organization field. Default `event.organization`.
 - `mappings.signal_field`: source signal field. Default `signal`.
@@ -151,12 +169,22 @@ pm2 logs signaled-logs-collector
 
 PM2 does not coordinate scheduled jobs for Go processes. Duplicate Elasticsearch reads are prevented by the Redis lock:
 
-- every worker wakes up on the same schedule
-- each cycle tries `SET NX EX` on the lock key
-- only the worker that acquires the key performs the fetch/store cycle
-- other workers stay idle for that cycle
-- release uses a compare-and-delete Lua script so a worker only removes its own lock
-- if the active worker crashes, the TTL expires and another worker can take the next cycle
+- when `lock.shard_count=1`, every worker wakes up on the same schedule and only one worker acquires `lock.key` for the whole cycle
+- when `lock.shard_count>1`, PM2 instances deterministically own a subset of shard locks based on the PM2 instance id and `SLP_PM2_INSTANCES`
+- each shard lock maps to a stable subset of organizations, so different instances can merge and persist disjoint organizations in parallel
+- release still uses a compare-and-delete Lua script so a worker only removes shard locks it actually owns
+- standalone or `--run-once` execution without PM2 falls back to owning all shards, so the full dataset is still processed
+
+Current limitation:
+
+- Elasticsearch fetches are still performed per process before shard filtering. Shard locking removes duplicate Redis writes and unlocks parallel persistence, but it does not yet eliminate duplicate Elasticsearch reads across PM2 instances.
+
+You can also start the whole RCA stack from the repo root with:
+
+```powershell
+cd "D:\Code for tutorials\rca"
+pm2 start .\ecosystem.config.js
+```
 
 ## Package Layout
 

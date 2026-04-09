@@ -1,0 +1,15 @@
+service: mongodb
+rules:
+    - id: MONGODB_AUTO_DEFERRING_TABLE_DROP_INDEX_0101EC0D
+      signal_key: mongodb_auto_deferring_table_drop_index_0101
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: deferring table drop index'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - mongodb
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: deferring table drop index

@@ -24,7 +24,6 @@ $binDir = Join-Path $scriptDir "bin"
 $collectorExe = Join-Path $binDir "signaled-logs-collector.exe"
 $collectorExeBackup = Join-Path $binDir "signaled-logs-collector.exe~"
 $env:GOCACHE = Join-Path $repoRoot ".gocache"
-$env:GOMODCACHE = Join-Path $repoRoot ".gomodcache"
 
 if (-not (Test-Path $binDir)) {
     New-Item -ItemType Directory -Path $binDir | Out-Null
@@ -32,13 +31,21 @@ if (-not (Test-Path $binDir)) {
 
 Write-Host "Using Go executable: $goExe"
 Write-Host "Using GOCACHE: $env:GOCACHE"
-Write-Host "Using GOMODCACHE: $env:GOMODCACHE"
+if ($env:GOMODCACHE) {
+    Write-Host "Using GOMODCACHE from environment: $env:GOMODCACHE"
+}
+else {
+    Write-Host "Using default Go module cache."
+}
 Write-Host "Removing previous collector binary if it exists..."
 Remove-Item $collectorExe -Force -ErrorAction SilentlyContinue
 Remove-Item $collectorExeBackup -Force -ErrorAction SilentlyContinue
 
 Write-Host "Building signaled-logs-collector.exe..."
 & $goExe build -o $collectorExe .\cmd\signaled_logs_collector
+if ($LASTEXITCODE -ne 0) {
+    throw "go build failed with exit code $LASTEXITCODE"
+}
 
 Write-Host "Rebuild completed."
 Write-Host "Created:"

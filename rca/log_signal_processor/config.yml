@@ -10,6 +10,7 @@ logging:
 scheduler:
   interval: 1m
   run_timeout: 50s
+  organization_workers: 4
 
 elasticsearch:
   addresses:
@@ -42,6 +43,7 @@ redis:
 lock:
   enabled: true
   key: Rca:collector_lock
+  shard_count: 8
   ttl: 90s
   acquire_timeout: 2s
 

@@ -6,18 +6,19 @@ This folder contains a production-oriented Go background service that reads reta
 
 On each cycle the service:
 
-1. Scans Redis for organization keys under the configured prefix, `Rca` by default.
+1. Loads organizations from the Redis organization index set and falls back to a scan only when that index is missing or stale.
 2. Loads the raw `signaled_logs` hash field payload for each organization.
 3. Loads the persisted correlation checkpoint from a JSON file and the active incident state from Redis for each organization.
 4. Skips unchanged organizations cheaply when there are no active incidents to sweep.
 5. Uses only `new signals + bounded lookback` for correlation instead of reprocessing the whole retained payload every cycle.
-6. Enriches changed signal logs through the configured fetcher.
+6. Enriches changed signal logs through the configured fetcher, batching full-document lookups whenever the fetcher supports it.
 7. Compiles and filters correlation rules for that organization.
 8. Reuses grouped, time-sorted log views by the rule `group_by` fields.
 9. Deduplicates repeated signals within the rule deduplication window.
 10. Matches ordered signal sequences using signal indexes instead of rescanning the full log slice for every candidate, and lets recovery close an incident without erasing a sequence that already completed.
 11. Suppresses weaker overlapping RCA matches when a stronger incident already explains the same evidence.
 12. Maintains an active incident per `organization + rule + group_by values`, updates the same Elasticsearch document for new evidence, closes incidents on recovery signals or inactivity timeout, and optionally publishes lifecycle events into a capped Redis list.
+13. Emits structured match-audit logs for every live or shadow rule match so you can see exactly which rule, group, steps, metadata filters, and matched document IDs produced the RCA result.
 
 ## Redis Contract
 
@@ -57,6 +58,20 @@ Input value example:
   }
 ]
 ```
+
+Organization index key:
+
+```text
+Rca:organizations
+```
+
+Organization index type:
+
+```text
+SET
+```
+
+The processor uses this set to discover organizations without scanning the full Redis namespace on every cycle. If the set is absent, it can still fall back to a scan and repair the index.
 
 Output key:
 
@@ -99,6 +114,8 @@ Example file content:
   "key": "Rca:135098068173316952064:correlation_checkpoint",
   "organization_id": "135098068173316952064",
   "checkpoint": "2026-04-08T12:31:00Z",
+  "signal_payload_signature": "4d2f0c9eb3c0d5cde7d5a5d1fbec7e8f21c8fd24636cf0c57d4e4f01192c3c8d",
+  "signal_count": 42,
   "updated_at": "2026-04-08T12:31:05Z"
 }
 ```
@@ -196,9 +213,9 @@ Key settings:
 Phase 2 incident lifecycle behavior:
 
 - The engine keeps a persistent checkpoint per organization and only correlates `new logs + bounded lookback`.
-- That checkpoint is now stored as a local JSON file instead of a Redis string key.
+- That checkpoint is now stored as a local JSON file instead of a Redis string key, and it also persists the last payload signature and signal count so unchanged organizations can still be skipped after a process restart.
 - The active incident identity is built from `organization_id + rule_id + group_by values`.
-- If a rule leaves `max_gap_between_steps` empty, that rule is evaluated against the full retained Redis payload for the organization instead of the incremental lookback slice.
+- If a rule leaves `max_gap_between_steps` empty, only that rule is evaluated against the full retained Redis payload for the organization. Other rules keep using the cheaper incremental lookback slice in the same cycle.
 - Elasticsearch stores correlation result events by deterministic document ID. A new matched signal set creates a new result document, while an exactly identical matched set reuses the same document ID instead of creating a duplicate entry.
 - Lifecycle fields like `status`, `first_seen`, and `last_seen` are kept only in internal incident state and are not written into the final correlation result document.
 - Incidents still move through `open`, `updated`, and `closed` states.
@@ -206,12 +223,21 @@ Phase 2 incident lifecycle behavior:
 - Unmatched active incidents are auto-closed after `engine.incident_inactivity_ttl`.
 - Redis publication is optional and append-only: when enabled, `open`, `updated`, and `closed` events are pushed as individual result entries.
 
+Phase 3 accuracy and control behavior:
+
+- Rules can now declare `required_metadata` so correlation only considers logs whose enriched metadata matches the exact field/value anchors you want, such as `event.module`, `service.name`, `kubernetes.namespace`, or environment tags.
+- Rules can now run in `shadow_mode`. Shadow rules are evaluated and logged, but they do not create incidents, do not write Elasticsearch result documents, and do not publish Redis result events.
+- When full-payload rules and incremental rules exist together, the processor enriches the full-payload set once and reuses that cache for the incremental pass instead of refetching the same document context twice.
+- Every emitted or shadowed match now carries a structured `audit` log payload in the service logs with rule shape, group-by values, required metadata, negative signals, dedup settings, per-step matched counts, and matched document IDs. This audit payload is for debugging and is not written into the final Elasticsearch result document.
+
 Phase 1 optimization behavior:
 
 - Raw Redis payloads are fingerprinted before JSON decode, so unchanged organizations are skipped cheaply.
+- Organization discovery uses the shared Redis set `Rca:organizations` instead of full keyspace scans in the steady state.
 - Organizations are processed with a bounded worker pool instead of a single serial loop.
 - Rules are compiled and cached inside the engine, so durations and normalized sequence settings are not reparsed on every match.
 - The engine caches grouped log views per distinct `group_by` set and uses signal indexes for sequence starts.
+- Full-log enrichment batches repeated `doc_id` lookups, so the Elasticsearch fetcher avoids one request per signal when multiple documents need context in the same cycle.
 - Elasticsearch writes use the Bulk API instead of one request per result.
 
 ## Rule Shape
@@ -229,6 +255,10 @@ Example rule:
   "max_gap_between_steps": "3m",
   "group_by": ["event.organization", "host.name", "service.name"],
   "priority": 1,
+  "required_metadata": {
+    "event.module": "mongodb"
+  },
+  "shadow_mode": false,
   "sequence": [
     {
       "signal_key": "mongodb_auth_failed",
@@ -256,6 +286,47 @@ Example rule:
 }
 ```
 
+## Match Scoring
+
+The engine emits both `rule_completion` and `sequence_match` on a `0..1` scale.
+
+For each sequence step `i`:
+
+- `required_i = max(1, min_count_i)`
+- `matched_i = min(actual_ordered_matches_i, required_i)`
+
+Then the final scores are:
+
+```text
+rule_completion = (sum of matched_i) / (sum of required_i)
+sequence_match = (completed_prefix_steps + partial_progress_of_next_step) / number_of_steps
+```
+
+Meaning:
+
+- `rule_completion` is occurrence-weighted, so a step with `min_count: 3` contributes more than a step with `min_count: 1`
+- `sequence_match` is ordered-prefix progress, so only the fully completed steps from the start of the sequence plus any partial progress on the next step contribute
+- extra matches above `min_count` do not increase the score beyond `1` for that step
+- if a step has `min_count <= 0`, the engine treats it as `1`
+- later steps contribute `0` until all earlier steps are fully complete
+- both scores are based on the ordered sequence matcher, not on unordered signal presence
+
+Example:
+
+If a rule has `min_count` values `[3, 1, 1]` and the engine matched `[2, 1, 0]`, then:
+
+```text
+rule_completion = (2 + 1 + 0) / (3 + 1 + 1) = 3/5 = 0.6
+sequence_match = (0 + 2/3) / 3 = 0.2222
+```
+
+If a rule has `min_count` values `[3, 1, 1]` and the engine matched `[3, 1, 0]`, then:
+
+```text
+rule_completion = (3 + 1 + 0) / (3 + 1 + 1) = 4/5 = 0.8
+sequence_match = (2 + 0) / 3 = 0.6667
+```
+
 ## Build And Run
 
 Build the Windows binary:
@@ -281,6 +352,13 @@ Run continuously:
 
 ```powershell
 .\bin\correlation-engine.exe --config .\config\config.yml
+```
+
+Start the whole RCA stack from the repo root with PM2:
+
+```powershell
+cd "D:\Code for tutorials\rca"
+pm2 start .\ecosystem.config.js
 ```
 
 Run tests:
