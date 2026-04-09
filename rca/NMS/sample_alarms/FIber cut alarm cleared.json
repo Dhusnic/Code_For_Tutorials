@@ -1,0 +1,128 @@
+{
+    "event": [
+        {
+            "alarmEvent": {
+                "alarmKey": {
+                    "applicationDN": "",
+                    "primaryKey": 2341,
+                    "type": ""
+                },
+                "internalKey": 109056,
+                "alarm": {
+                    "internalKey": 2341,
+                    "originatingEntity": {
+                        "kind": "LINK",
+                        "name": "Ludhiana-Mundian",
+                        "internalKey": 108256,
+                        "contexts": [
+                            {
+                                "otuInternalKey": 106190
+                            }
+                        ]
+                    },
+                    "alarmSpecificInfos": [
+                        {
+                            "internalKey": 108264,
+                            "name": "test1",
+                            "lastMarkerDistanceM": 2018.199951171875
+                        },
+                        {
+                            "distanceM": 1021.8499755859375,
+                            "distanceValid": true,
+                            "attenuationDb": 0.0,
+                            "attenuationValid": false
+                        },
+                        {
+                            "acquisitionInternalKey": 108262,
+                            "acquisitionType": "DETECTION_REF"
+                        },
+                        {
+                            "acquisitionInternalKey": 108262,
+                            "acquisitionType": "LOCALIZATION1_REF"
+                        },
+                        {
+                            "acquisitionInternalKey": 109040,
+                            "acquisitionType": "LOCALIZATION1"
+                        },
+                        {
+                            "deviationFirstMarkerDb": 0.0,
+                            "deviationFirstMarkerValid": true,
+                            "deviationLinkLossDb": 11.95,
+                            "deviationLinkLossValid": true,
+                            "problemConfirmed": true,
+                            "rootCause": "CONNECTOR_BREAK"
+                        },
+                        {
+                            "latitude": 19.178871924977557,
+                            "longitude": 72.996860091463
+                        },
+                        {
+                            "opticalDistanceFromOriginM": 1021.8499755859375,
+                            "cableLengthFromNetworkM": 0.0,
+                            "primaryLandmarkAfter": null,
+                            "primaryLandmarkBefore": null,
+                            "secondaryLandmarkAfter": {
+                                "landmarkName": "Mundian",
+                                "landmarkDescription": "",
+                                "distLandmarkM": 948.563620462486
+                            },
+                            "secondaryLandmarkBefore": {
+                                "landmarkName": "Jamalpur",
+                                "landmarkDescription": "",
+                                "distLandmarkM": 0.0
+                            },
+                            "onOutOfSyncTest": false,
+                            "landmarkOpticalEventAssociationDisabled": false,
+                            "landmarkOpticalEventAssociationInvalid": false,
+                            "inLaunchCable": false
+                        }
+                    ],
+                    "acknowledgementTrackingRecords": [
+                        {
+                            "userId": "admin",
+                            "systemId": "ONMSi",
+                            "time": 1754989487054,
+                            "description": null
+                        }
+                    ],
+                    "clearingTrackingRecords": [
+                        {
+                            "userId": null,
+                            "systemId": null,
+                            "time": 1754989863000,
+                            "description": "FIBER_CUT"
+                        }
+                    ],
+                    "changeAlarmSeverityTrackingRecords": [],
+                    "comments": [],
+                    "alarmChangedTime": 1754989863000,
+                    "alarmRaisedTime": 1754988948000,
+                    "perceivedSeverity": "CRITICAL",
+                    "probableCause": "THRESHOLD_CROSSED",
+                    "specificProblem": "ATTENUATION",
+                    "alarmClearStatus": "CLEARED",
+                    "alarmAckStatus": "UNACKNOWLEDGED",
+                    "alarmType": "QUALITY_OF_SERVICE_ALARM",
+                    "additionalText": "FIBER_CUT",
+                    "originatingManagedEntityOid": "108256",
+                    "alarmKey": {
+                        "applicationDN": "",
+                        "primaryKey": 2341,
+                        "type": ""
+                    },
+                    "originatingManagedEntityKey": {
+                        "applicationDN": "",
+                        "type": "",
+                        "primaryKeyLong": 108256
+                    },
+                    "systemDN": "OTU ID=106190, SN=0",
+                    "additionalAttributes": {}
+                },
+                "eventTime": 1754989863000,
+                "alarmClearStatus": "CLEARED",
+                "clearingTrackingRecord": null
+            },
+            "sequenceNumber": 3
+        }
+    ]
+}

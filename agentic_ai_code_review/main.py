@@ -149,6 +149,37 @@ def _load_pr_workflow_defaults_for_ui() -> dict[str, Any]:
         return fallback
 
 
+def _pr_workflow_defaults_path() -> Path:
+    """Return the repository-backed PR workflow defaults JSON path."""
+    return BASE_DIR / "config" / "pr_workflow_defaults.json"
+
+
+def _read_pr_workflow_defaults_file() -> dict[str, Any]:
+    """Read the raw PR workflow defaults JSON file from disk."""
+    defaults_path = _pr_workflow_defaults_path()
+    if not defaults_path.exists():
+        raise FileNotFoundError(f"Config file not found: {defaults_path}")
+    raw_text = defaults_path.read_text(encoding="utf-8")
+    parsed = json.loads(raw_text or "{}")
+    if not isinstance(parsed, dict):
+        raise ValueError("PR workflow defaults JSON must contain an object at the top level.")
+    return parsed
+
+
+def _write_pr_workflow_defaults_file(payload: dict[str, Any]) -> dict[str, Any]:
+    """Persist PR workflow defaults JSON back into the repository config folder."""
+    if not isinstance(payload, dict):
+        raise ValueError("PR workflow defaults payload must be a JSON object.")
+    defaults_path = _pr_workflow_defaults_path()
+    defaults_path.parent.mkdir(parents=True, exist_ok=True)
+    normalized = json.loads(json.dumps(payload))
+    defaults_path.write_text(
+        json.dumps(normalized, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+    return normalized
+
+
 def _parse_cors_origins(raw_value: str | None) -> list[str]:
     """Parse comma-separated CORS origins from env into normalized values."""
     if not raw_value:
@@ -397,8 +428,13 @@ class AsyncJobManager:
             "target_key": str((approval_request or {}).get("target_key", "")).strip(),
             "workspace_repo_path": str((approval_request or {}).get("workspace_repo_path", "")).strip(),
             "selected_files": list((approval_request or {}).get("selected_files", []) or []),
+            "selected_file_count": int((approval_request or {}).get("selected_file_count") or 0),
+            "repo_root_label": str((approval_request or {}).get("repo_root_label", "")).strip(),
+            "preview_available": bool((approval_request or {}).get("preview_available", False)),
             "message": str((approval_request or {}).get("message", "")).strip(),
         }
+        if normalized_request["selected_file_count"] <= 0:
+            normalized_request["selected_file_count"] = len(normalized_request["selected_files"])
         event = threading.Event()
         now = int(time.time())
         with self._lock:
@@ -447,6 +483,23 @@ class AsyncJobManager:
 
         event.set()
         return snapshot
+
+    def get_pending_approval(self, job_id: str, request_id: str | None = None) -> dict[str, Any]:
+        """Return the active approval payload for a paused async job."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                raise KeyError(f"Job not found: {job_id}")
+
+            status = str(job.get("status", "")).strip().lower()
+            pending_request = job.get("approval_request")
+            if status != "waiting_for_approval" or not isinstance(pending_request, dict):
+                raise RuntimeError(f"Job is not waiting for approval: {job_id}")
+
+            active_request_id = str(pending_request.get("request_id", "")).strip()
+            if request_id and request_id.strip() and request_id.strip() != active_request_id:
+                raise ValueError("Approval request id does not match current pending request.")
+            return deepcopy(pending_request)
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         """Return a copy of job state by ID."""
@@ -565,6 +618,12 @@ class JobProceedRequestModel(BaseModel):
     """Request model for proceeding one paused async job checkpoint."""
 
     request_id: Optional[str] = None
+
+
+class PRWorkflowDefaultsUpdateModel(BaseModel):
+    """Request model for updating config/pr_workflow_defaults.json from the UI."""
+
+    config: dict[str, Any] = Field(default_factory=dict)
 
 
 class CherryPickRequestModel(PRWorkflowBaseRequestModel):
@@ -705,6 +764,41 @@ async def ui_defaults() -> dict:
         "default_reviewer_emails": _resolve_default_reviewer_emails(),
         "pr_workflow_defaults": _load_pr_workflow_defaults_for_ui(),
     }
+
+
+@app.get("/api/config/pr-workflow-defaults")
+async def get_pr_workflow_defaults_config() -> dict:
+    """Return the editable PR workflow defaults JSON config used by the settings drawer."""
+    try:
+        config = _read_pr_workflow_defaults_file()
+        return {
+            "path": str(_pr_workflow_defaults_path().relative_to(BASE_DIR)).replace("\\", "/"),
+            "config": config,
+        }
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        LOGGER.exception("Unable to read PR workflow defaults config file")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.put("/api/config/pr-workflow-defaults")
+async def update_pr_workflow_defaults_config(request: PRWorkflowDefaultsUpdateModel) -> dict:
+    """Persist settings-drawer changes back into config/pr_workflow_defaults.json."""
+    try:
+        saved = _write_pr_workflow_defaults_file(request.config)
+        return {
+            "message": "PR workflow defaults updated successfully.",
+            "path": str(_pr_workflow_defaults_path().relative_to(BASE_DIR)).replace("\\", "/"),
+            "config": saved,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        LOGGER.exception("Unable to update PR workflow defaults config file")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/review-diffs")
@@ -923,6 +1017,35 @@ async def get_job(job_id: str) -> dict:
     if not job:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
     return job
+
+
+@app.get("/api/jobs/{job_id}/approval-preview")
+async def get_job_approval_preview(
+    job_id: str,
+    request_id: str = Query(..., description="Active approval request id returned by the job poll payload."),
+) -> dict:
+    """Return the live diff preview for the current paused approval checkpoint."""
+    try:
+        approval_request = job_manager.get_pending_approval(job_id, request_id)
+        return PRWorkflowService.build_approval_preview(
+            workspace_repo_path=approval_request.get("workspace_repo_path", ""),
+            target_branch=approval_request.get("target_branch", ""),
+            selected_files=approval_request.get("selected_files", []),
+            source_branch=approval_request.get("source_branch", ""),
+            repo_root_label=approval_request.get("repo_root_label", ""),
+            request_id=approval_request.get("request_id", ""),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PRWorkflowError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        LOGGER.exception("Approval preview request failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/jobs/{job_id}/proceed")

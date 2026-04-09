@@ -1,0 +1,50 @@
+service_name: log-correlation-engine
+
+logging:
+  level: debug
+  format: json
+
+scheduler:
+  interval: 1m
+  run_timeout: 50s
+  organization_workers: 4
+
+redis:
+  address: 10.0.5.97:6379
+  username: ""
+  password: "InfraonRedis321"
+  db: 0
+  dial_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+  key_prefix: Rca
+  hash_field: signaled_logs
+  result_list: correlated_events
+  result_list_max_len: 1000
+  publish_results: false
+
+elasticsearch:
+  addresses:
+    - http://10.0.4.132:9200
+  username: "elastic"
+  password: "elastic"
+  api_key: ""
+  index: rca_correlated_events
+  request_timeout: 15s
+  bulk_batch_size: 250
+
+engine:
+  rules_file: rules/rules.json
+  hot_reload_interval: 30s
+  default_window: 30m
+  default_max_gap: 5m
+  incremental_lookback: 0s
+  incident_inactivity_ttl: 30m
+  checkpoint_directory: data/checkpoints
+
+fetcher:
+  mode: elasticsearch
+  index: "*"
+  request_timeout: 15s
+  timestamp_field: "@timestamp"
+  log_level_field: "log.level"

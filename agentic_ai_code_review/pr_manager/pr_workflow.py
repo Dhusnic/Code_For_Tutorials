@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import re
@@ -30,6 +31,7 @@ class FileSnapshot:
     relative_path: str
     status: str
     content: bytes | None
+    old_relative_path: str | None = None
 
 
 @dataclass
@@ -51,6 +53,21 @@ class WorkflowDefaults:
 
 class PRWorkflowService:
     """Coordinates feature context lookup, local file snapshots, Git push, and PR creation."""
+
+    PREVIEW_MAX_LINES_PER_FILE = 800
+    PREVIEW_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
+    RETRYABLE_FETCH_ERRORS = (
+        "rpc failed",
+        "curl 56",
+        "recv failure",
+        "connection was reset",
+        "unexpected disconnect",
+        "early eof",
+        "invalid index-pack output",
+        "failed to connect",
+        "timed out",
+        "operation too slow",
+    )
 
     def __init__(
         self,
@@ -99,6 +116,605 @@ class PRWorkflowService:
         """
         source_repo = self._resolve_changes_source_repo()
         return self._list_changed_files_for_repo(source_repo)
+
+    @classmethod
+    def build_approval_preview(
+        cls,
+        *,
+        workspace_repo_path: str | Path,
+        target_branch: str,
+        selected_files: list[dict[str, Any]] | list[str] | None,
+        source_branch: str | None = None,
+        repo_root_label: str | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Build a file-wise preview for the current paused PR approval checkpoint."""
+        workspace_repo = Path(workspace_repo_path).expanduser().resolve()
+        cls._assert_git_repo_path(workspace_repo)
+
+        normalized_target_branch = str(target_branch or "").strip()
+        if not normalized_target_branch:
+            raise PRWorkflowError("Target branch is required for approval preview.")
+
+        selected_entries = cls._normalize_selected_preview_files(selected_files or [])
+        preview_base_ref = (
+            normalized_target_branch
+            if normalized_target_branch.startswith("origin/")
+            else f"origin/{normalized_target_branch}"
+        )
+        if cls._run_git(
+            ["rev-parse", "--verify", f"{preview_base_ref}^{{commit}}"],
+            cwd=workspace_repo,
+            check=False,
+        ).returncode != 0:
+            raise PRWorkflowError(
+                f"Preview base reference not found in workspace repository: {preview_base_ref}"
+            )
+
+        diff_args = [
+            "-c",
+            "core.quotepath=false",
+            "diff",
+            "--find-renames",
+            "--no-color",
+            "--no-ext-diff",
+            "--unified=3",
+            preview_base_ref,
+        ]
+        pathspecs = cls._build_preview_pathspecs(selected_entries)
+        if pathspecs:
+            diff_args.extend(["--", *pathspecs])
+        diff_output = cls._run_git(diff_args, cwd=workspace_repo).stdout
+
+        parsed_files = cls._parse_approval_preview(diff_output, selected_entries)
+        files = cls._reconcile_preview_files(
+            workspace_repo=workspace_repo,
+            preview_base_ref=preview_base_ref,
+            parsed_files=parsed_files,
+            selected_entries=selected_entries,
+        )
+        return {
+            "request_id": str(request_id or "").strip(),
+            "source_branch": str(source_branch or "").strip(),
+            "target_branch": normalized_target_branch.removeprefix("origin/"),
+            "preview_base_ref": preview_base_ref,
+            "workspace_repo_path": str(workspace_repo),
+            "repo_root_label": str(repo_root_label or workspace_repo.name or "repository").strip(),
+            "selected_file_count": len(selected_entries),
+            "effective_file_count": len(files),
+            "total_additions": sum(int(item.get("additions", 0)) for item in files),
+            "total_deletions": sum(int(item.get("deletions", 0)) for item in files),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "selected_files": selected_entries,
+            "files": files,
+        }
+
+    @classmethod
+    def _assert_git_repo_path(cls, repo_path: Path) -> None:
+        """Raise a workflow error when a preview repo path is not a valid Git working tree."""
+        if not repo_path.exists():
+            raise PRWorkflowError(f"Preview repository path not found: {repo_path}")
+        result = cls._run_git(
+            ["rev-parse", "--is-inside-work-tree"],
+            cwd=repo_path,
+            check=False,
+        )
+        if result.returncode != 0 or result.stdout.strip().lower() != "true":
+            raise PRWorkflowError(f"Not a valid git repository: {repo_path}")
+
+    @classmethod
+    def _normalize_selected_preview_files(
+        cls,
+        selected_files: list[dict[str, Any]] | list[str],
+    ) -> list[dict[str, str]]:
+        """Normalize lightweight selected-file metadata used for preview generation."""
+        normalized: list[dict[str, str]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for item in selected_files or []:
+            if isinstance(item, dict):
+                path = str(item.get("path") or item.get("file_path") or "").strip()
+                status = str(item.get("status") or "").strip().lower()
+                old_path = str(item.get("old_path") or item.get("old_file_path") or "").strip()
+            else:
+                path = str(item or "").strip()
+                status = ""
+                old_path = ""
+
+            normalized_path = path.replace("\\", "/").lstrip("/")
+            normalized_old_path = old_path.replace("\\", "/").lstrip("/")
+            if not normalized_path:
+                continue
+            if normalized_old_path == normalized_path:
+                normalized_old_path = ""
+            normalized_status = cls._canonical_preview_status(status or "modified")
+            key = (normalized_path, normalized_old_path, normalized_status)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(
+                {
+                    "path": normalized_path,
+                    "status": normalized_status,
+                    "old_path": normalized_old_path,
+                }
+            )
+        return normalized
+
+    @staticmethod
+    def _build_preview_pathspecs(selected_entries: list[dict[str, str]]) -> list[str]:
+        """Build deterministic Git pathspecs for preview diff collection."""
+        pathspecs: list[str] = []
+        seen: set[str] = set()
+        for entry in selected_entries:
+            for candidate in (entry.get("old_path", ""), entry.get("path", "")):
+                normalized = str(candidate or "").strip()
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                pathspecs.append(normalized)
+        return pathspecs
+
+    @classmethod
+    def _parse_approval_preview(
+        cls,
+        diff_output: str,
+        selected_entries: list[dict[str, str]],
+    ) -> list[dict[str, Any]]:
+        """Parse unified diff text into preview-friendly file payloads."""
+        if not diff_output.strip():
+            return []
+
+        selected_by_path = {
+            entry["path"]: entry for entry in selected_entries if str(entry.get("path", "")).strip()
+        }
+        selected_by_old_path = {
+            entry["old_path"]: entry
+            for entry in selected_entries
+            if str(entry.get("old_path", "")).strip()
+        }
+
+        blocks: list[list[str]] = []
+        current_block: list[str] = []
+        for line in diff_output.splitlines():
+            if line.startswith("diff --git "):
+                if current_block:
+                    blocks.append(current_block)
+                current_block = [line]
+                continue
+            if current_block:
+                current_block.append(line)
+        if current_block:
+            blocks.append(current_block)
+
+        parsed_files: list[dict[str, Any]] = []
+        for block in blocks:
+            parsed = cls._parse_approval_preview_block(block, selected_by_path, selected_by_old_path)
+            if parsed:
+                parsed_files.append(parsed)
+
+        parsed_files.sort(key=lambda item: str(item.get("path", "")).lower())
+        return parsed_files
+
+    @classmethod
+    def _reconcile_preview_files(
+        cls,
+        *,
+        workspace_repo: Path,
+        preview_base_ref: str,
+        parsed_files: list[dict[str, Any]],
+        selected_entries: list[dict[str, str]],
+    ) -> list[dict[str, Any]]:
+        """Resolve preview entries against selected file metadata, including adds and renames."""
+        if not selected_entries:
+            return parsed_files
+
+        parsed_by_path: dict[str, list[dict[str, Any]]] = {}
+        for item in parsed_files:
+            file_path = str(item.get("path", "")).strip()
+            if not file_path:
+                continue
+            parsed_by_path.setdefault(file_path, []).append(item)
+
+        resolved: list[dict[str, Any]] = []
+        for entry in selected_entries:
+            path = str(entry.get("path", "")).strip()
+            old_path = str(entry.get("old_path", "")).strip()
+            status = cls._canonical_preview_status(entry.get("status", "modified"))
+            matches = list(parsed_by_path.get(path, []))
+            selected_match = next((item for item in matches if item.get("status") == status), None)
+
+            candidate: dict[str, Any] | None = None
+            if status in {"added", "renamed"}:
+                candidate = cls._build_synthetic_preview_entry(
+                    workspace_repo=workspace_repo,
+                    preview_base_ref=preview_base_ref,
+                    entry=entry,
+                )
+            elif status == "deleted":
+                candidate = selected_match or cls._build_synthetic_preview_entry(
+                    workspace_repo=workspace_repo,
+                    preview_base_ref=preview_base_ref,
+                    entry=entry,
+                )
+            else:
+                candidate = selected_match or (matches[0] if matches else None)
+
+            if candidate and old_path and not candidate.get("old_path"):
+                candidate = {**candidate, "old_path": old_path}
+            if candidate:
+                resolved.append(candidate)
+
+        resolved.sort(key=lambda item: str(item.get("path", "")).lower())
+        return resolved or parsed_files
+
+    @classmethod
+    def _build_synthetic_preview_entry(
+        cls,
+        *,
+        workspace_repo: Path,
+        preview_base_ref: str,
+        entry: dict[str, str],
+    ) -> dict[str, Any] | None:
+        """Build preview payloads for cases Git diff cannot express before staging."""
+        status = cls._canonical_preview_status(entry.get("status", "modified"))
+        path = str(entry.get("path", "")).strip()
+        old_path = str(entry.get("old_path", "")).strip()
+        if not path:
+            return None
+
+        reference_path = old_path or path
+        old_bytes = (
+            cls._read_git_file_bytes(workspace_repo, preview_base_ref, reference_path)
+            if status in {"modified", "deleted", "renamed"}
+            else None
+        )
+        new_bytes = (
+            cls._read_worktree_file_bytes(workspace_repo, path)
+            if status in {"modified", "added", "renamed"}
+            else None
+        )
+
+        if status == "added" and new_bytes is None:
+            return None
+        if status == "deleted" and old_bytes is None:
+            return None
+        if status == "modified" and (old_bytes is None or new_bytes is None):
+            return None
+
+        if cls._is_binary_content(old_bytes) or cls._is_binary_content(new_bytes):
+            return {
+                "path": path,
+                "status": status,
+                "old_path": old_path if status == "renamed" else "",
+                "additions": 0,
+                "deletions": 0,
+                "is_binary": True,
+                "is_truncated": False,
+                "truncated_line_count": 0,
+                "message": "Binary file changed. Text preview is not available.",
+                "hunks": [],
+            }
+
+        old_lines = cls._decode_preview_bytes(old_bytes).splitlines() if old_bytes is not None else []
+        new_lines = cls._decode_preview_bytes(new_bytes).splitlines() if new_bytes is not None else []
+
+        block_lines = [f"diff --git a/{reference_path} b/{path}"]
+        if status == "added":
+            block_lines.append("new file mode 100644")
+            from_file = "/dev/null"
+            to_file = f"b/{path}"
+        elif status == "deleted":
+            block_lines.append("deleted file mode 100644")
+            from_file = f"a/{reference_path}"
+            to_file = "/dev/null"
+        elif status == "renamed":
+            block_lines.append(f"rename from {reference_path}")
+            block_lines.append(f"rename to {path}")
+            from_file = f"a/{reference_path}"
+            to_file = f"b/{path}"
+        else:
+            from_file = f"a/{reference_path}"
+            to_file = f"b/{path}"
+
+        block_lines.extend(
+            difflib.unified_diff(
+                old_lines,
+                new_lines,
+                fromfile=from_file,
+                tofile=to_file,
+                n=3,
+                lineterm="",
+            )
+        )
+        parsed = cls._parse_approval_preview_block(
+            block_lines,
+            {path: entry},
+            {old_path: entry} if old_path else {},
+        )
+        if not parsed:
+            return None
+        if status == "renamed":
+            parsed["status"] = "renamed"
+            parsed["old_path"] = old_path
+            if not parsed.get("hunks") and not parsed.get("message"):
+                parsed["message"] = "Renamed without textual content changes."
+        elif status == "added":
+            parsed["status"] = "added"
+        elif status == "deleted":
+            parsed["status"] = "deleted"
+        return parsed
+
+    @classmethod
+    def _read_git_file_bytes(
+        cls,
+        repo_path: Path,
+        ref_name: str,
+        relative_path: str,
+    ) -> bytes | None:
+        """Read one file from a Git reference without touching the worktree."""
+        normalized_path = str(relative_path or "").strip().replace("\\", "/").lstrip("/")
+        if not normalized_path:
+            return None
+        result = cls._run_git_bytes(
+            ["show", f"{ref_name}:{normalized_path}"],
+            cwd=repo_path,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout
+
+    @staticmethod
+    def _read_worktree_file_bytes(repo_path: Path, relative_path: str) -> bytes | None:
+        """Read one file directly from the working tree."""
+        normalized_path = str(relative_path or "").strip().replace("\\", "/").lstrip("/")
+        if not normalized_path:
+            return None
+        absolute_path = (repo_path / normalized_path).resolve()
+        if not str(absolute_path).startswith(str(repo_path.resolve())):
+            raise PRWorkflowError(f"Unsafe preview file path outside repository: {normalized_path}")
+        if not absolute_path.exists() or not absolute_path.is_file():
+            return None
+        return absolute_path.read_bytes()
+
+    @staticmethod
+    def _decode_preview_bytes(payload: bytes | None) -> str:
+        """Decode preview content using UTF-8 best effort."""
+        if payload is None:
+            return ""
+        return payload.decode("utf-8", errors="ignore")
+
+    @staticmethod
+    def _is_binary_content(payload: bytes | None) -> bool:
+        """Detect binary payloads so the UI can show a safe fallback message."""
+        if payload is None:
+            return False
+        if b"\x00" in payload:
+            return True
+        try:
+            payload.decode("utf-8")
+            return False
+        except UnicodeDecodeError:
+            return True
+
+    @classmethod
+    def _parse_approval_preview_block(
+        cls,
+        block_lines: list[str],
+        selected_by_path: dict[str, dict[str, str]],
+        selected_by_old_path: dict[str, dict[str, str]],
+    ) -> dict[str, Any] | None:
+        """Parse one `git diff` file block into a normalized preview payload."""
+        if not block_lines:
+            return None
+
+        file_path = ""
+        old_path = ""
+        status = "modified"
+        additions = 0
+        deletions = 0
+        is_binary = False
+        message = ""
+        hunks: list[dict[str, Any]] = []
+        current_hunk: dict[str, Any] | None = None
+        old_line = 0
+        new_line = 0
+        fallback_entry: dict[str, str] | None = None
+
+        for line in block_lines:
+            if line.startswith("diff --git "):
+                diff_old_path, diff_new_path = cls._parse_diff_git_paths(line)
+                fallback_entry = (
+                    selected_by_path.get(diff_new_path)
+                    or selected_by_path.get(diff_old_path)
+                    or selected_by_old_path.get(diff_old_path)
+                    or selected_by_old_path.get(diff_new_path)
+                )
+                if fallback_entry:
+                    file_path = fallback_entry.get("path", "") or file_path
+                    old_path = fallback_entry.get("old_path", "") or old_path
+                    status = cls._canonical_preview_status(fallback_entry.get("status", status))
+                if not file_path:
+                    file_path = diff_new_path or diff_old_path
+                if not old_path:
+                    old_path = diff_old_path if diff_old_path != file_path else ""
+                continue
+
+            if line.startswith("new file mode "):
+                status = "added"
+                continue
+            if line.startswith("deleted file mode "):
+                status = "deleted"
+                continue
+            if line.startswith("rename from "):
+                status = "renamed"
+                old_path = line[len("rename from ") :].strip()
+                continue
+            if line.startswith("rename to "):
+                status = "renamed"
+                file_path = line[len("rename to ") :].strip()
+                continue
+            if line.startswith("Binary files ") or line == "GIT binary patch":
+                is_binary = True
+                continue
+            if line.startswith("--- "):
+                parsed_old_path = cls._strip_diff_prefix(line[4:].strip())
+                if parsed_old_path:
+                    old_path = parsed_old_path
+                continue
+            if line.startswith("+++ "):
+                parsed_new_path = cls._strip_diff_prefix(line[4:].strip())
+                if parsed_new_path:
+                    file_path = parsed_new_path
+                continue
+
+            header_match = cls.PREVIEW_HUNK_HEADER.match(line)
+            if header_match:
+                old_start, old_count, new_start, new_count, suffix = header_match.groups()
+                old_line = int(old_start)
+                new_line = int(new_start)
+                current_hunk = {
+                    "header": line.strip(),
+                    "old_start": int(old_start),
+                    "old_count": int(old_count or "1"),
+                    "new_start": int(new_start),
+                    "new_count": int(new_count or "1"),
+                    "summary": suffix.strip(),
+                    "lines": [],
+                }
+                hunks.append(current_hunk)
+                continue
+
+            if current_hunk is None or line.startswith("\\"):
+                continue
+            if line.startswith(" ") and not line.startswith("+++"):
+                current_hunk["lines"].append(
+                    {
+                        "type": "context",
+                        "text": line[1:],
+                        "old_line": old_line,
+                        "new_line": new_line,
+                    }
+                )
+                old_line += 1
+                new_line += 1
+                continue
+            if line.startswith("-") and not line.startswith("---"):
+                current_hunk["lines"].append(
+                    {
+                        "type": "delete",
+                        "text": line[1:],
+                        "old_line": old_line,
+                        "new_line": None,
+                    }
+                )
+                old_line += 1
+                deletions += 1
+                continue
+            if line.startswith("+") and not line.startswith("+++"):
+                current_hunk["lines"].append(
+                    {
+                        "type": "add",
+                        "text": line[1:],
+                        "old_line": None,
+                        "new_line": new_line,
+                    }
+                )
+                new_line += 1
+                additions += 1
+
+        file_path = str(file_path or "").replace("\\", "/").lstrip("/")
+        old_path = str(old_path or "").replace("\\", "/").lstrip("/")
+        if not file_path and old_path:
+            file_path = old_path
+        if not file_path:
+            return None
+
+        status = cls._canonical_preview_status(status)
+        if status != "renamed" and old_path == file_path:
+            old_path = ""
+
+        hunks, is_truncated, truncated_line_count = cls._truncate_preview_hunks(hunks)
+        if is_binary:
+            message = "Binary file changed. Text preview is not available."
+        elif status == "renamed" and not hunks:
+            message = "Renamed without textual content changes."
+        elif status == "deleted" and not hunks:
+            message = "File deleted with no textual hunk preview."
+        elif status == "added" and not hunks:
+            message = "File added with no textual hunk preview."
+
+        return {
+            "path": file_path,
+            "status": status,
+            "old_path": old_path,
+            "additions": additions,
+            "deletions": deletions,
+            "is_binary": is_binary,
+            "is_truncated": is_truncated,
+            "truncated_line_count": truncated_line_count,
+            "message": message,
+            "hunks": hunks,
+        }
+
+    @staticmethod
+    def _parse_diff_git_paths(line: str) -> tuple[str, str]:
+        """Parse `diff --git a/... b/...` header paths."""
+        payload = str(line or "").strip()
+        if not payload.startswith("diff --git "):
+            return "", ""
+        payload = payload[len("diff --git ") :]
+        if " b/" not in payload:
+            return "", ""
+        old_part, new_part = payload.split(" b/", 1)
+        if old_part.startswith("a/"):
+            old_part = old_part[2:]
+        return old_part.strip().strip('"'), new_part.strip().strip('"')
+
+    @staticmethod
+    def _strip_diff_prefix(raw_path: str) -> str:
+        """Remove Git diff path prefixes and sentinel values."""
+        candidate = str(raw_path or "").strip().strip('"')
+        if not candidate or candidate == "/dev/null":
+            return ""
+        if candidate.startswith("a/") or candidate.startswith("b/"):
+            return candidate[2:]
+        return candidate
+
+    @classmethod
+    def _truncate_preview_hunks(
+        cls,
+        hunks: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], bool, int]:
+        """Limit preview payload size so the approval modal stays responsive."""
+        total_lines = sum(len(hunk.get("lines", [])) for hunk in hunks)
+        if total_lines <= cls.PREVIEW_MAX_LINES_PER_FILE:
+            return hunks, False, 0
+
+        remaining = cls.PREVIEW_MAX_LINES_PER_FILE
+        truncated_hunks: list[dict[str, Any]] = []
+        for hunk in hunks:
+            if remaining <= 0:
+                break
+            hunk_lines = list(hunk.get("lines", []))
+            if not hunk_lines:
+                truncated_hunks.append({**hunk, "lines": []})
+                continue
+            kept_lines = hunk_lines[:remaining]
+            truncated_hunks.append({**hunk, "lines": kept_lines})
+            remaining -= len(kept_lines)
+
+        return truncated_hunks, True, max(total_lines - cls.PREVIEW_MAX_LINES_PER_FILE, 0)
+
+    @staticmethod
+    def _canonical_preview_status(status: str) -> str:
+        """Normalize status values used across file selection and preview rendering."""
+        normalized = str(status or "").strip().lower()
+        if normalized in {"added", "deleted", "renamed", "modified"}:
+            return normalized
+        if normalized == "untracked":
+            return "added"
+        return "modified"
 
     def list_reviewer_candidates(
         self,
@@ -416,6 +1032,7 @@ class PRWorkflowService:
         """Create source branch from target branch, replay snapshots, commit, and push."""
         self._checkout_branch_from_remote(repo_path, source_branch, target_branch)
         self._apply_snapshots(repo_path, snapshots)
+        stage_pathspecs = self._build_snapshot_stage_pathspecs(snapshots)
         if before_stage_approval:
             step_logs.append(
                 f"Applied selected changes to '{source_branch}'. Waiting for manual review before staging."
@@ -426,7 +1043,10 @@ class PRWorkflowService:
                     "source_branch": source_branch,
                     "target_branch": target_branch,
                     "workspace_repo_path": str(workspace_repo_path),
-                    "selected_files": [snapshot.relative_path for snapshot in snapshots],
+                    "repo_root_label": workspace_repo_path.name,
+                    "preview_available": True,
+                    "selected_files": self._serialize_selected_snapshots(snapshots),
+                    "selected_file_count": len(snapshots),
                     "message": (
                         f"Review the branch '{source_branch}' in workspace "
                         f"'{workspace_repo_path}' and click Proceed to continue."
@@ -437,7 +1057,7 @@ class PRWorkflowService:
                 f"Manual review approved for '{source_branch}'. Continuing with stage/commit/push."
             )
         self._run_git(
-            ["add", "--all", "--", *[snapshot.relative_path for snapshot in snapshots]],
+            ["add", "--all", "--", *stage_pathspecs],
             cwd=repo_path,
         )
         staged = self._run_git(["diff", "--cached", "--name-only"], cwd=repo_path).stdout.strip()
@@ -579,7 +1199,7 @@ class PRWorkflowService:
         """Stash local workspace changes before workflow actions."""
         stash_name = f"agentic-pr-workflow-{int(time.time())}"
         result = self._run_git(
-            ["stash", "push", "-u", "-m", stash_name],
+            ["stash", "push", "--all", "-m", stash_name],
             cwd=workspace_repo,
             check=False,
         )
@@ -593,7 +1213,9 @@ class PRWorkflowService:
         stash_ref = self._find_stash_ref(workspace_repo, stash_name)
         if not stash_ref:
             stash_ref = "stash@{0}"
-        step_logs.append(f"Stashed workspace changes before PR flow ({stash_ref}).")
+        step_logs.append(
+            f"Stashed workspace changes before PR flow, including ignored files ({stash_ref})."
+        )
         return True, stash_ref
 
     def _restore_workspace_stash(self, workspace_repo: Path, stash_ref: str, step_logs: list[str]) -> None:
@@ -665,17 +1287,12 @@ class PRWorkflowService:
             check=False,
         ).returncode == 0
         if not has_remote and fetch_if_missing:
-            self._run_git(
-                [
-                    "fetch",
-                    "--prune",
-                    "--no-tags",
-                    "origin",
-                    f"+refs/heads/{normalized}:refs/remotes/origin/{normalized}",
-                ],
-                cwd=repo_path,
-                check=False,
-            )
+            try:
+                self._fetch_required_branches(repo_path, [normalized], step_logs)
+            except PRWorkflowError as exc:
+                step_logs.append(
+                    f"Warning: unable to fetch workspace branch '{normalized}': {exc}"
+                )
             has_remote = self._run_git(
                 ["show-ref", "--verify", "--quiet", f"refs/remotes/origin/{normalized}"],
                 cwd=repo_path,
@@ -723,38 +1340,101 @@ class PRWorkflowService:
             unique_branches.append(normalized)
 
         for branch in unique_branches:
-            fetch_args = [
+            self._fetch_branch_from_origin(workspace_repo, branch, step_logs)
+
+    def _fetch_branch_from_origin(
+        self,
+        repo_path: Path,
+        branch: str,
+        step_logs: list[str],
+    ) -> None:
+        """Fetch one branch from origin with retry/backoff for transient transport errors."""
+        normalized_branch = str(branch or "").strip()
+        if not normalized_branch:
+            raise PRWorkflowError("Cannot fetch an empty branch name.")
+
+        attempts = 3
+        last_error: PRWorkflowError | None = None
+        for attempt in range(1, attempts + 1):
+            use_http11 = attempt > 1
+            try:
+                self._run_targeted_branch_fetch(
+                    repo_path,
+                    normalized_branch,
+                    use_http11=use_http11,
+                )
+                if attempt == 1:
+                    step_logs.append(f"Fetched branch from origin: {normalized_branch}")
+                else:
+                    mode = " with HTTP/1.1 fallback" if use_http11 else ""
+                    step_logs.append(
+                        f"Fetched branch from origin after retry {attempt}{mode}: {normalized_branch}"
+                    )
+                return
+            except PRWorkflowError as exc:
+                message = str(exc)
+                last_error = exc
+                if "non-fast-forward" in message.lower():
+                    self._run_git(
+                        ["update-ref", "-d", f"refs/remotes/origin/{normalized_branch}"],
+                        cwd=repo_path,
+                        check=False,
+                    )
+                    self._run_targeted_branch_fetch(
+                        repo_path,
+                        normalized_branch,
+                        use_http11=use_http11,
+                        force_update=False,
+                    )
+                    step_logs.append(
+                        f"Fetched branch from origin after remote-ref reset: {normalized_branch}"
+                    )
+                    return
+                if attempt < attempts and self._is_retryable_fetch_error(message):
+                    mode = " using HTTP/1.1 fallback" if attempt + 1 > 1 else ""
+                    step_logs.append(
+                        f"Transient fetch error for '{normalized_branch}' on attempt {attempt}: {message}. "
+                        f"Retrying{mode}."
+                    )
+                    time.sleep(attempt)
+                    continue
+                raise
+
+        if last_error:
+            raise last_error
+
+    def _run_targeted_branch_fetch(
+        self,
+        repo_path: Path,
+        branch: str,
+        *,
+        use_http11: bool,
+        force_update: bool = True,
+    ) -> None:
+        """Fetch a single branch ref into `refs/remotes/origin/*`."""
+        refspec = f"refs/heads/{branch}:refs/remotes/origin/{branch}"
+        if force_update:
+            refspec = f"+{refspec}"
+
+        args: list[str] = []
+        if use_http11:
+            args.extend(["-c", "http.version=HTTP/1.1"])
+        args.extend(
+            [
                 "fetch",
                 "--prune",
                 "--no-tags",
                 "origin",
-                f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
+                refspec,
             ]
-            try:
-                self._run_git(fetch_args, cwd=workspace_repo)
-                step_logs.append(f"Fetched branch from origin: {branch}")
-            except PRWorkflowError as exc:
-                message = str(exc)
-                if "non-fast-forward" not in message.lower():
-                    raise
+        )
+        self._run_git(args, cwd=repo_path)
 
-                # Recover from stale/broken tracking ref and retry targeted fetch once.
-                self._run_git(
-                    ["update-ref", "-d", f"refs/remotes/origin/{branch}"],
-                    cwd=workspace_repo,
-                    check=False,
-                )
-                retry_args = [
-                    "fetch",
-                    "--prune",
-                    "--no-tags",
-                    "origin",
-                    f"refs/heads/{branch}:refs/remotes/origin/{branch}",
-                ]
-                self._run_git(retry_args, cwd=workspace_repo)
-                step_logs.append(
-                    f"Fetched branch from origin after remote-ref reset: {branch}"
-                )
+    @classmethod
+    def _is_retryable_fetch_error(cls, message: str) -> bool:
+        """Best-effort detection of transient transport failures worth retrying once or twice."""
+        normalized_message = str(message or "").strip().lower()
+        return any(fragment in normalized_message for fragment in cls.RETRYABLE_FETCH_ERRORS)
 
     def _sync_target_branch_with_origin(
         self,
@@ -878,6 +1558,7 @@ class PRWorkflowService:
         resolved_source_repo = source_repo or self._resolve_changes_source_repo()
         for row in selected_rows:
             relative_path = str(row.get("path", "")).strip().replace("\\", "/")
+            old_relative_path = str(row.get("old_path", "")).strip().replace("\\", "/")
             if not relative_path:
                 continue
             absolute_path = resolved_source_repo / relative_path
@@ -888,6 +1569,7 @@ class PRWorkflowService:
                         relative_path=relative_path,
                         status=status,
                         content=absolute_path.read_bytes(),
+                        old_relative_path=old_relative_path or None,
                     )
                 )
             else:
@@ -896,9 +1578,38 @@ class PRWorkflowService:
                         relative_path=relative_path,
                         status="deleted",
                         content=None,
+                        old_relative_path=old_relative_path or None,
                     )
                 )
         return snapshots
+
+    @staticmethod
+    def _serialize_selected_snapshots(snapshots: list[FileSnapshot]) -> list[dict[str, str]]:
+        """Convert selected snapshots into lightweight UI metadata for pending approval state."""
+        serialized: list[dict[str, str]] = []
+        for snapshot in snapshots:
+            serialized.append(
+                {
+                    "path": snapshot.relative_path,
+                    "status": snapshot.status,
+                    "old_path": str(snapshot.old_relative_path or ""),
+                }
+            )
+        return serialized
+
+    @staticmethod
+    def _build_snapshot_stage_pathspecs(snapshots: list[FileSnapshot]) -> list[str]:
+        """Build deterministic pathspecs that cover both rename sources and destinations."""
+        pathspecs: list[str] = []
+        seen: set[str] = set()
+        for snapshot in snapshots:
+            for candidate in (snapshot.old_relative_path or "", snapshot.relative_path):
+                normalized = str(candidate or "").strip()
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                pathspecs.append(normalized)
+        return pathspecs
 
     def _list_changed_files_for_repo(self, source_repo: Path) -> list[dict[str, Any]]:
         """List changed files for a specific repository path."""
@@ -944,10 +1655,21 @@ class PRWorkflowService:
 
     def _apply_snapshots(self, clone_path: Path, snapshots: list[FileSnapshot]) -> None:
         """Replay selected snapshots onto temp clone working tree."""
+        clone_root = clone_path.resolve()
         for snapshot in snapshots:
             file_path = (clone_path / snapshot.relative_path).resolve()
-            if not str(file_path).startswith(str(clone_path.resolve())):
+            if not str(file_path).startswith(str(clone_root)):
                 raise PRWorkflowError(f"Unsafe file path outside repository: {snapshot.relative_path}")
+            old_file_path: Path | None = None
+            if snapshot.old_relative_path:
+                old_file_path = (clone_path / snapshot.old_relative_path).resolve()
+                if not str(old_file_path).startswith(str(clone_root)):
+                    raise PRWorkflowError(
+                        f"Unsafe rename source path outside repository: {snapshot.old_relative_path}"
+                    )
+
+            if old_file_path and old_file_path != file_path and old_file_path.exists():
+                old_file_path.unlink()
 
             if snapshot.content is None or snapshot.status == "deleted":
                 if file_path.exists():
@@ -1104,13 +1826,16 @@ class PRWorkflowService:
         if not raw_path:
             return None
 
+        old_path = ""
         if " -> " in raw_path:
-            _, destination_path = raw_path.split(" -> ", 1)
+            source_path, destination_path = raw_path.split(" -> ", 1)
+            old_path = source_path.strip()
             raw_path = destination_path.strip()
 
         normalized_path = raw_path.replace("\\", "/").lstrip("/")
         if not normalized_path:
             return None
+        normalized_old_path = old_path.replace("\\", "/").lstrip("/")
 
         if xy == "??":
             status = "untracked"
@@ -1123,10 +1848,13 @@ class PRWorkflowService:
         else:
             status = "modified"
 
-        return {"status": status, "path": normalized_path}
+        payload = {"status": status, "path": normalized_path}
+        if status == "renamed" and normalized_old_path and normalized_old_path != normalized_path:
+            payload["old_path"] = normalized_old_path
+        return payload
 
+    @staticmethod
     def _run_git(
-        self,
         args: list[str],
         *,
         cwd: Path,
@@ -1144,6 +1872,29 @@ class PRWorkflowService:
         if check and result.returncode != 0:
             stderr = (result.stderr or "").strip()
             stdout = (result.stdout or "").strip()
+            details = stderr or stdout or "unknown git error"
+            raise PRWorkflowError(f"Git command failed: {' '.join(command)} :: {details}")
+        return result
+
+    @staticmethod
+    def _run_git_bytes(
+        args: list[str],
+        *,
+        cwd: Path,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Run Git command and return raw byte output for blob/binary reads."""
+        command = ["git", *args]
+        result = subprocess.run(
+            command,
+            cwd=str(cwd),
+            text=False,
+            capture_output=True,
+            check=False,
+        )
+        if check and result.returncode != 0:
+            stderr = (result.stderr or b"").decode("utf-8", errors="ignore").strip()
+            stdout = (result.stdout or b"").decode("utf-8", errors="ignore").strip()
             details = stderr or stdout or "unknown git error"
             raise PRWorkflowError(f"Git command failed: {' '.join(command)} :: {details}")
         return result

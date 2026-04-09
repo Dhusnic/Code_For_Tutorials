@@ -46,11 +46,28 @@ const prWorkflowState = {
   additionalWorkItems: [],
   featureContext: null
 };
+const prApprovalState = {
+  jobId: "",
+  requestId: "",
+  approvalRequest: null,
+  preview: null,
+  activeFilePath: "",
+  loading: false
+};
+const settingsState = {
+  isOpen: false,
+  loading: false,
+  saving: false,
+  path: "config/pr_workflow_defaults.json",
+  originalConfig: null,
+  draftConfig: null
+};
 const PR_FORM_STORAGE_KEY = "pr-workflow-form-v1";
 
 document.addEventListener("DOMContentLoaded", () => {
   initializeMarkdownRenderer();
   initializeTheme();
+  initializeSettingsDrawer();
   loadUiDefaults();
   initializeMainTabs();
   initializePrWorkflow();
@@ -705,6 +722,25 @@ async function apiPost(path, payload) {
   return response.json();
 }
 
+async function apiPut(path, payload) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const body = await response.json();
+      detail = typeof body?.detail === "string" ? body.detail : body?.detail?.message || body?.detail || detail;
+    } catch (_) {}
+    throw new Error(detail);
+  }
+
+  return response.json();
+}
+
 async function apiPostAsyncJob(path, payload, options = {}) {
   const response = await apiPost(`${path}?async_job=true`, payload);
   if (!response?.job_id) {
@@ -779,44 +815,471 @@ async function handleRaisePrApprovalRequest(context) {
   appendPrLog(
     `Manual review checkpoint: verify branch '${sourceBranch || "unknown"}' (target '${targetBranch || "unknown"}').`
   );
-  await showPrApprovalModal(approvalRequest);
+  await showPrApprovalModal({ jobId, approvalRequest });
   await apiPost(`/api/jobs/${jobId}/proceed`, { request_id: requestId });
   appendPrLog(`Proceed confirmed for branch '${sourceBranch || "unknown"}'.`);
 }
 
-function showPrApprovalModal(approvalRequest) {
-  const modal = document.getElementById("prApprovalModal");
-  const title = document.getElementById("prApprovalTitle");
-  const message = document.getElementById("prApprovalMessage");
-  const details = document.getElementById("prApprovalDetails");
-  const proceedButton = document.getElementById("prApprovalProceed");
-  if (!modal || !title || !message || !details || !proceedButton) {
+function getPrApprovalElements() {
+  const elements = {
+    modal: document.getElementById("prApprovalModal"),
+    title: document.getElementById("prApprovalTitle"),
+    message: document.getElementById("prApprovalMessage"),
+    branchMeta: document.getElementById("prApprovalBranchMeta"),
+    summary: document.getElementById("prApprovalSummary"),
+    selectionInfo: document.getElementById("prApprovalSelectionInfo"),
+    fileTree: document.getElementById("prApprovalFileTree"),
+    activeFileTitle: document.getElementById("prApprovalActiveFileTitle"),
+    activeFileMeta: document.getElementById("prApprovalActiveFileMeta"),
+    diffViewer: document.getElementById("prApprovalDiffViewer"),
+    refreshButton: document.getElementById("prApprovalRefresh"),
+    proceedButton: document.getElementById("prApprovalProceed")
+  };
+  const missing = Object.values(elements).some((value) => !value);
+  return missing ? null : elements;
+}
+
+async function showPrApprovalModal(context) {
+  const elements = getPrApprovalElements();
+  if (!elements) {
     return Promise.reject(new Error("Approval modal is not available in UI."));
   }
 
+  const approvalRequest = context?.approvalRequest || {};
+  const jobId = String(context?.jobId || "").trim();
+  const requestId = String(approvalRequest?.request_id || "").trim();
+  if (!jobId || !requestId) {
+    return Promise.reject(new Error("Approval preview context is incomplete."));
+  }
+
+  prApprovalState.jobId = jobId;
+  prApprovalState.requestId = requestId;
+  prApprovalState.approvalRequest = approvalRequest;
+  prApprovalState.preview = null;
+  prApprovalState.activeFilePath = "";
+
+  renderPrApprovalFrame(elements, approvalRequest);
+  renderPrApprovalLoadingState(elements, approvalRequest);
+  elements.modal.classList.remove("hidden");
+
+  const modalPromise = new Promise((resolve) => {
+    elements.proceedButton.onclick = () => {
+      elements.modal.classList.add("hidden");
+      elements.proceedButton.onclick = null;
+      elements.refreshButton.onclick = null;
+      prApprovalState.loading = false;
+      resolve();
+    };
+    elements.refreshButton.onclick = async () => {
+      await refreshPrApprovalPreview(elements, { preserveSelection: true });
+    };
+  });
+
+  await refreshPrApprovalPreview(elements, { preserveSelection: false });
+  return modalPromise;
+}
+
+function renderPrApprovalFrame(elements, approvalRequest) {
   const sourceBranch = String(approvalRequest?.source_branch || "").trim();
   const targetBranch = String(approvalRequest?.target_branch || "").trim();
   const workspaceRepoPath = String(approvalRequest?.workspace_repo_path || "").trim();
-  const selectedFiles = Array.isArray(approvalRequest?.selected_files) ? approvalRequest.selected_files : [];
-  const defaultMessage = `Review the applied changes in your local workspace, fix anything if needed, then click Proceed.`;
+  const defaultMessage = "Review the applied changes in your local workspace, fix anything if needed, then click Proceed.";
 
-  title.textContent = `Review Changes Before Staging`;
-  message.textContent = String(approvalRequest?.message || "").trim() || defaultMessage;
-  details.innerHTML = `
-    <div><strong>Source Branch:</strong> ${escapeHtmlText(sourceBranch || "-")}</div>
-    <div><strong>Target Branch:</strong> ${escapeHtmlText(targetBranch || "-")}</div>
-    <div><strong>Workspace Path:</strong> ${escapeHtmlText(workspaceRepoPath || "-")}</div>
-    <div><strong>Selected Files:</strong> ${selectedFiles.length}</div>
+  elements.title.textContent = "Review Changes Before Staging";
+  elements.message.textContent = String(approvalRequest?.message || "").trim() || defaultMessage;
+  elements.branchMeta.innerHTML = `
+    <span class="approval-branch-pill">Source: ${escapeHtmlText(sourceBranch || "-")}</span>
+    <span class="approval-branch-pill">Target: ${escapeHtmlText(targetBranch || "-")}</span>
+    <span class="approval-branch-pill">Workspace: ${escapeHtmlText(workspaceRepoPath || "-")}</span>
   `;
+}
 
-  modal.classList.remove("hidden");
-  return new Promise((resolve) => {
-    proceedButton.onclick = () => {
-      modal.classList.add("hidden");
-      proceedButton.onclick = null;
-      resolve();
-    };
+function renderPrApprovalLoadingState(elements, approvalRequest) {
+  renderPrApprovalSummary(elements, null, approvalRequest);
+  elements.selectionInfo.textContent = "Loading preview...";
+  elements.fileTree.innerHTML = `<div class="approval-placeholder">Loading changed files...</div>`;
+  elements.activeFileTitle.textContent = "Loading preview...";
+  elements.activeFileMeta.textContent = "Fetching branch-specific diff preview.";
+  elements.diffViewer.innerHTML = `<div class="approval-placeholder">Building preview from the paused workspace branch...</div>`;
+}
+
+function renderPrApprovalErrorState(elements, approvalRequest, message) {
+  renderPrApprovalSummary(elements, null, approvalRequest);
+  elements.selectionInfo.textContent = "Preview unavailable";
+  elements.fileTree.innerHTML = `<div class="approval-placeholder error">${escapeHtmlText(message || "Unable to load preview.")}</div>`;
+  elements.activeFileTitle.textContent = "Preview unavailable";
+  elements.activeFileMeta.textContent = "Refresh the preview or proceed once you have reviewed the workspace manually.";
+  elements.diffViewer.innerHTML = `<div class="approval-placeholder error">${escapeHtmlText(message || "Unable to load preview.")}</div>`;
+}
+
+function setPrApprovalButtonsBusy(elements, isBusy) {
+  prApprovalState.loading = Boolean(isBusy);
+  elements.refreshButton.disabled = Boolean(isBusy);
+  elements.proceedButton.disabled = Boolean(isBusy);
+  elements.refreshButton.textContent = isBusy ? "Refreshing..." : "Refresh Preview";
+  elements.proceedButton.textContent = isBusy ? "Loading..." : "Proceed";
+}
+
+async function refreshPrApprovalPreview(elements, options = {}) {
+  const preserveSelection = Boolean(options?.preserveSelection);
+  const jobId = String(prApprovalState.jobId || "").trim();
+  const requestId = String(prApprovalState.requestId || "").trim();
+  const approvalRequest = prApprovalState.approvalRequest || {};
+  if (!jobId || !requestId) {
+    throw new Error("Approval preview identifiers are missing.");
+  }
+
+  setPrApprovalButtonsBusy(elements, true);
+  try {
+    const query = new URLSearchParams({ request_id: requestId });
+    const preview = await apiGet(`/api/jobs/${jobId}/approval-preview?${query.toString()}`);
+    prApprovalState.preview = preview;
+    const files = Array.isArray(preview?.files) ? preview.files : [];
+    const activeExists = files.some((file) => String(file?.path || "") === prApprovalState.activeFilePath);
+    if (!preserveSelection || !activeExists) {
+      prApprovalState.activeFilePath = files.length ? String(files[0]?.path || "") : "";
+    }
+    renderPrApprovalPreview(elements, approvalRequest, preview);
+  } catch (error) {
+    prApprovalState.preview = null;
+    renderPrApprovalErrorState(elements, approvalRequest, error.message);
+    showToast(`Approval preview failed: ${error.message}`, "error");
+  } finally {
+    setPrApprovalButtonsBusy(elements, false);
+  }
+}
+
+function renderPrApprovalSummary(elements, preview, approvalRequest) {
+  const selectedFiles = Array.isArray(approvalRequest?.selected_files) ? approvalRequest.selected_files : [];
+  const selectedCount = Number(preview?.selected_file_count || approvalRequest?.selected_file_count || selectedFiles.length || 0);
+  const effectiveCount = Number(preview?.effective_file_count || 0);
+  const additions = Number(preview?.total_additions || 0);
+  const deletions = Number(preview?.total_deletions || 0);
+  const workspaceRepoPath = String(approvalRequest?.workspace_repo_path || preview?.workspace_repo_path || "").trim();
+  const cards = [
+    { label: "Selected Files", value: `${selectedCount}` },
+    { label: "Effective Diffs", value: `${effectiveCount}` },
+    { label: "Additions", value: `${additions}` },
+    { label: "Deletions", value: `${deletions}` },
+    { label: "Base Ref", value: escapeHtmlText(String(preview?.preview_base_ref || approvalRequest?.target_branch || "-")) },
+    { label: "Workspace", value: escapeHtmlText(workspaceRepoPath || "-"), className: "approval-summary-wide" }
+  ];
+
+  elements.summary.innerHTML = cards
+    .map(
+      (card) => `
+        <div class="summary-card ${card.className || ""}">
+          <div class="summary-label">${card.label}</div>
+          <div class="summary-value">${card.value}</div>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function renderPrApprovalPreview(elements, approvalRequest, preview) {
+  renderPrApprovalSummary(elements, preview, approvalRequest);
+  const files = Array.isArray(preview?.files) ? preview.files : [];
+  const selectedCount = Number(preview?.selected_file_count || approvalRequest?.selected_file_count || 0);
+  elements.selectionInfo.textContent = files.length
+    ? `${files.length} effective diff file(s) from ${selectedCount} selected file(s)`
+    : `No effective diff found across ${selectedCount} selected file(s)`;
+  renderPrApprovalFileTree(elements, preview);
+  renderPrApprovalDiff(elements, preview);
+}
+
+function renderPrApprovalFileTree(elements, preview) {
+  const files = Array.isArray(preview?.files) ? preview.files : [];
+  if (!files.length) {
+    elements.fileTree.innerHTML = `<div class="approval-placeholder">No effective file differences found for this target branch.</div>`;
+    return;
+  }
+
+  const tree = buildPrApprovalTree(files, preview?.repo_root_label || "repository");
+  const fragment = document.createDocumentFragment();
+  appendPrApprovalTreeRows(fragment, tree, preview);
+  elements.fileTree.innerHTML = "";
+  elements.fileTree.appendChild(fragment);
+}
+
+function buildPrApprovalTree(files, rootLabel) {
+  const root = {
+    kind: "folder",
+    name: String(rootLabel || "repository"),
+    path: "",
+    depth: 0,
+    folders: new Map(),
+    files: []
+  };
+
+  files.forEach((file) => {
+    const path = String(file?.path || "").trim();
+    if (!path) {
+      return;
+    }
+    const parts = path.split("/").filter(Boolean);
+    let node = root;
+    parts.slice(0, -1).forEach((part, index) => {
+      const nodePath = parts.slice(0, index + 1).join("/");
+      if (!node.folders.has(part)) {
+        node.folders.set(part, {
+          kind: "folder",
+          name: part,
+          path: nodePath,
+          depth: index + 1,
+          folders: new Map(),
+          files: []
+        });
+      }
+      node = node.folders.get(part);
+    });
+    node.files.push(file);
   });
+
+  return root;
+}
+
+function appendPrApprovalTreeRows(fragment, node, preview) {
+  const rootRow = document.createElement("div");
+  rootRow.className = "approval-tree-row root";
+  rootRow.innerHTML = `
+    <span class="approval-tree-label">
+      <i class="fas fa-folder-open"></i>
+      ${escapeHtmlText(node.name)}
+    </span>
+    <span class="approval-tree-count">${countPrApprovalFiles(node)}</span>
+  `;
+  fragment.appendChild(rootRow);
+
+  appendPrApprovalChildRows(fragment, node);
+}
+
+function appendPrApprovalChildRows(fragment, node) {
+  const folderNodes = [...node.folders.values()].sort((left, right) => left.name.localeCompare(right.name));
+  folderNodes.forEach((folder) => {
+    const folderRow = document.createElement("div");
+    folderRow.className = "approval-tree-row folder";
+    folderRow.style.paddingLeft = `${12 + folder.depth * 18}px`;
+    folderRow.innerHTML = `
+      <span class="approval-tree-label">
+        <i class="fas fa-folder"></i>
+        ${escapeHtmlText(folder.name)}
+      </span>
+      <span class="approval-tree-count">${countPrApprovalFiles(folder)}</span>
+    `;
+    fragment.appendChild(folderRow);
+    appendPrApprovalChildRows(fragment, folder);
+  });
+
+  node.files
+    .slice()
+    .sort((left, right) => String(left?.path || "").localeCompare(String(right?.path || "")))
+    .forEach((file) => {
+      const status = String(file?.status || "modified").toLowerCase();
+      const isActive = String(file?.path || "") === String(prApprovalState.activeFilePath || "");
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = `approval-tree-row file ${isActive ? "active" : ""}`;
+      row.style.paddingLeft = `${12 + (node.depth + 1) * 18}px`;
+      row.innerHTML = `
+        <span class="approval-tree-label">
+          <i class="fas fa-file-code"></i>
+          <span class="approval-tree-file-name">${escapeHtmlText(String(file?.path || "").split("/").pop() || "")}</span>
+        </span>
+        <span class="approval-tree-metrics">
+          <span class="status-pill ${status}">${status}</span>
+          <span class="approval-delta plus">+${Number(file?.additions || 0)}</span>
+          <span class="approval-delta minus">-${Number(file?.deletions || 0)}</span>
+        </span>
+      `;
+      row.addEventListener("click", () => {
+        prApprovalState.activeFilePath = String(file?.path || "");
+        const elements = getPrApprovalElements();
+        if (!elements || !prApprovalState.preview) {
+          return;
+        }
+        renderPrApprovalFileTree(elements, prApprovalState.preview);
+        renderPrApprovalDiff(elements, prApprovalState.preview);
+      });
+      fragment.appendChild(row);
+    });
+}
+
+function countPrApprovalFiles(node) {
+  let total = Array.isArray(node?.files) ? node.files.length : 0;
+  if (!(node?.folders instanceof Map)) {
+    return total;
+  }
+  node.folders.forEach((folder) => {
+    total += countPrApprovalFiles(folder);
+  });
+  return total;
+}
+
+function renderPrApprovalDiff(elements, preview) {
+  const activeFile = getPrApprovalActiveFile(preview);
+  if (!activeFile) {
+    elements.activeFileTitle.textContent = "No file selected";
+    elements.activeFileMeta.textContent = "Select a file from the left to inspect its diff.";
+    elements.diffViewer.innerHTML = `<div class="approval-placeholder">No diff is available for the current branch preview.</div>`;
+    return;
+  }
+
+  const status = String(activeFile?.status || "modified").toLowerCase();
+  elements.activeFileTitle.textContent = String(activeFile?.path || "Selected file");
+  elements.activeFileMeta.textContent = [
+    status,
+    activeFile?.old_path ? `from ${activeFile.old_path}` : "",
+    `+${Number(activeFile?.additions || 0)}`,
+    `-${Number(activeFile?.deletions || 0)}`
+  ]
+    .filter(Boolean)
+    .join("  |  ");
+
+  const container = document.createElement("div");
+  container.className = "approval-diff-body";
+
+  if (activeFile?.old_path) {
+    const renameNote = document.createElement("div");
+    renameNote.className = "approval-inline-note";
+    renameNote.textContent = `Renamed from ${activeFile.old_path}`;
+    container.appendChild(renameNote);
+  }
+
+  if (activeFile?.is_truncated) {
+    const truncationNote = document.createElement("div");
+    truncationNote.className = "approval-inline-note";
+    truncationNote.textContent = `Preview truncated after ${activeFile.truncated_line_count || 0} hidden line(s) to keep the modal responsive.`;
+    container.appendChild(truncationNote);
+  }
+
+  const diffContent = renderPrApprovalDiffBody(activeFile);
+  container.appendChild(diffContent);
+  elements.diffViewer.innerHTML = "";
+  elements.diffViewer.appendChild(container);
+}
+
+function getPrApprovalActiveFile(preview) {
+  const files = Array.isArray(preview?.files) ? preview.files : [];
+  if (!files.length) {
+    return null;
+  }
+  return (
+    files.find((file) => String(file?.path || "") === String(prApprovalState.activeFilePath || "")) ||
+    files[0]
+  );
+}
+
+function renderPrApprovalDiffBody(file) {
+  const container = document.createElement("div");
+  container.className = "approval-diff-scroll";
+
+  if (file?.is_binary) {
+    container.innerHTML = `<div class="approval-placeholder">${escapeHtmlText(file?.message || "Binary file preview is not available.")}</div>`;
+    return container;
+  }
+
+  const hunks = Array.isArray(file?.hunks) ? file.hunks : [];
+  if (!hunks.length) {
+    container.innerHTML = `<div class="approval-placeholder">${escapeHtmlText(file?.message || "No textual diff hunks found for this file.")}</div>`;
+    return container;
+  }
+
+  hunks.forEach((hunk) => {
+    container.appendChild(renderPrApprovalHunk(hunk));
+  });
+  return container;
+}
+
+function renderPrApprovalHunk(hunk) {
+  const section = document.createElement("section");
+  section.className = "approval-hunk";
+
+  const header = document.createElement("div");
+  header.className = "approval-hunk-header";
+  header.textContent = String(hunk?.header || "Hunk");
+  section.appendChild(header);
+
+  const body = document.createElement("div");
+  body.className = "approval-hunk-body";
+  const rows = buildPrApprovalSideBySideRows(Array.isArray(hunk?.lines) ? hunk.lines : []);
+  rows.forEach((row) => {
+    const rowElement = document.createElement("div");
+    rowElement.className = `approval-diff-row ${row.kind}`;
+    rowElement.appendChild(createPrApprovalLineCell(row.oldLine, row.oldText, "old"));
+    rowElement.appendChild(createPrApprovalLineCell(row.newLine, row.newText, "new"));
+    body.appendChild(rowElement);
+  });
+
+  section.appendChild(body);
+  return section;
+}
+
+function buildPrApprovalSideBySideRows(lines) {
+  const rows = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const current = lines[index];
+    if (current?.type === "context") {
+      rows.push({
+        kind: "context",
+        oldLine: current.old_line,
+        oldText: current.text,
+        newLine: current.new_line,
+        newText: current.text
+      });
+      index += 1;
+      continue;
+    }
+
+    const removed = [];
+    const added = [];
+    while (index < lines.length && lines[index]?.type !== "context") {
+      const item = lines[index];
+      if (item?.type === "delete") {
+        removed.push(item);
+      } else if (item?.type === "add") {
+        added.push(item);
+      }
+      index += 1;
+    }
+
+    const rowCount = Math.max(removed.length, added.length);
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+      const removedLine = removed[rowIndex];
+      const addedLine = added[rowIndex];
+      rows.push({
+        kind: removedLine && addedLine ? "replace" : removedLine ? "delete" : "add",
+        oldLine: removedLine?.old_line ?? null,
+        oldText: removedLine?.text ?? "",
+        newLine: addedLine?.new_line ?? null,
+        newText: addedLine?.text ?? ""
+      });
+    }
+  }
+
+  return rows;
+}
+
+function createPrApprovalLineCell(lineNumberValue, textValue, side) {
+  const cell = document.createElement("div");
+  cell.className = `approval-line-cell ${side} ${lineNumberValue === null || lineNumberValue === undefined ? "blank" : ""}`;
+
+  const lineNumber = document.createElement("span");
+  lineNumber.className = "approval-line-number";
+  lineNumber.textContent = lineNumberValue === null || lineNumberValue === undefined ? "" : String(lineNumberValue);
+
+  const lineCode = document.createElement("span");
+  lineCode.className = "approval-line-code";
+  lineCode.textContent = textValue || " ";
+  if (textValue && String(textValue).length > 240) {
+    lineCode.title = String(textValue);
+  }
+
+  cell.appendChild(lineNumber);
+  cell.appendChild(lineCode);
+  return cell;
 }
 
 async function apiGet(path) {
@@ -833,6 +1296,767 @@ async function apiGet(path) {
     throw new Error(detail);
   }
   return response.json();
+}
+
+function getSettingsElements() {
+  const elements = {
+    overlay: document.getElementById("settingsOverlay"),
+    drawer: document.getElementById("settingsDrawer"),
+    filePath: document.getElementById("settingsFilePath"),
+    saveState: document.getElementById("settingsSaveState"),
+    summary: document.getElementById("settingsSummary"),
+    form: document.getElementById("settingsForm"),
+    validation: document.getElementById("settingsValidationMessage"),
+    saveButton: document.getElementById("settingsSaveButton")
+  };
+  const missing = Object.values(elements).some((value) => !value);
+  return missing ? null : elements;
+}
+
+function initializeSettingsDrawer() {
+  const elements = getSettingsElements();
+  if (!elements) {
+    return;
+  }
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && settingsState.isOpen) {
+      closeSettingsDrawer();
+    }
+  });
+}
+
+async function openSettingsDrawer() {
+  const elements = getSettingsElements();
+  if (!elements) {
+    showToast("Settings drawer is not available in the UI.", "error");
+    return;
+  }
+
+  settingsState.isOpen = true;
+  elements.overlay.classList.remove("hidden");
+  document.body.classList.add("settings-open");
+  await loadSettingsConfig({ force: !settingsState.originalConfig });
+}
+
+function closeSettingsDrawer() {
+  const elements = getSettingsElements();
+  if (!elements) {
+    return;
+  }
+  settingsState.isOpen = false;
+  elements.overlay.classList.add("hidden");
+  document.body.classList.remove("settings-open");
+}
+
+function handleSettingsOverlayClick(event) {
+  if (event?.target?.id === "settingsOverlay") {
+    closeSettingsDrawer();
+  }
+}
+
+function setSettingsStatus(kind, text) {
+  const elements = getSettingsElements();
+  if (!elements) {
+    return;
+  }
+  const normalized = kind || "muted";
+  elements.saveState.className = `settings-chip ${normalized}`;
+  elements.saveState.textContent = text || "Ready";
+}
+
+function isSettingsObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneSettingsValue(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+function getSettingsValueKind(value) {
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  if (value === null) {
+    return "null";
+  }
+  if (isSettingsObject(value)) {
+    return "object";
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return "number";
+  }
+  if (typeof value === "boolean") {
+    return "boolean";
+  }
+  return "string";
+}
+
+function formatSettingsKeyLabel(key) {
+  return String(key || "value")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatSettingsPath(path) {
+  if (!Array.isArray(path) || !path.length) {
+    return "root";
+  }
+
+  return path.reduce((result, segment) => {
+    if (typeof segment === "number") {
+      return `${result}[${segment}]`;
+    }
+    return result ? `${result}.${segment}` : String(segment);
+  }, "");
+}
+
+function pluralizeSettingsCount(count, singular, plural) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function settingsHasUnsavedChanges() {
+  if (!isSettingsObject(settingsState.originalConfig) || !isSettingsObject(settingsState.draftConfig)) {
+    return false;
+  }
+  return JSON.stringify(settingsState.originalConfig) !== JSON.stringify(settingsState.draftConfig);
+}
+
+function getSettingsValueAtPath(root, path) {
+  return Array.isArray(path) ? path.reduce((value, segment) => value?.[segment], root) : undefined;
+}
+
+function replaceSettingsValueAtPath(root, path, nextValue) {
+  const clonedRoot = cloneSettingsValue(root);
+  if (!Array.isArray(path) || !path.length) {
+    return cloneSettingsValue(nextValue);
+  }
+
+  let cursor = clonedRoot;
+  for (let index = 0; index < path.length - 1; index += 1) {
+    cursor = cursor[path[index]];
+  }
+  cursor[path[path.length - 1]] = nextValue;
+  return clonedRoot;
+}
+
+function createSettingsTemplateFromValue(sample) {
+  const kind = getSettingsValueKind(sample);
+  if (kind === "object") {
+    return Object.fromEntries(
+      Object.entries(sample).map(([key, value]) => [key, createSettingsTemplateFromValue(value)])
+    );
+  }
+  if (kind === "array") {
+    return [];
+  }
+  if (kind === "number") {
+    return 0;
+  }
+  if (kind === "boolean") {
+    return false;
+  }
+  if (kind === "null") {
+    return null;
+  }
+  return "";
+}
+
+function createSettingsArrayItemTemplate(arrayValue) {
+  if (!Array.isArray(arrayValue) || !arrayValue.length) {
+    return "";
+  }
+  return createSettingsTemplateFromValue(arrayValue[arrayValue.length - 1]);
+}
+
+function updateSettingsDraftValue(path, nextValue, options = {}) {
+  if (!isSettingsObject(settingsState.draftConfig)) {
+    return;
+  }
+
+  settingsState.draftConfig = replaceSettingsValueAtPath(settingsState.draftConfig, path, nextValue);
+  const hasChanges = settingsHasUnsavedChanges();
+  setSettingsStatus(hasChanges ? "warning" : "success", hasChanges ? "Unsaved" : "Loaded");
+
+  if (options?.rerender) {
+    renderSettingsForm();
+    return;
+  }
+
+  renderSettingsValidation();
+}
+
+function changeSettingsPrimitiveType(path, nextType) {
+  const currentValue = getSettingsValueAtPath(settingsState.draftConfig, path);
+  let nextValue = "";
+
+  if (nextType === "number") {
+    const parsedNumber = Number(currentValue);
+    nextValue = Number.isFinite(parsedNumber) ? parsedNumber : 0;
+  } else if (nextType === "boolean") {
+    nextValue = Boolean(currentValue);
+  } else if (nextType === "null") {
+    nextValue = null;
+  } else {
+    nextValue = currentValue === null || currentValue === undefined ? "" : String(currentValue);
+  }
+
+  updateSettingsDraftValue(path, nextValue, { rerender: true });
+}
+
+function addSettingsArrayItem(path) {
+  const arrayValue = getSettingsValueAtPath(settingsState.draftConfig, path);
+  if (!Array.isArray(arrayValue)) {
+    return;
+  }
+
+  const nextArray = cloneSettingsValue(arrayValue);
+  nextArray.push(createSettingsArrayItemTemplate(arrayValue));
+  updateSettingsDraftValue(path, nextArray, { rerender: true });
+}
+
+function removeSettingsArrayItem(path, itemIndex) {
+  const arrayValue = getSettingsValueAtPath(settingsState.draftConfig, path);
+  if (!Array.isArray(arrayValue)) {
+    return;
+  }
+
+  const nextArray = cloneSettingsValue(arrayValue);
+  nextArray.splice(itemIndex, 1);
+  updateSettingsDraftValue(path, nextArray, { rerender: true });
+}
+
+function countSettingsNodes(value, stats = { sections: 0, arrays: 0, fields: 0 }) {
+  const kind = getSettingsValueKind(value);
+
+  if (kind === "object") {
+    stats.sections += 1;
+    Object.values(value).forEach((childValue) => countSettingsNodes(childValue, stats));
+    return stats;
+  }
+
+  if (kind === "array") {
+    stats.arrays += 1;
+    value.forEach((childValue) => countSettingsNodes(childValue, stats));
+    return stats;
+  }
+
+  stats.fields += 1;
+  return stats;
+}
+
+function renderSettingsSummary() {
+  const elements = getSettingsElements();
+  if (!elements) {
+    return;
+  }
+
+  const config = settingsState.draftConfig;
+  elements.summary.innerHTML = "";
+
+  if (!isSettingsObject(config)) {
+    elements.summary.innerHTML = `<div class="settings-placeholder">No configuration loaded yet.</div>`;
+    return;
+  }
+
+  const stats = countSettingsNodes(config);
+  const metrics = [
+    { label: "Top-level entries", value: Object.keys(config).length },
+    { label: "Grouped sections", value: Math.max(stats.sections - 1, 0) },
+    { label: "Lists", value: stats.arrays },
+    { label: "Editable values", value: stats.fields }
+  ];
+
+  metrics.forEach((metric) => {
+    const card = document.createElement("div");
+    card.className = "settings-summary-card";
+
+    const value = document.createElement("strong");
+    value.textContent = String(metric.value);
+
+    const label = document.createElement("span");
+    label.textContent = metric.label;
+
+    card.appendChild(value);
+    card.appendChild(label);
+    elements.summary.appendChild(card);
+  });
+}
+
+function createSettingsSectionShell({ title, path, badgeText, depth = 0, kind = "object" }) {
+  const section = document.createElement("section");
+  section.className = `settings-section ${depth > 0 ? "nested" : "top-level"}`;
+  section.dataset.kind = kind;
+  section.dataset.depth = String(depth);
+
+  const header = document.createElement("div");
+  header.className = "settings-section-header";
+
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "settings-section-title";
+
+  const heading = document.createElement(depth > 0 ? "h5" : "h4");
+  heading.textContent = title;
+
+  const pathLabel = document.createElement("div");
+  pathLabel.className = "settings-section-path";
+  pathLabel.textContent = formatSettingsPath(path);
+
+  titleWrap.appendChild(heading);
+  titleWrap.appendChild(pathLabel);
+
+  header.appendChild(titleWrap);
+
+  if (badgeText) {
+    const badge = document.createElement("span");
+    badge.className = "settings-section-badge";
+    badge.textContent = badgeText;
+    header.appendChild(badge);
+  }
+
+  const body = document.createElement("div");
+  body.className = "settings-section-body";
+
+  section.appendChild(header);
+  section.appendChild(body);
+  return { section, body };
+}
+
+function createSettingsPrimitiveEditor({ key, value, path, compact = false }) {
+  const field = document.createElement("div");
+  field.className = `settings-field${compact ? " compact" : ""}`;
+
+  const header = document.createElement("div");
+  header.className = "settings-field-header";
+
+  const label = document.createElement("label");
+  label.textContent = formatSettingsKeyLabel(key);
+
+  const meta = document.createElement("div");
+  meta.className = "settings-field-meta";
+  meta.textContent = formatSettingsPath(path);
+
+  header.appendChild(label);
+  header.appendChild(meta);
+
+  const controls = document.createElement("div");
+  controls.className = "settings-field-controls";
+
+  const kind = getSettingsValueKind(value);
+  const typeSelect = document.createElement("select");
+  typeSelect.className = "settings-select settings-type-select";
+  ["string", "number", "boolean", "null"].forEach((type) => {
+    const option = document.createElement("option");
+    option.value = type;
+    option.textContent = formatSettingsKeyLabel(type);
+    option.selected = type === kind;
+    typeSelect.appendChild(option);
+  });
+  typeSelect.addEventListener("change", (event) => {
+    changeSettingsPrimitiveType(path, event.target.value);
+  });
+  controls.appendChild(typeSelect);
+
+  let valueControl;
+  if (kind === "boolean") {
+    valueControl = document.createElement("select");
+    valueControl.className = "settings-select";
+    [
+      { value: "true", label: "True" },
+      { value: "false", label: "False" }
+    ].forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.value;
+      option.textContent = item.label;
+      option.selected = String(Boolean(value)) === item.value;
+      valueControl.appendChild(option);
+    });
+    valueControl.addEventListener("change", (event) => {
+      updateSettingsDraftValue(path, event.target.value === "true");
+    });
+  } else if (kind === "number") {
+    valueControl = document.createElement("input");
+    valueControl.type = "number";
+    valueControl.step = "any";
+    valueControl.className = "settings-input";
+    valueControl.value = Number.isFinite(value) ? String(value) : "0";
+    valueControl.addEventListener("input", (event) => {
+      const rawValue = event.target.value;
+      if (rawValue === "" || rawValue === "-" || rawValue === "." || rawValue === "-.") {
+        return;
+      }
+      const parsedValue = Number(rawValue);
+      if (Number.isFinite(parsedValue)) {
+        updateSettingsDraftValue(path, parsedValue);
+      }
+    });
+    valueControl.addEventListener("blur", (event) => {
+      const currentValue = getSettingsValueAtPath(settingsState.draftConfig, path);
+      event.target.value = Number.isFinite(currentValue) ? String(currentValue) : "0";
+    });
+  } else if (kind === "null") {
+    valueControl = document.createElement("div");
+    valueControl.className = "settings-null-value";
+    valueControl.textContent = "Null value";
+  } else {
+    const useTextarea = typeof value === "string" && (value.includes("\n") || value.length > 120);
+    valueControl = document.createElement(useTextarea ? "textarea" : "input");
+    valueControl.className = useTextarea ? "settings-textarea" : "settings-input";
+    if (!useTextarea) {
+      valueControl.type = "text";
+    } else {
+      valueControl.rows = Math.min(Math.max(String(value || "").split("\n").length + 1, 3), 8);
+    }
+    valueControl.value = value === null || value === undefined ? "" : String(value);
+    valueControl.addEventListener("input", (event) => {
+      updateSettingsDraftValue(path, event.target.value);
+    });
+  }
+
+  controls.appendChild(valueControl);
+  field.appendChild(header);
+  field.appendChild(controls);
+  return field;
+}
+
+function createSettingsNodeEditor({ key, value, path, depth = 0 }) {
+  const kind = getSettingsValueKind(value);
+  if (kind === "object") {
+    const entries = Object.entries(value);
+    const { section, body } = createSettingsSectionShell({
+      title: formatSettingsKeyLabel(key),
+      path,
+      badgeText: pluralizeSettingsCount(entries.length, "field", "fields"),
+      depth,
+      kind
+    });
+
+    if (!entries.length) {
+      const emptyState = document.createElement("div");
+      emptyState.className = "settings-placeholder";
+      emptyState.textContent = "This group is currently empty.";
+      body.appendChild(emptyState);
+      return section;
+    }
+
+    entries.forEach(([childKey, childValue]) => {
+      body.appendChild(
+        createSettingsNodeEditor({
+          key: childKey,
+          value: childValue,
+          path: path.concat(childKey),
+          depth: depth + 1
+        })
+      );
+    });
+    return section;
+  }
+
+  if (kind === "array") {
+    const { section, body } = createSettingsSectionShell({
+      title: formatSettingsKeyLabel(key),
+      path,
+      badgeText: pluralizeSettingsCount(value.length, "item", "items"),
+      depth,
+      kind
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "settings-section-actions";
+
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.textContent = "Add Item";
+    addButton.addEventListener("click", () => addSettingsArrayItem(path));
+    actions.appendChild(addButton);
+    section.querySelector(".settings-section-header")?.appendChild(actions);
+
+    if (!value.length) {
+      const emptyState = document.createElement("div");
+      emptyState.className = "settings-placeholder";
+      emptyState.textContent = "This list is empty. Add an item to populate it.";
+      body.appendChild(emptyState);
+      return section;
+    }
+
+    const list = document.createElement("div");
+    list.className = "settings-array-items";
+
+    value.forEach((itemValue, index) => {
+      const item = document.createElement("article");
+      item.className = "settings-array-item";
+
+      const itemHeader = document.createElement("div");
+      itemHeader.className = "settings-array-item-header";
+
+      const itemMeta = document.createElement("div");
+      itemMeta.className = "settings-array-item-meta";
+
+      const itemTitle = document.createElement("strong");
+      itemTitle.textContent = `Item ${index + 1}`;
+
+      const itemPath = document.createElement("span");
+      itemPath.textContent = formatSettingsPath(path.concat(index));
+
+      itemMeta.appendChild(itemTitle);
+      itemMeta.appendChild(itemPath);
+
+      const itemActions = document.createElement("div");
+      itemActions.className = "settings-array-item-actions";
+
+      const itemKind = document.createElement("span");
+      itemKind.className = "settings-inline-badge";
+      itemKind.textContent = formatSettingsKeyLabel(getSettingsValueKind(itemValue));
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "danger-button";
+      removeButton.textContent = "Remove";
+      removeButton.addEventListener("click", () => removeSettingsArrayItem(path, index));
+
+      itemActions.appendChild(itemKind);
+      itemActions.appendChild(removeButton);
+
+      itemHeader.appendChild(itemMeta);
+      itemHeader.appendChild(itemActions);
+      item.appendChild(itemHeader);
+
+      const itemContent = document.createElement("div");
+      itemContent.className = "settings-array-item-content";
+
+      if (getSettingsValueKind(itemValue) === "object") {
+        const entries = Object.entries(itemValue);
+        if (!entries.length) {
+          const emptyObject = document.createElement("div");
+          emptyObject.className = "settings-placeholder compact";
+          emptyObject.textContent = "This item is an empty object.";
+          itemContent.appendChild(emptyObject);
+        } else {
+          entries.forEach(([childKey, childValue]) => {
+            itemContent.appendChild(
+              createSettingsNodeEditor({
+                key: childKey,
+                value: childValue,
+                path: path.concat(index, childKey),
+                depth: depth + 1
+              })
+            );
+          });
+        }
+      } else if (getSettingsValueKind(itemValue) === "array") {
+        itemContent.appendChild(
+          createSettingsNodeEditor({
+            key: `item_${index + 1}`,
+            value: itemValue,
+            path: path.concat(index),
+            depth: depth + 1
+          })
+        );
+      } else {
+        itemContent.appendChild(
+          createSettingsPrimitiveEditor({
+            key: "value",
+            value: itemValue,
+            path: path.concat(index),
+            compact: true
+          })
+        );
+      }
+
+      item.appendChild(itemContent);
+      list.appendChild(item);
+    });
+
+    body.appendChild(list);
+    return section;
+  }
+
+  return createSettingsPrimitiveEditor({ key, value, path });
+}
+
+function renderSettingsValidation() {
+  const elements = getSettingsElements();
+  if (!elements) {
+    return;
+  }
+
+  const hasConfig = isSettingsObject(settingsState.draftConfig);
+  const hasChanges = settingsHasUnsavedChanges();
+  let isValid = hasConfig;
+  let message = "The configuration will be validated automatically before saving.";
+  let kind = "muted";
+
+  if (settingsState.saving) {
+    message = "Saving changes to config/pr_workflow_defaults.json...";
+    kind = "info";
+  } else if (settingsState.loading) {
+    message = "Loading configuration...";
+    kind = "muted";
+  } else if (!hasConfig) {
+    message = "The configuration could not be rendered because the root value is not an object.";
+    kind = "error";
+    isValid = false;
+  } else if (hasChanges) {
+    message = "All fields are valid. Unsaved changes are ready to save.";
+    kind = "warning";
+  } else {
+    message = "All settings are in sync with the file.";
+    kind = "success";
+  }
+
+  elements.validation.className = `settings-validation-message ${kind}`;
+  elements.validation.textContent = message;
+  elements.saveButton.disabled = settingsState.loading || settingsState.saving || !isValid || !hasChanges;
+}
+
+function renderSettingsForm() {
+  const elements = getSettingsElements();
+  if (!elements) {
+    return;
+  }
+
+  renderSettingsSummary();
+  elements.form.innerHTML = "";
+
+  if (settingsState.loading && !isSettingsObject(settingsState.draftConfig)) {
+    elements.form.innerHTML = `<div class="settings-placeholder">Loading configuration...</div>`;
+    renderSettingsValidation();
+    return;
+  }
+
+  if (!isSettingsObject(settingsState.draftConfig)) {
+    elements.form.innerHTML = `<div class="settings-placeholder">No configuration is available to edit.</div>`;
+    renderSettingsValidation();
+    return;
+  }
+
+  const entries = Object.entries(settingsState.draftConfig);
+  if (!entries.length) {
+    elements.form.innerHTML = `<div class="settings-placeholder">The configuration file is empty.</div>`;
+    renderSettingsValidation();
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  entries.forEach(([key, value]) => {
+    fragment.appendChild(
+      createSettingsNodeEditor({
+        key,
+        value,
+        path: [key],
+        depth: 0
+      })
+    );
+  });
+
+  elements.form.appendChild(fragment);
+  renderSettingsValidation();
+}
+
+async function loadSettingsConfig(options = {}) {
+  const elements = getSettingsElements();
+  if (!elements || settingsState.loading) {
+    return;
+  }
+
+  const force = Boolean(options?.force);
+  if (!force && isSettingsObject(settingsState.draftConfig)) {
+    renderSettingsForm();
+    return;
+  }
+
+  settingsState.loading = true;
+  elements.filePath.textContent = settingsState.path;
+  setSettingsStatus("muted", "Loading");
+  renderSettingsForm();
+
+  try {
+    const response = await apiGet("/api/config/pr-workflow-defaults");
+    const config = response?.config && typeof response.config === "object" ? response.config : {};
+    settingsState.path = String(response?.path || settingsState.path || "config/pr_workflow_defaults.json");
+    settingsState.originalConfig = cloneSettingsValue(config);
+    settingsState.draftConfig = cloneSettingsValue(config);
+    elements.filePath.textContent = settingsState.path;
+    setSettingsStatus("success", "Loaded");
+  } catch (error) {
+    setSettingsStatus("error", "Load Failed");
+    showToast(`Unable to load settings: ${error.message}`, "error");
+  } finally {
+    settingsState.loading = false;
+    renderSettingsForm();
+  }
+}
+
+async function reloadSettingsConfig() {
+  if (settingsState.loading || settingsState.saving) {
+    return;
+  }
+
+  if (settingsHasUnsavedChanges()) {
+    const shouldReload = window.confirm("Reload settings from disk and discard your unsaved changes?");
+    if (!shouldReload) {
+      return;
+    }
+  }
+
+  await loadSettingsConfig({ force: true });
+}
+
+function resetSettingsEditor() {
+  if (!isSettingsObject(settingsState.originalConfig)) {
+    return;
+  }
+
+  settingsState.draftConfig = cloneSettingsValue(settingsState.originalConfig);
+  setSettingsStatus("muted", "Reset");
+  renderSettingsForm();
+}
+
+async function saveSettingsConfig() {
+  if (settingsState.loading || settingsState.saving) {
+    return;
+  }
+
+  if (!isSettingsObject(settingsState.draftConfig)) {
+    setSettingsStatus("error", "Invalid");
+    renderSettingsValidation();
+    showToast("The configuration root must remain an object.", "error");
+    return;
+  }
+
+  settingsState.saving = true;
+  setSettingsStatus("info", "Saving");
+  renderSettingsValidation();
+
+  try {
+    const response = await apiPut("/api/config/pr-workflow-defaults", { config: settingsState.draftConfig });
+    const savedConfig =
+      response?.config && typeof response.config === "object"
+        ? response.config
+        : cloneSettingsValue(settingsState.draftConfig);
+    settingsState.originalConfig = cloneSettingsValue(savedConfig);
+    settingsState.draftConfig = cloneSettingsValue(savedConfig);
+    const elements = getSettingsElements();
+    if (response?.path) {
+      settingsState.path = String(response.path);
+      if (elements) {
+        elements.filePath.textContent = settingsState.path;
+      }
+    }
+    setSettingsStatus("success", "Saved");
+    renderSettingsForm();
+    await loadUiDefaults();
+    showToast("Settings saved to config/pr_workflow_defaults.json", "success");
+  } catch (error) {
+    setSettingsStatus("error", "Save Failed");
+    showToast(`Unable to save settings: ${error.message}`, "error");
+  } finally {
+    settingsState.saving = false;
+    renderSettingsValidation();
+  }
 }
 
 async function loadUiDefaults() {
@@ -1759,6 +2983,11 @@ function renderPrChangedFiles() {
   files.forEach((file) => {
     const serial = Number(file.serial);
     const status = String(file.status || "modified").toLowerCase();
+    const oldPath = String(file.old_path || "").trim();
+    const pathText =
+      status === "renamed" && oldPath
+        ? `${escapeHtmlText(oldPath)} -> ${escapeHtmlText(file.path || "")}`
+        : escapeHtmlText(file.path || "");
     const row = document.createElement("label");
     row.className = "pick-row";
     row.innerHTML = `
@@ -1766,7 +2995,7 @@ function renderPrChangedFiles() {
       <span class="pick-index">#${serial}</span>
       <div>
         <span class="status-pill ${status}">${status}</span>
-        <div class="pick-path">${escapeHtmlText(file.path || "")}</div>
+        <div class="pick-path">${pathText}</div>
       </div>
     `;
     const checkbox = row.querySelector("input[type='checkbox']");

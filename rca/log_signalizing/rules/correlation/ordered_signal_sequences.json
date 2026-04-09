@@ -1,0 +1,311 @@
+{
+  "schema": "rca.correlation.ordered_sequence/v1",
+  "description": "Sample correlation rules that consume existing signalized logs and emit higher-level RCA signals when specific signal sequences occur in order within a time window.",
+  "rules": [
+    {
+      "id": "CORR_KAFKA_REBALANCE_FAILURE_SPIRAL",
+      "signal_key": "rca_kafka_rebalance_failure_spiral",
+      "rule_type": "ordered_signal_sequence",
+      "level": "critical",
+      "description": "Escalate when repeated Kafka rebalance instability is followed by broader Kafka failures.",
+      "tags": [
+        "correlation",
+        "kafka",
+        "message_bus",
+        "critical"
+      ],
+      "window": "15m",
+      "group_by": [
+        "event.organization"
+      ],
+      "ordered": true,
+      "sequence": [
+        {
+          "signal_key": "kafka_rebalance_storm",
+          "min_count": 2
+        },
+        {
+          "signal_key": "kafka_unclassified_failure",
+          "min_count": 1
+        }
+      ],
+      "emit_summary": "Kafka consumer-group churn is cascading into broader Kafka failure symptoms.",
+      "likely_root_cause": "Kafka coordinator instability, broker churn, or overloaded consumers."
+    },
+    {
+      "id": "CORR_MESSAGE_BUS_PIPELINE_OUTAGE",
+      "signal_key": "rca_message_bus_pipeline_outage",
+      "rule_type": "ordered_signal_sequence",
+      "level": "critical",
+      "description": "Escalate when RabbitMQ heartbeat loss is followed by Kafka instability and then generic Kafka failure.",
+      "tags": [
+        "correlation",
+        "rabbitmq",
+        "kafka",
+        "pipeline",
+        "critical"
+      ],
+      "window": "20m",
+      "group_by": [
+        "event.organization"
+      ],
+      "ordered": true,
+      "sequence": [
+        {
+          "signal_key": "rabbitmq_heartbeat_missed",
+          "min_count": 2
+        },
+        {
+          "signal_key": "kafka_rebalance_storm",
+          "min_count": 1
+        },
+        {
+          "signal_key": "kafka_unclassified_failure",
+          "min_count": 1
+        }
+      ],
+      "emit_summary": "Messaging backbone instability is propagating from RabbitMQ into Kafka processing.",
+      "likely_root_cause": "Shared network disruption, broker resource exhaustion, or upstream queue pressure."
+    },
+    {
+      "id": "CORR_MONGODB_AUTH_APPLICATION_OUTAGE",
+      "signal_key": "rca_mongodb_auth_application_outage",
+      "rule_type": "ordered_signal_sequence",
+      "level": "critical",
+      "description": "Escalate when MongoDB authentication failures lead to disconnects and then user-facing application errors.",
+      "tags": [
+        "correlation",
+        "mongodb",
+        "auth",
+        "nginx",
+        "critical"
+      ],
+      "window": "15m",
+      "group_by": [
+        "event.organization"
+      ],
+      "ordered": true,
+      "sequence": [
+        {
+          "signal_key": "mongodb_auth_failed",
+          "min_count": 2
+        },
+        {
+          "signal_key": "mongodb_interrupted_client_disconnected",
+          "min_count": 1
+        },
+        {
+          "signal_key": "nginx_access_5xx_any",
+          "min_count": 1
+        }
+      ],
+      "emit_summary": "MongoDB authentication problems are now causing application disconnects and 5xx responses.",
+      "likely_root_cause": "Expired credentials, secret rotation drift, or database role/ACL misconfiguration."
+    },
+    {
+      "id": "CORR_MONGODB_LATENCY_TO_USER_IMPACT",
+      "signal_key": "rca_mongodb_latency_to_user_impact",
+      "rule_type": "ordered_signal_sequence",
+      "level": "critical",
+      "description": "Escalate when MongoDB slow operations are followed by disconnects and then frontend 5xx errors.",
+      "tags": [
+        "correlation",
+        "mongodb",
+        "performance",
+        "nginx",
+        "critical"
+      ],
+      "window": "20m",
+      "group_by": [
+        "event.organization"
+      ],
+      "ordered": true,
+      "sequence": [
+        {
+          "signal_key": "mongodb_slow_command",
+          "min_count": 2
+        },
+        {
+          "signal_key": "mongodb_interrupted_client_disconnected",
+          "min_count": 1
+        },
+        {
+          "signal_key": "nginx_access_5xx_any",
+          "min_count": 1
+        }
+      ],
+      "emit_summary": "Database latency has progressed into connection instability and user-visible errors.",
+      "likely_root_cause": "Slow queries, lock contention, storage saturation, or compute pressure on MongoDB."
+    },
+    {
+      "id": "CORR_MONGODB_CONNECTIVITY_COLLAPSE",
+      "signal_key": "rca_mongodb_connectivity_collapse",
+      "rule_type": "ordered_signal_sequence",
+      "level": "critical",
+      "description": "Escalate when MongoDB performance degradation is followed by host reachability loss and client disconnects.",
+      "tags": [
+        "correlation",
+        "mongodb",
+        "network",
+        "critical"
+      ],
+      "window": "15m",
+      "group_by": [
+        "event.organization"
+      ],
+      "ordered": true,
+      "sequence": [
+        {
+          "signal_key": "mongodb_slow_command",
+          "min_count": 1
+        },
+        {
+          "signal_key": "mongodb_host_unreachable",
+          "min_count": 1
+        },
+        {
+          "signal_key": "mongodb_interrupted_client_disconnected",
+          "min_count": 1
+        }
+      ],
+      "emit_summary": "MongoDB has moved from degraded performance into a connectivity collapse.",
+      "likely_root_cause": "Network partition, node crash, DNS/routing issue, or severe host resource exhaustion."
+    },
+    {
+      "id": "CORR_POSTGRES_ACCESS_POLICY_OUTAGE",
+      "signal_key": "rca_postgres_access_policy_outage",
+      "rule_type": "ordered_signal_sequence",
+      "level": "critical",
+      "description": "Escalate when Postgres access control failures are followed by generic Postgres failures and then web 5xx errors.",
+      "tags": [
+        "correlation",
+        "postgres",
+        "authz",
+        "nginx",
+        "critical"
+      ],
+      "window": "15m",
+      "group_by": [
+        "event.organization"
+      ],
+      "ordered": true,
+      "sequence": [
+        {
+          "signal_key": "postgres_hba_blocked",
+          "min_count": 1
+        },
+        {
+          "signal_key": "postgres_unclassified_failure",
+          "min_count": 1
+        },
+        {
+          "signal_key": "nginx_access_5xx_any",
+          "min_count": 1
+        }
+      ],
+      "emit_summary": "Postgres access-policy failures are propagating into application-side user errors.",
+      "likely_root_cause": "pg_hba.conf mismatch, source IP drift, authentication policy drift, or bad connection routing."
+    },
+    {
+      "id": "CORR_WEB_OUTAGE_ESCALATION",
+      "signal_key": "rca_web_outage_escalation",
+      "rule_type": "ordered_signal_sequence",
+      "level": "critical",
+      "description": "Escalate when repeated 5xx activity is followed by a critical nginx failure signal.",
+      "tags": [
+        "correlation",
+        "nginx",
+        "frontend",
+        "critical"
+      ],
+      "window": "10m",
+      "group_by": [
+        "event.organization"
+      ],
+      "ordered": true,
+      "sequence": [
+        {
+          "signal_key": "nginx_access_5xx_any",
+          "min_count": 2
+        },
+        {
+          "signal_key": "nginx_unclassified_failure",
+          "min_count": 1
+        }
+      ],
+      "emit_summary": "User-facing HTTP failures have escalated into a critical nginx outage.",
+      "likely_root_cause": "Upstream failure, worker crash, broken deployment, or severe configuration problem."
+    },
+    {
+      "id": "CORR_MULTI_BACKEND_PLATFORM_INSTABILITY",
+      "signal_key": "rca_multi_backend_platform_instability",
+      "rule_type": "ordered_signal_sequence",
+      "level": "critical",
+      "description": "Escalate when Kafka failure is followed by RabbitMQ heartbeat loss and then nginx failure, indicating broad platform instability.",
+      "tags": [
+        "correlation",
+        "kafka",
+        "rabbitmq",
+        "nginx",
+        "platform",
+        "critical"
+      ],
+      "window": "20m",
+      "group_by": [
+        "event.organization"
+      ],
+      "ordered": true,
+      "sequence": [
+        {
+          "signal_key": "kafka_unclassified_failure",
+          "min_count": 1
+        },
+        {
+          "signal_key": "rabbitmq_heartbeat_missed",
+          "min_count": 1
+        },
+        {
+          "signal_key": "nginx_unclassified_failure",
+          "min_count": 1
+        }
+      ],
+      "emit_summary": "Failures are now spanning the messaging layer and the user-facing web tier.",
+      "likely_root_cause": "Shared infrastructure outage, network partition, or host-level resource collapse."
+    },
+    {
+      "id": "CORR_QUEUE_TO_WEB_USER_IMPACT",
+      "signal_key": "rca_queue_to_web_user_impact",
+      "rule_type": "ordered_signal_sequence",
+      "level": "critical",
+      "description": "Escalate when RabbitMQ heartbeat loss is followed by rising web errors and then critical nginx failure.",
+      "tags": [
+        "correlation",
+        "rabbitmq",
+        "nginx",
+        "user_impact",
+        "critical"
+      ],
+      "window": "15m",
+      "group_by": [
+        "event.organization"
+      ],
+      "ordered": true,
+      "sequence": [
+        {
+          "signal_key": "rabbitmq_heartbeat_missed",
+          "min_count": 2
+        },
+        {
+          "signal_key": "nginx_access_5xx_any",
+          "min_count": 1
+        },
+        {
+          "signal_key": "nginx_unclassified_failure",
+          "min_count": 1
+        }
+      ],
+      "emit_summary": "Queue heartbeat issues are surfacing as end-user failures at the web edge.",
+      "likely_root_cause": "Async processing outage, stuck queue consumers, or shared infrastructure instability."
+    }
+  ]
+}

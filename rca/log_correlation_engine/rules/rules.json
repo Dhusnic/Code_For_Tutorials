@@ -1,0 +1,162 @@
+[
+  {
+    "id": "CORR_9XK2_MONGO_AUTH_CHAIN",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "window": "15m",
+    "max_gap_between_steps": "3m",
+    "group_by": ["event.organization", "host.name", "service.name"],
+    "priority": 1,
+    "sequence": [
+      {
+        "signal_key": "mongodb_auth_failed",
+        "min_count": 3,
+        "within": "5m"
+      },
+      {
+        "signal_key": "mongodb_interrupted_client_disconnected",
+        "min_count": 1,
+        "within": "3m"
+      },
+      {
+        "signal_key": "mongodb_host_unreachable",
+        "min_count": 1,
+        "within": "3m"
+      }
+    ],
+    "not_sequence": [
+      { "signal_key": "mongodb_auth_success" }
+    ],
+    "deduplication": {
+      "key": ["signal_key", "host.name"],
+      "window": "2m"
+    }
+  },
+  {
+    "id": "CORR_4LM8_DB_LATENCY_COLLAPSE",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "window": "20m",
+    "max_gap_between_steps": "4m",
+    "group_by": ["event.organization", "host.name", "service.name"],
+    "priority": 2,
+    "sequence": [
+      {
+        "signal_key": "mongodb_slow_command",
+        "min_count": 2,
+        "within": "6m"
+      },
+      {
+        "signal_key": "mongodb_interrupted_client_disconnected",
+        "min_count": 1,
+        "within": "4m"
+      },
+      {
+        "signal_key": "nginx_access_5xx_any",
+        "min_count": 1,
+        "within": "4m"
+      }
+    ],
+    "not_sequence": [
+      { "signal_key": "mongodb_recovered" }
+    ],
+    "deduplication": {
+      "key": ["signal_key", "host.name"],
+      "window": "3m"
+    }
+  },
+  {
+    "id": "CORR_T7Q1_WEB_FAILURE_SPIKE",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "window": "10m",
+    "max_gap_between_steps": "2m",
+    "group_by": ["event.organization", "host.name"],
+    "priority": 3,
+    "sequence": [
+      {
+        "signal_key": "nginx_access_5xx_any",
+        "min_count": 3,
+        "within": "5m"
+      },
+      {
+        "signal_key": "nginx_unclassified_failure",
+        "min_count": 1,
+        "within": "2m"
+      }
+    ],
+    "not_sequence": [
+      { "signal_key": "nginx_recovered" }
+    ],
+    "deduplication": {
+      "key": ["signal_key", "host.name"],
+      "window": "1m"
+    }
+  },
+  {
+    "id": "CORR_P3Z9_QUEUE_BACKPRESSURE",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "window": "15m",
+    "max_gap_between_steps": "3m",
+    "group_by": ["event.organization", "host.name", "service.name"],
+    "priority": 2,
+    "sequence": [
+      {
+        "signal_key": "rabbitmq_queue_depth_high",
+        "min_count": 2,
+        "within": "5m"
+      },
+      {
+        "signal_key": "rabbitmq_heartbeat_missed",
+        "min_count": 1,
+        "within": "3m"
+      },
+      {
+        "signal_key": "nginx_access_5xx_any",
+        "min_count": 1,
+        "within": "3m"
+      }
+    ],
+    "not_sequence": [
+      { "signal_key": "rabbitmq_recovered" }
+    ],
+    "deduplication": {
+      "key": ["signal_key", "host.name"],
+      "window": "2m"
+    }
+  },
+  {
+    "id": "CORR_V8N2_MULTI_SYSTEM_COLLAPSE",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "window": "20m",
+    "max_gap_between_steps": "5m",
+    "group_by": ["event.organization"],
+    "priority": 1,
+    "sequence": [
+      {
+        "signal_key": "kafka_unclassified_failure",
+        "min_count": 1,
+        "within": "5m"
+      },
+      {
+        "signal_key": "rabbitmq_heartbeat_missed",
+        "min_count": 1,
+        "within": "5m"
+      },
+      {
+        "signal_key": "nginx_unclassified_failure",
+        "min_count": 1,
+        "within": "5m"
+      }
+    ],
+    "not_sequence": [
+      { "signal_key": "system_recovered" }
+    ],
+    "deduplication": {
+      "key": ["signal_key"],
+      "window": "3m"
+    }
+  }
+]

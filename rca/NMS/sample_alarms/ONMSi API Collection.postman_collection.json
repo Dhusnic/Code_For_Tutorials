@@ -1,0 +1,742 @@
+{
+  "info": {
+    "_postman_id": "ade10c93-a9c9-4210-b77b-9e620c6ecd41",
+    "name": "ONMSi API Collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "7774195"
+  },
+  "item": [
+    {
+      "name": "Fetch Events",
+      "item": [
+        {
+          "name": "Post events",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {
+              "connection": true
+            }
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "",
+                "value": "",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/rs/events",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get maxEventCount",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{url}}/rs/events/maxEventCount",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "events",
+                "maxEventCount"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get maxWaitTime",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{url}}/rs/events/maxWaitTimeSec",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "events",
+                "maxWaitTimeSec"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "SET maxEventCount",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{maxevent}}"
+            },
+            "url": {
+              "raw": "{{url}}/rs/events/maxEventCount",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "events",
+                "maxEventCount"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "SET maxWaiteTime",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{maxwait}}"
+            },
+            "url": {
+              "raw": "{{url}}/rs/events/maxWaitTimeSec",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "events",
+                "maxWaitTimeSec"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Alarm Handling",
+      "item": [
+        {
+          "name": "Acknowledge Alarm",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "http://{{url}}rs/alarms/{{alarmid}}acknowledge",
+              "protocol": "http",
+              "host": [
+                "{{url}}rs"
+              ],
+              "path": [
+                "alarms",
+                "{{alarmid}}acknowledge"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resynchronize Alarms",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "http://{{url}}rs/alarms/resynchronize",
+              "protocol": "http",
+              "host": [
+                "{{url}}rs"
+              ],
+              "path": [
+                "alarms",
+                "resynchronize"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Resend Alarm Events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{seqno}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/rs/alarms/resendAlarmEvents",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "alarms",
+                "resendAlarmEvents"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Alarm filter",
+          "request": {
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "password",
+                  "value": "password",
+                  "type": "string"
+                },
+                {
+                  "key": "username",
+                  "value": "admin",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"minimalSeverity\":\"MINOR\",\r\n\"page\":1,\r\n\"pageSize\":50,\r\n\"cleared\":false,\r\n\"qualityOfServiceLink\":true,\r\n\"nonQualityOfService\":false,\r\n\"qualityOfServiceCableRoute\":false,\r\n\"dateFilter\":\"RAISED\",\r\n\"dateFrom\":\"2025-05-04\",\r\n\"dateTo\":\"2025-11-14\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://10.33.20.218/rs/alarms/filter",
+              "protocol": "http",
+              "host": [
+                "10",
+                "33",
+                "20",
+                "218"
+              ],
+              "path": [
+                "rs",
+                "alarms",
+                "filter"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Query Inventory",
+      "item": [
+        {
+          "name": "Get otus all",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {
+              "accept": true
+            }
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/rs/otus/all?offset=0&limit=100",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "otus",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get otus details with  internalkey",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {
+              "accept": true
+            }
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/rs/otus/{{otuinternalkey}}",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "otus",
+                "{{otuinternalkey}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get otu ports detail with internalkey",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {
+              "accept": true
+            }
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/rs/otus/{{otuinternalkey}}/ports",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "otus",
+                "{{otuinternalkey}}",
+                "ports"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get links all",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {
+              "accept": true
+            }
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/rs/links/all?offset=0&limit=500",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "links",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "500"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get links detail with internalkey",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {
+              "accept": true
+            }
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/rs/links/{{linkinternalkey}}",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "links",
+                "{{linkinternalkey}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get CableHeads all",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {
+              "accept": true
+            }
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/rs/cableHeads/all?offset=0&limit=100",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "cableHeads",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Central offices all",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {
+              "accept": true
+            }
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/rs/centralOffices/all?offset=0&limit=100",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "rs",
+                "centralOffices",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "offset",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Measurements",
+      "item": [
+        {
+          "name": "Link start measurement",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {}
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"startDate\":\"2025-10-14T10:00:00Z\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{url}}/links/{{linkinternalkey}}/measurements/start",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "links",
+                "{{linkinternalkey}}",
+                "measurements",
+                "start"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Link measurements",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {}
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/links/{{linkinternalkey}}/measurements?history=true",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "links",
+                "{{linkinternalkey}}",
+                "measurements"
+              ],
+              "query": [
+                {
+                  "key": "history",
+                  "value": "true",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Link measurements trace",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {}
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/links/{{measurementOnLinkInternalkey}}/measurements/trace",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "links",
+                "{{measurementOnLinkInternalkey}}",
+                "measurements",
+                "trace"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Link measurements CDM",
+          "protocolProfileBehavior": {
+            "disabledSystemHeaders": {}
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{url}}/links/measurements/{{measurementOnLinkInternalkey}}/cdm",
+              "host": [
+                "{{url}}"
+              ],
+              "path": [
+                "links",
+                "measurements",
+                "{{measurementOnLinkInternalkey}}",
+                "cdm"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "auth": {
+    "type": "basic",
+    "basic": [
+      {
+        "key": "password",
+        "value": "{{password}}",
+        "type": "string"
+      },
+      {
+        "key": "username",
+        "value": "{{username}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "url",
+      "value": "http://10.91.11.52/rs"
+    },
+    {
+      "key": "otuinternalkey",
+      "value": "2339"
+    },
+    {
+      "key": "linkinternalkey",
+      "value": "4887"
+    },
+    {
+      "key": "username",
+      "value": "apiuser"
+    },
+    {
+      "key": "password",
+      "value": "apiuser"
+    },
+    {
+      "key": "alarmid",
+      "value": "11"
+    },
+    {
+      "key": "seqno",
+      "value": "20"
+    },
+    {
+      "key": "maxevent",
+      "value": "30"
+    },
+    {
+      "key": "maxwait",
+      "value": "30"
+    },
+    {
+      "key": "measurementOnLinkInternalkey",
+      "value": ""
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+    "event": [
+        {
+            "alarmEvent": {
+                "alarmKey": {
+                    "applicationDN": "",
+                    "primaryKey": 2345,
+                    "type": ""
+                },
+                "internalKey": 109089,
+                "alarm": {
+                    "internalKey": 2345,
+                    "originatingEntity": {
+                        "kind": "OTU",
+                        "name": "Ludhiana",
+                        "internalKey": 106190,
+                        "contexts": []
+                    },
+                    "alarmSpecificInfos": [],
+                    "acknowledgementTrackingRecords": [],
+                    "clearingTrackingRecords": [],
+                    "changeAlarmSeverityTrackingRecords": [],
+                    "comments": [],
+                    "alarmChangedTime": 1754996702000,
+                    "alarmRaisedTime": 1754996702000,
+                    "perceivedSeverity": "MAJOR",
+                    "probableCause": "OTHER",
+                    "specificProblem": "HEARTBEAT",
+                    "alarmClearStatus": "UNCLEARED",
+                    "alarmAckStatus": "UNACKNOWLEDGED",
+                    "alarmType": "COMMUNICATIONS_ALARM",
+                    "additionalText": "",
+                    "originatingManagedEntityOid": "/otu=106190",
+                    "alarmKey": {
+                        "applicationDN": "",
+                        "primaryKey": 2345,
+                        "type": ""
+                    },
+                    "originatingManagedEntityKey": {
+                        "applicationDN": "",
+                        "type": "",
+                        "primaryKeyLong": 106190
+                    },
+                    "systemDN": "ONMSi",
+                    "additionalAttributes": {}
+                },
+                "eventTime": 1754996702000,
+                "additionalText": "",
+                "alarmType": 1,
+                "originatingManagedEntityKey": {
+                    "applicationDN": "",
+                    "type": "",
+                    "primaryKeyLong": 106190
+                },
+                "originatingManagedEntityOID": "/otu=106190",
+                "probableCause": "other",
+                "systemDN": "ONMSi",
+                "perceivedSeverity": "MAJOR",
+                "alarmSpecificInfos": [],
+                "specificProblem": "HEARTBEAT"
+            },
+            "sequenceNumber": 10
+        }
+    ]
+}

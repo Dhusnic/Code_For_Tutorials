@@ -1,0 +1,1903 @@
+{
+	"Events": {
+		"event": [
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "108",
+						"type": ""
+					},
+					"internalKey": "9849",
+					"alarm": {
+						"internalKey": "108",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_SAM_64_SAMBA_RFMS",
+							"internalKey": "9233"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-01-30T05:31:49Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-01-30T05:31:49Z",
+						"alarmRaisedTime": "2026-01-30T05:31:49Z",
+						"perceivedSeverity": "WARNING",
+						"probableCause": "OTHER",
+						"specificProblem": "LOCAL_MODE",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "EQUIPMENT_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=9233",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "108",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "9233",
+							"type": ""
+						},
+						"systemDN": "OTU ID=9233, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-30T05:31:49Z",
+					"additionalText": "",
+					"alarmType": "5",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "9233",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "/otu=9233",
+					"probableCause": "other",
+					"systemDN": "OTU ID=9233, SN=0",
+					"perceivedSeverity": "WARNING",
+					"specificProblem": "LOCAL_MODE",
+					"_xsi:type": "ns2:newAlarmEvent"
+				},
+				"sequenceNumber": "201",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "108",
+						"type": ""
+					},
+					"internalKey": "9851",
+					"alarm": {
+						"internalKey": "108",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_SAM_64_SAMBA_RFMS",
+							"internalKey": "9233"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-01-30T05:31:49Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-01-30T05:31:49Z",
+						"alarmRaisedTime": "2026-01-30T05:31:49Z",
+						"perceivedSeverity": "WARNING",
+						"probableCause": "OTHER",
+						"specificProblem": "LOCAL_MODE",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "EQUIPMENT_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=9233",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "108",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "9233",
+							"type": ""
+						},
+						"systemDN": "OTU ID=9233, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-30T05:31:49Z",
+					"alarmClearStatus": "CLEARED",
+					"_xsi:type": "ns2:clearStateChangedEvent"
+				},
+				"sequenceNumber": "202",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "103",
+						"type": ""
+					},
+					"internalKey": "9863",
+					"alarm": {
+						"internalKey": "103",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_JAM_6862_ARNIA_RFMS",
+							"internalKey": "4073"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-01-30T10:41:26Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-01-30T10:41:26Z",
+						"alarmRaisedTime": "2026-01-30T06:30:03Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "OTHER",
+						"specificProblem": "HEARTBEAT",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "COMMUNICATIONS_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=4073",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "103",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "4073",
+							"type": ""
+						},
+						"systemDN": "ONMSi",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-30T10:41:26Z",
+					"alarmClearStatus": "CLEARED",
+					"_xsi:type": "ns2:clearStateChangedEvent"
+				},
+				"sequenceNumber": "203",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "109",
+						"type": ""
+					},
+					"internalKey": "9924",
+					"alarm": {
+						"internalKey": "109",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_JAM_6862_ARNIA_RFMS",
+							"internalKey": "4073"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-02-01T01:07:29Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-02-01T01:07:29Z",
+						"alarmRaisedTime": "2026-01-31T02:15:03Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "OTHER",
+						"specificProblem": "MISSING_AUTOTEST",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "COMMUNICATIONS_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=4073",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "109",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "4073",
+							"type": ""
+						},
+						"systemDN": "ONMSi",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T02:15:03Z",
+					"additionalText": "",
+					"alarmType": "1",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "4073",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "/otu=4073",
+					"probableCause": "other",
+					"systemDN": "ONMSi",
+					"perceivedSeverity": "MAJOR",
+					"specificProblem": "MISSING_AUTOTEST",
+					"_xsi:type": "ns2:newAlarmEvent"
+				},
+				"sequenceNumber": "204",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "110",
+						"type": ""
+					},
+					"internalKey": "9977",
+					"alarm": {
+						"internalKey": "110",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_JAM_6862_ARNIA_RFMS",
+							"internalKey": "4073"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-01-31T02:44:17Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-01-31T02:44:17Z",
+						"alarmRaisedTime": "2026-01-31T02:30:03Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "OTHER",
+						"specificProblem": "HEARTBEAT",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "COMMUNICATIONS_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=4073",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "110",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "4073",
+							"type": ""
+						},
+						"systemDN": "ONMSi",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T02:30:03Z",
+					"additionalText": "",
+					"alarmType": "1",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "4073",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "/otu=4073",
+					"probableCause": "other",
+					"systemDN": "ONMSi",
+					"perceivedSeverity": "MAJOR",
+					"specificProblem": "HEARTBEAT",
+					"_xsi:type": "ns2:newAlarmEvent"
+				},
+				"sequenceNumber": "205",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "110",
+						"type": ""
+					},
+					"internalKey": "10038",
+					"alarm": {
+						"internalKey": "110",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_JAM_6862_ARNIA_RFMS",
+							"internalKey": "4073"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-01-31T02:44:17Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-01-31T02:44:17Z",
+						"alarmRaisedTime": "2026-01-31T02:30:03Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "OTHER",
+						"specificProblem": "HEARTBEAT",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "COMMUNICATIONS_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=4073",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "110",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "4073",
+							"type": ""
+						},
+						"systemDN": "ONMSi",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T02:44:17Z",
+					"alarmClearStatus": "CLEARED",
+					"_xsi:type": "ns2:clearStateChangedEvent"
+				},
+				"sequenceNumber": "206",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "111",
+						"type": ""
+					},
+					"internalKey": "10048",
+					"alarm": {
+						"internalKey": "111",
+						"originatingEntity": {
+							"kind": "LINK",
+							"name": "JK_JMU_ARN_240542_CHANGIA_BF",
+							"internalKey": "8036",
+							"contexts": {
+								"otuInternalKey": "4073",
+								"_xsi:type": "ns2:alarmOriginatingEntityOtuContext"
+							}
+						},
+						"alarmSpecificInfos": [
+							{
+								"internalKey": "8043",
+								"name": "test1",
+								"lastMarkerDistanceM": "4294.808139365075",
+								"_xsi:type": "ns2:monitoringTestSpecificInfo"
+							},
+							{
+								"distanceM": "0.0",
+								"distanceValid": "true",
+								"attenuationDb": "0.0",
+								"attenuationValid": "true",
+								"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "DETECTION_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "LOCALIZATION1_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "16769",
+								"acquisitionType": "LOCALIZATION1",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"deviationFirstMarkerDb": "0.0",
+								"deviationFirstMarkerValid": "true",
+								"deviationLinkLossDb": "4.13",
+								"deviationLinkLossValid": "true",
+								"problemConfirmed": "true",
+								"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+							}
+						],
+						"clearingTrackingRecords": {
+							"userId": "admin",
+							"systemId": "ONMSi",
+							"time": "2026-03-13T12:25:26.607Z"
+						},
+						"alarmChangedTime": "2026-03-13T12:25:26.607Z",
+						"alarmRaisedTime": "2026-01-31T10:29:04Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "THRESHOLD_CROSSED",
+						"specificProblem": "ATTENUATION",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "QUALITY_OF_SERVICE_ALARM",
+						"additionalText": "ATTENUATION",
+						"originatingManagedEntityOid": "8036",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "111",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "8036",
+							"type": ""
+						},
+						"systemDN": "OTU ID=4073, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T10:29:04Z",
+					"additionalText": "ATTENUATION",
+					"alarmType": "4",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "8036",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "8036",
+					"probableCause": "thresholdCrossed",
+					"systemDN": "OTU ID=4073, SN=0",
+					"perceivedSeverity": "MAJOR",
+					"alarmSpecificInfos": [
+						{
+							"internalKey": "8043",
+							"name": "test1",
+							"lastMarkerDistanceM": "4294.808139365075",
+							"_xsi:type": "ns2:monitoringTestSpecificInfo"
+						},
+						{
+							"distanceM": "0.0",
+							"distanceValid": "true",
+							"attenuationDb": "6.06",
+							"attenuationValid": "true",
+							"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "DETECTION_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "LOCALIZATION1_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "10045",
+							"acquisitionType": "LOCALIZATION1",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"deviationFirstMarkerDb": "0.0",
+							"deviationFirstMarkerValid": "true",
+							"deviationLinkLossDb": "2.98",
+							"deviationLinkLossValid": "true",
+							"problemConfirmed": "true",
+							"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+						}
+					],
+					"specificProblem": "ATTENUATION",
+					"_xsi:type": "ns2:newAlarmEvent"
+				},
+				"sequenceNumber": "207",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "112",
+						"type": ""
+					},
+					"internalKey": "10050",
+					"alarm": {
+						"internalKey": "112",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_JAM_6862_ARNIA_RFMS",
+							"internalKey": "4073"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-01-31T12:16:55Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-01-31T12:16:55Z",
+						"alarmRaisedTime": "2026-01-31T12:00:03Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "OTHER",
+						"specificProblem": "HEARTBEAT",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "COMMUNICATIONS_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=4073",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "112",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "4073",
+							"type": ""
+						},
+						"systemDN": "ONMSi",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T12:00:03Z",
+					"additionalText": "",
+					"alarmType": "1",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "4073",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "/otu=4073",
+					"probableCause": "other",
+					"systemDN": "ONMSi",
+					"perceivedSeverity": "MAJOR",
+					"specificProblem": "HEARTBEAT",
+					"_xsi:type": "ns2:newAlarmEvent"
+				},
+				"sequenceNumber": "208",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "112",
+						"type": ""
+					},
+					"internalKey": "10052",
+					"alarm": {
+						"internalKey": "112",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_JAM_6862_ARNIA_RFMS",
+							"internalKey": "4073"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-01-31T12:16:55Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-01-31T12:16:55Z",
+						"alarmRaisedTime": "2026-01-31T12:00:03Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "OTHER",
+						"specificProblem": "HEARTBEAT",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "COMMUNICATIONS_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=4073",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "112",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "4073",
+							"type": ""
+						},
+						"systemDN": "ONMSi",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T12:16:55Z",
+					"alarmClearStatus": "CLEARED",
+					"_xsi:type": "ns2:clearStateChangedEvent"
+				},
+				"sequenceNumber": "209",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "111",
+						"type": ""
+					},
+					"internalKey": "10057",
+					"alarm": {
+						"internalKey": "111",
+						"originatingEntity": {
+							"kind": "LINK",
+							"name": "JK_JMU_ARN_240542_CHANGIA_BF",
+							"internalKey": "8036",
+							"contexts": {
+								"otuInternalKey": "4073",
+								"_xsi:type": "ns2:alarmOriginatingEntityOtuContext"
+							}
+						},
+						"alarmSpecificInfos": [
+							{
+								"internalKey": "8043",
+								"name": "test1",
+								"lastMarkerDistanceM": "4294.808139365075",
+								"_xsi:type": "ns2:monitoringTestSpecificInfo"
+							},
+							{
+								"distanceM": "0.0",
+								"distanceValid": "true",
+								"attenuationDb": "0.0",
+								"attenuationValid": "true",
+								"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "DETECTION_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "LOCALIZATION1_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "16769",
+								"acquisitionType": "LOCALIZATION1",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"deviationFirstMarkerDb": "0.0",
+								"deviationFirstMarkerValid": "true",
+								"deviationLinkLossDb": "4.13",
+								"deviationLinkLossValid": "true",
+								"problemConfirmed": "true",
+								"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+							}
+						],
+						"clearingTrackingRecords": {
+							"userId": "admin",
+							"systemId": "ONMSi",
+							"time": "2026-03-13T12:25:26.607Z"
+						},
+						"alarmChangedTime": "2026-03-13T12:25:26.607Z",
+						"alarmRaisedTime": "2026-01-31T10:29:04Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "THRESHOLD_CROSSED",
+						"specificProblem": "ATTENUATION",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "QUALITY_OF_SERVICE_ALARM",
+						"additionalText": "ATTENUATION",
+						"originatingManagedEntityOid": "8036",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "111",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "8036",
+							"type": ""
+						},
+						"systemDN": "OTU ID=4073, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T12:04:56Z",
+					"additionalText": "INJECTION",
+					"alarmType": "4",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "8036",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "8036",
+					"probableCause": "thresholdCrossed",
+					"systemDN": "OTU ID=4073, SN=0",
+					"perceivedSeverity": "MAJOR",
+					"alarmSpecificInfos": [
+						{
+							"internalKey": "8043",
+							"name": "test1",
+							"lastMarkerDistanceM": "4294.808139365075",
+							"_xsi:type": "ns2:monitoringTestSpecificInfo"
+						},
+						{
+							"distanceM": "0.0",
+							"distanceValid": "true",
+							"attenuationDb": "-2.52",
+							"attenuationValid": "true",
+							"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "DETECTION_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "LOCALIZATION1_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "10054",
+							"acquisitionType": "LOCALIZATION1",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"deviationFirstMarkerDb": "0.0",
+							"deviationFirstMarkerValid": "true",
+							"deviationLinkLossDb": "0.96",
+							"deviationLinkLossValid": "true",
+							"problemConfirmed": "true",
+							"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+						}
+					],
+					"_xsi:type": "ns2:changedAlarmEvent"
+				},
+				"sequenceNumber": "210",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "111",
+						"type": ""
+					},
+					"internalKey": "10062",
+					"alarm": {
+						"internalKey": "111",
+						"originatingEntity": {
+							"kind": "LINK",
+							"name": "JK_JMU_ARN_240542_CHANGIA_BF",
+							"internalKey": "8036",
+							"contexts": {
+								"otuInternalKey": "4073",
+								"_xsi:type": "ns2:alarmOriginatingEntityOtuContext"
+							}
+						},
+						"alarmSpecificInfos": [
+							{
+								"internalKey": "8043",
+								"name": "test1",
+								"lastMarkerDistanceM": "4294.808139365075",
+								"_xsi:type": "ns2:monitoringTestSpecificInfo"
+							},
+							{
+								"distanceM": "0.0",
+								"distanceValid": "true",
+								"attenuationDb": "0.0",
+								"attenuationValid": "true",
+								"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "DETECTION_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "LOCALIZATION1_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "16769",
+								"acquisitionType": "LOCALIZATION1",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"deviationFirstMarkerDb": "0.0",
+								"deviationFirstMarkerValid": "true",
+								"deviationLinkLossDb": "4.13",
+								"deviationLinkLossValid": "true",
+								"problemConfirmed": "true",
+								"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+							}
+						],
+						"clearingTrackingRecords": {
+							"userId": "admin",
+							"systemId": "ONMSi",
+							"time": "2026-03-13T12:25:26.607Z"
+						},
+						"alarmChangedTime": "2026-03-13T12:25:26.607Z",
+						"alarmRaisedTime": "2026-01-31T10:29:04Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "THRESHOLD_CROSSED",
+						"specificProblem": "ATTENUATION",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "QUALITY_OF_SERVICE_ALARM",
+						"additionalText": "ATTENUATION",
+						"originatingManagedEntityOid": "8036",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "111",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "8036",
+							"type": ""
+						},
+						"systemDN": "OTU ID=4073, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T12:06:08Z",
+					"additionalText": "ATTENUATION",
+					"alarmType": "4",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "8036",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "8036",
+					"probableCause": "thresholdCrossed",
+					"systemDN": "OTU ID=4073, SN=0",
+					"perceivedSeverity": "MAJOR",
+					"alarmSpecificInfos": [
+						{
+							"internalKey": "8043",
+							"name": "test1",
+							"lastMarkerDistanceM": "4294.808139365075",
+							"_xsi:type": "ns2:monitoringTestSpecificInfo"
+						},
+						{
+							"distanceM": "0.0",
+							"distanceValid": "true",
+							"attenuationDb": "4.82",
+							"attenuationValid": "true",
+							"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "DETECTION_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "LOCALIZATION1_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "10059",
+							"acquisitionType": "LOCALIZATION1",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"deviationFirstMarkerDb": "0.0",
+							"deviationFirstMarkerValid": "true",
+							"deviationLinkLossDb": "2.16",
+							"deviationLinkLossValid": "true",
+							"problemConfirmed": "true",
+							"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+						}
+					],
+					"_xsi:type": "ns2:changedAlarmEvent"
+				},
+				"sequenceNumber": "211",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "111",
+						"type": ""
+					},
+					"internalKey": "10067",
+					"alarm": {
+						"internalKey": "111",
+						"originatingEntity": {
+							"kind": "LINK",
+							"name": "JK_JMU_ARN_240542_CHANGIA_BF",
+							"internalKey": "8036",
+							"contexts": {
+								"otuInternalKey": "4073",
+								"_xsi:type": "ns2:alarmOriginatingEntityOtuContext"
+							}
+						},
+						"alarmSpecificInfos": [
+							{
+								"internalKey": "8043",
+								"name": "test1",
+								"lastMarkerDistanceM": "4294.808139365075",
+								"_xsi:type": "ns2:monitoringTestSpecificInfo"
+							},
+							{
+								"distanceM": "0.0",
+								"distanceValid": "true",
+								"attenuationDb": "0.0",
+								"attenuationValid": "true",
+								"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "DETECTION_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "LOCALIZATION1_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "16769",
+								"acquisitionType": "LOCALIZATION1",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"deviationFirstMarkerDb": "0.0",
+								"deviationFirstMarkerValid": "true",
+								"deviationLinkLossDb": "4.13",
+								"deviationLinkLossValid": "true",
+								"problemConfirmed": "true",
+								"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+							}
+						],
+						"clearingTrackingRecords": {
+							"userId": "admin",
+							"systemId": "ONMSi",
+							"time": "2026-03-13T12:25:26.607Z"
+						},
+						"alarmChangedTime": "2026-03-13T12:25:26.607Z",
+						"alarmRaisedTime": "2026-01-31T10:29:04Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "THRESHOLD_CROSSED",
+						"specificProblem": "ATTENUATION",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "QUALITY_OF_SERVICE_ALARM",
+						"additionalText": "ATTENUATION",
+						"originatingManagedEntityOid": "8036",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "111",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "8036",
+							"type": ""
+						},
+						"systemDN": "OTU ID=4073, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T16:02:18Z",
+					"additionalText": "INJECTION",
+					"alarmType": "4",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "8036",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "8036",
+					"probableCause": "thresholdCrossed",
+					"systemDN": "OTU ID=4073, SN=0",
+					"perceivedSeverity": "MAJOR",
+					"alarmSpecificInfos": [
+						{
+							"internalKey": "8043",
+							"name": "test1",
+							"lastMarkerDistanceM": "4294.808139365075",
+							"_xsi:type": "ns2:monitoringTestSpecificInfo"
+						},
+						{
+							"distanceM": "0.0",
+							"distanceValid": "true",
+							"attenuationDb": "-0.05",
+							"attenuationValid": "true",
+							"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "DETECTION_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "LOCALIZATION1_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "10064",
+							"acquisitionType": "LOCALIZATION1",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"deviationFirstMarkerDb": "0.0",
+							"deviationFirstMarkerValid": "true",
+							"deviationLinkLossDb": "0.42",
+							"deviationLinkLossValid": "true",
+							"problemConfirmed": "true",
+							"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+						}
+					],
+					"_xsi:type": "ns2:changedAlarmEvent"
+				},
+				"sequenceNumber": "212",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "111",
+						"type": ""
+					},
+					"internalKey": "10072",
+					"alarm": {
+						"internalKey": "111",
+						"originatingEntity": {
+							"kind": "LINK",
+							"name": "JK_JMU_ARN_240542_CHANGIA_BF",
+							"internalKey": "8036",
+							"contexts": {
+								"otuInternalKey": "4073",
+								"_xsi:type": "ns2:alarmOriginatingEntityOtuContext"
+							}
+						},
+						"alarmSpecificInfos": [
+							{
+								"internalKey": "8043",
+								"name": "test1",
+								"lastMarkerDistanceM": "4294.808139365075",
+								"_xsi:type": "ns2:monitoringTestSpecificInfo"
+							},
+							{
+								"distanceM": "0.0",
+								"distanceValid": "true",
+								"attenuationDb": "0.0",
+								"attenuationValid": "true",
+								"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "DETECTION_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "LOCALIZATION1_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "16769",
+								"acquisitionType": "LOCALIZATION1",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"deviationFirstMarkerDb": "0.0",
+								"deviationFirstMarkerValid": "true",
+								"deviationLinkLossDb": "4.13",
+								"deviationLinkLossValid": "true",
+								"problemConfirmed": "true",
+								"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+							}
+						],
+						"clearingTrackingRecords": {
+							"userId": "admin",
+							"systemId": "ONMSi",
+							"time": "2026-03-13T12:25:26.607Z"
+						},
+						"alarmChangedTime": "2026-03-13T12:25:26.607Z",
+						"alarmRaisedTime": "2026-01-31T10:29:04Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "THRESHOLD_CROSSED",
+						"specificProblem": "ATTENUATION",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "QUALITY_OF_SERVICE_ALARM",
+						"additionalText": "ATTENUATION",
+						"originatingManagedEntityOid": "8036",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "111",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "8036",
+							"type": ""
+						},
+						"systemDN": "OTU ID=4073, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T16:04:44Z",
+					"additionalText": "ATTENUATION",
+					"alarmType": "4",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "8036",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "8036",
+					"probableCause": "thresholdCrossed",
+					"systemDN": "OTU ID=4073, SN=0",
+					"perceivedSeverity": "MAJOR",
+					"alarmSpecificInfos": [
+						{
+							"internalKey": "8043",
+							"name": "test1",
+							"lastMarkerDistanceM": "4294.808139365075",
+							"_xsi:type": "ns2:monitoringTestSpecificInfo"
+						},
+						{
+							"distanceM": "0.0",
+							"distanceValid": "true",
+							"attenuationDb": "4.3",
+							"attenuationValid": "true",
+							"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "DETECTION_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "LOCALIZATION1_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "10069",
+							"acquisitionType": "LOCALIZATION1",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"deviationFirstMarkerDb": "0.0",
+							"deviationFirstMarkerValid": "true",
+							"deviationLinkLossDb": "1.49",
+							"deviationLinkLossValid": "true",
+							"problemConfirmed": "true",
+							"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+						}
+					],
+					"_xsi:type": "ns2:changedAlarmEvent"
+				},
+				"sequenceNumber": "213",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "111",
+						"type": ""
+					},
+					"internalKey": "10077",
+					"alarm": {
+						"internalKey": "111",
+						"originatingEntity": {
+							"kind": "LINK",
+							"name": "JK_JMU_ARN_240542_CHANGIA_BF",
+							"internalKey": "8036",
+							"contexts": {
+								"otuInternalKey": "4073",
+								"_xsi:type": "ns2:alarmOriginatingEntityOtuContext"
+							}
+						},
+						"alarmSpecificInfos": [
+							{
+								"internalKey": "8043",
+								"name": "test1",
+								"lastMarkerDistanceM": "4294.808139365075",
+								"_xsi:type": "ns2:monitoringTestSpecificInfo"
+							},
+							{
+								"distanceM": "0.0",
+								"distanceValid": "true",
+								"attenuationDb": "0.0",
+								"attenuationValid": "true",
+								"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "DETECTION_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "LOCALIZATION1_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "16769",
+								"acquisitionType": "LOCALIZATION1",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"deviationFirstMarkerDb": "0.0",
+								"deviationFirstMarkerValid": "true",
+								"deviationLinkLossDb": "4.13",
+								"deviationLinkLossValid": "true",
+								"problemConfirmed": "true",
+								"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+							}
+						],
+						"clearingTrackingRecords": {
+							"userId": "admin",
+							"systemId": "ONMSi",
+							"time": "2026-03-13T12:25:26.607Z"
+						},
+						"alarmChangedTime": "2026-03-13T12:25:26.607Z",
+						"alarmRaisedTime": "2026-01-31T10:29:04Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "THRESHOLD_CROSSED",
+						"specificProblem": "ATTENUATION",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "QUALITY_OF_SERVICE_ALARM",
+						"additionalText": "ATTENUATION",
+						"originatingManagedEntityOid": "8036",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "111",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "8036",
+							"type": ""
+						},
+						"systemDN": "OTU ID=4073, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T16:05:57Z",
+					"additionalText": "INJECTION",
+					"alarmType": "4",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "8036",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "8036",
+					"probableCause": "thresholdCrossed",
+					"systemDN": "OTU ID=4073, SN=0",
+					"perceivedSeverity": "MAJOR",
+					"alarmSpecificInfos": [
+						{
+							"internalKey": "8043",
+							"name": "test1",
+							"lastMarkerDistanceM": "4294.808139365075",
+							"_xsi:type": "ns2:monitoringTestSpecificInfo"
+						},
+						{
+							"distanceM": "0.0",
+							"distanceValid": "true",
+							"attenuationDb": "-2.46",
+							"attenuationValid": "true",
+							"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "DETECTION_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "LOCALIZATION1_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "10074",
+							"acquisitionType": "LOCALIZATION1",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"deviationFirstMarkerDb": "0.0",
+							"deviationFirstMarkerValid": "true",
+							"deviationLinkLossDb": "2.89",
+							"deviationLinkLossValid": "true",
+							"problemConfirmed": "true",
+							"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+						}
+					],
+					"_xsi:type": "ns2:changedAlarmEvent"
+				},
+				"sequenceNumber": "214",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "111",
+						"type": ""
+					},
+					"internalKey": "10084",
+					"alarm": {
+						"internalKey": "111",
+						"originatingEntity": {
+							"kind": "LINK",
+							"name": "JK_JMU_ARN_240542_CHANGIA_BF",
+							"internalKey": "8036",
+							"contexts": {
+								"otuInternalKey": "4073",
+								"_xsi:type": "ns2:alarmOriginatingEntityOtuContext"
+							}
+						},
+						"alarmSpecificInfos": [
+							{
+								"internalKey": "8043",
+								"name": "test1",
+								"lastMarkerDistanceM": "4294.808139365075",
+								"_xsi:type": "ns2:monitoringTestSpecificInfo"
+							},
+							{
+								"distanceM": "0.0",
+								"distanceValid": "true",
+								"attenuationDb": "0.0",
+								"attenuationValid": "true",
+								"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "DETECTION_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "LOCALIZATION1_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "16769",
+								"acquisitionType": "LOCALIZATION1",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"deviationFirstMarkerDb": "0.0",
+								"deviationFirstMarkerValid": "true",
+								"deviationLinkLossDb": "4.13",
+								"deviationLinkLossValid": "true",
+								"problemConfirmed": "true",
+								"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+							}
+						],
+						"clearingTrackingRecords": {
+							"userId": "admin",
+							"systemId": "ONMSi",
+							"time": "2026-03-13T12:25:26.607Z"
+						},
+						"alarmChangedTime": "2026-03-13T12:25:26.607Z",
+						"alarmRaisedTime": "2026-01-31T10:29:04Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "THRESHOLD_CROSSED",
+						"specificProblem": "ATTENUATION",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "QUALITY_OF_SERVICE_ALARM",
+						"additionalText": "ATTENUATION",
+						"originatingManagedEntityOid": "8036",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "111",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "8036",
+							"type": ""
+						},
+						"systemDN": "OTU ID=4073, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T16:09:35Z",
+					"additionalText": "FIBER_CUT",
+					"alarmType": "4",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "8036",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "8036",
+					"probableCause": "thresholdCrossed",
+					"systemDN": "OTU ID=4073, SN=0",
+					"perceivedSeverity": "CRITICAL",
+					"alarmSpecificInfos": [
+						{
+							"internalKey": "8043",
+							"name": "test1",
+							"lastMarkerDistanceM": "4294.808139365075",
+							"_xsi:type": "ns2:monitoringTestSpecificInfo"
+						},
+						{
+							"distanceM": "2478.7197265625",
+							"distanceValid": "true",
+							"attenuationDb": "6.48",
+							"attenuationValid": "false",
+							"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "DETECTION_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "LOCALIZATION1_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "10079",
+							"acquisitionType": "LOCALIZATION1",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"deviationFirstMarkerDb": "0.0",
+							"deviationFirstMarkerValid": "true",
+							"deviationLinkLossDb": "4.05",
+							"deviationLinkLossValid": "true",
+							"problemConfirmed": "true",
+							"rootCause": "SPLICE_BREAK",
+							"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+						},
+						{
+							"opticalDistanceFromOriginM": "2478.7197265625",
+							"cableLengthFromNetworkM": "0.0",
+							"secondaryLandmarkAfter": {
+								"landmarkName": "Changia",
+								"landmarkDescription": "",
+								"distLandmarkM": "1326.0638100407546"
+							},
+							"secondaryLandmarkBefore": {
+								"landmarkName": "Arnia",
+								"landmarkDescription": "",
+								"distLandmarkM": "2472.025653651251"
+							},
+							"onOutOfSyncTest": "false",
+							"landmarkOpticalEventAssociationDisabled": "false",
+							"landmarkOpticalEventAssociationInvalid": "false",
+							"inLaunchCable": "false",
+							"_xsi:type": "ns2:localizationSpecificInfo"
+						}
+					],
+					"_xsi:type": "ns2:changedAlarmEvent"
+				},
+				"sequenceNumber": "215",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "111",
+						"type": ""
+					},
+					"internalKey": "10089",
+					"alarm": {
+						"internalKey": "111",
+						"originatingEntity": {
+							"kind": "LINK",
+							"name": "JK_JMU_ARN_240542_CHANGIA_BF",
+							"internalKey": "8036",
+							"contexts": {
+								"otuInternalKey": "4073",
+								"_xsi:type": "ns2:alarmOriginatingEntityOtuContext"
+							}
+						},
+						"alarmSpecificInfos": [
+							{
+								"internalKey": "8043",
+								"name": "test1",
+								"lastMarkerDistanceM": "4294.808139365075",
+								"_xsi:type": "ns2:monitoringTestSpecificInfo"
+							},
+							{
+								"distanceM": "0.0",
+								"distanceValid": "true",
+								"attenuationDb": "0.0",
+								"attenuationValid": "true",
+								"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "DETECTION_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "LOCALIZATION1_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "16769",
+								"acquisitionType": "LOCALIZATION1",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"deviationFirstMarkerDb": "0.0",
+								"deviationFirstMarkerValid": "true",
+								"deviationLinkLossDb": "4.13",
+								"deviationLinkLossValid": "true",
+								"problemConfirmed": "true",
+								"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+							}
+						],
+						"clearingTrackingRecords": {
+							"userId": "admin",
+							"systemId": "ONMSi",
+							"time": "2026-03-13T12:25:26.607Z"
+						},
+						"alarmChangedTime": "2026-03-13T12:25:26.607Z",
+						"alarmRaisedTime": "2026-01-31T10:29:04Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "THRESHOLD_CROSSED",
+						"specificProblem": "ATTENUATION",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "QUALITY_OF_SERVICE_ALARM",
+						"additionalText": "ATTENUATION",
+						"originatingManagedEntityOid": "8036",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "111",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "8036",
+							"type": ""
+						},
+						"systemDN": "OTU ID=4073, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-01-31T16:11:12Z",
+					"additionalText": "ATTENUATION",
+					"alarmType": "4",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "8036",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "8036",
+					"probableCause": "thresholdCrossed",
+					"systemDN": "OTU ID=4073, SN=0",
+					"perceivedSeverity": "MAJOR",
+					"alarmSpecificInfos": [
+						{
+							"internalKey": "8043",
+							"name": "test1",
+							"lastMarkerDistanceM": "4294.808139365075",
+							"_xsi:type": "ns2:monitoringTestSpecificInfo"
+						},
+						{
+							"distanceM": "0.0",
+							"distanceValid": "true",
+							"attenuationDb": "6.54",
+							"attenuationValid": "true",
+							"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "DETECTION_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "LOCALIZATION1_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "10086",
+							"acquisitionType": "LOCALIZATION1",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"deviationFirstMarkerDb": "0.0",
+							"deviationFirstMarkerValid": "true",
+							"deviationLinkLossDb": "4.2",
+							"deviationLinkLossValid": "true",
+							"problemConfirmed": "true",
+							"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+						}
+					],
+					"_xsi:type": "ns2:changedAlarmEvent"
+				},
+				"sequenceNumber": "216",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "109",
+						"type": ""
+					},
+					"internalKey": "10146",
+					"alarm": {
+						"internalKey": "109",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_JAM_6862_ARNIA_RFMS",
+							"internalKey": "4073"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-02-01T01:07:29Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-02-01T01:07:29Z",
+						"alarmRaisedTime": "2026-01-31T02:15:03Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "OTHER",
+						"specificProblem": "MISSING_AUTOTEST",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "COMMUNICATIONS_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=4073",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "109",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "4073",
+							"type": ""
+						},
+						"systemDN": "ONMSi",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-02-01T01:07:29Z",
+					"alarmClearStatus": "CLEARED",
+					"_xsi:type": "ns2:clearStateChangedEvent"
+				},
+				"sequenceNumber": "217",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "113",
+						"type": ""
+					},
+					"internalKey": "10310",
+					"alarm": {
+						"internalKey": "113",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_JAM_6862_ARNIA_RFMS",
+							"internalKey": "4073"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-02-01T05:46:55Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-02-01T05:46:55Z",
+						"alarmRaisedTime": "2026-02-01T05:00:03Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "OTHER",
+						"specificProblem": "HEARTBEAT",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "COMMUNICATIONS_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=4073",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "113",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "4073",
+							"type": ""
+						},
+						"systemDN": "ONMSi",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-02-01T05:00:03Z",
+					"additionalText": "",
+					"alarmType": "1",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "4073",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "/otu=4073",
+					"probableCause": "other",
+					"systemDN": "ONMSi",
+					"perceivedSeverity": "MAJOR",
+					"specificProblem": "HEARTBEAT",
+					"_xsi:type": "ns2:newAlarmEvent"
+				},
+				"sequenceNumber": "218",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "113",
+						"type": ""
+					},
+					"internalKey": "10313",
+					"alarm": {
+						"internalKey": "113",
+						"originatingEntity": {
+							"kind": "OTU",
+							"name": "JK_JAM_6862_ARNIA_RFMS",
+							"internalKey": "4073"
+						},
+						"clearingTrackingRecords": {
+							"time": "2026-02-01T05:46:55Z",
+							"description": ""
+						},
+						"alarmChangedTime": "2026-02-01T05:46:55Z",
+						"alarmRaisedTime": "2026-02-01T05:00:03Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "OTHER",
+						"specificProblem": "HEARTBEAT",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "COMMUNICATIONS_ALARM",
+						"additionalText": "",
+						"originatingManagedEntityOid": "/otu=4073",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "113",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "4073",
+							"type": ""
+						},
+						"systemDN": "ONMSi",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-02-01T05:46:55Z",
+					"alarmClearStatus": "CLEARED",
+					"_xsi:type": "ns2:clearStateChangedEvent"
+				},
+				"sequenceNumber": "219",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			},
+			{
+				"alarmEvent": {
+					"alarmKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "111",
+						"type": ""
+					},
+					"internalKey": "10318",
+					"alarm": {
+						"internalKey": "111",
+						"originatingEntity": {
+							"kind": "LINK",
+							"name": "JK_JMU_ARN_240542_CHANGIA_BF",
+							"internalKey": "8036",
+							"contexts": {
+								"otuInternalKey": "4073",
+								"_xsi:type": "ns2:alarmOriginatingEntityOtuContext"
+							}
+						},
+						"alarmSpecificInfos": [
+							{
+								"internalKey": "8043",
+								"name": "test1",
+								"lastMarkerDistanceM": "4294.808139365075",
+								"_xsi:type": "ns2:monitoringTestSpecificInfo"
+							},
+							{
+								"distanceM": "0.0",
+								"distanceValid": "true",
+								"attenuationDb": "0.0",
+								"attenuationValid": "true",
+								"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "DETECTION_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "8294",
+								"acquisitionType": "LOCALIZATION1_REF",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"acquisitionInternalKey": "16769",
+								"acquisitionType": "LOCALIZATION1",
+								"_xsi:type": "ns2:acquisitionSpecificInfo"
+							},
+							{
+								"deviationFirstMarkerDb": "0.0",
+								"deviationFirstMarkerValid": "true",
+								"deviationLinkLossDb": "4.13",
+								"deviationLinkLossValid": "true",
+								"problemConfirmed": "true",
+								"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+							}
+						],
+						"clearingTrackingRecords": {
+							"userId": "admin",
+							"systemId": "ONMSi",
+							"time": "2026-03-13T12:25:26.607Z"
+						},
+						"alarmChangedTime": "2026-03-13T12:25:26.607Z",
+						"alarmRaisedTime": "2026-01-31T10:29:04Z",
+						"perceivedSeverity": "MAJOR",
+						"probableCause": "THRESHOLD_CROSSED",
+						"specificProblem": "ATTENUATION",
+						"alarmClearStatus": "CLEARED",
+						"alarmAckStatus": "UNACKNOWLEDGED",
+						"alarmType": "QUALITY_OF_SERVICE_ALARM",
+						"additionalText": "ATTENUATION",
+						"originatingManagedEntityOid": "8036",
+						"alarmKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "111",
+							"type": ""
+						},
+						"originatingManagedEntityKey": {
+							"applicationDN": "",
+							"primaryKeyLong": "8036",
+							"type": ""
+						},
+						"systemDN": "OTU ID=4073, SN=0",
+						"additionalAttributes": ""
+					},
+					"eventTime": "2026-02-01T05:35:25Z",
+					"additionalText": "INJECTION",
+					"alarmType": "4",
+					"originatingManagedEntityKey": {
+						"applicationDN": "",
+						"primaryKeyLong": "8036",
+						"type": ""
+					},
+					"originatingManagedEntityOID": "8036",
+					"probableCause": "thresholdCrossed",
+					"systemDN": "OTU ID=4073, SN=0",
+					"perceivedSeverity": "MAJOR",
+					"alarmSpecificInfos": [
+						{
+							"internalKey": "8043",
+							"name": "test1",
+							"lastMarkerDistanceM": "4294.808139365075",
+							"_xsi:type": "ns2:monitoringTestSpecificInfo"
+						},
+						{
+							"distanceM": "0.0",
+							"distanceValid": "true",
+							"attenuationDb": "-0.07",
+							"attenuationValid": "true",
+							"_xsi:type": "ns2:alarmAttenuationFaultSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "DETECTION_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "8294",
+							"acquisitionType": "LOCALIZATION1_REF",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"acquisitionInternalKey": "10315",
+							"acquisitionType": "LOCALIZATION1",
+							"_xsi:type": "ns2:acquisitionSpecificInfo"
+						},
+						{
+							"deviationFirstMarkerDb": "0.0",
+							"deviationFirstMarkerValid": "true",
+							"deviationLinkLossDb": "0.22",
+							"deviationLinkLossValid": "true",
+							"problemConfirmed": "true",
+							"_xsi:type": "ns2:alarmPointToPointSpecificInfo"
+						}
+					],
+					"_xsi:type": "ns2:changedAlarmEvent"
+				},
+				"sequenceNumber": "220",
+				"_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+				"_xsi:type": "ns2:sequentialAlarmEvent"
+			}
+		],
+		"_xmlns:ns2": "http://api.topaz.com",
+		"__prefix": "ns2"
+	}
+}

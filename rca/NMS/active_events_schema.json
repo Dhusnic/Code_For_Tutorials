@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "_id",
+    "additional_info",
+    "agent_id",
+    "ci_id",
+    "creation_time",
+    "event_type",
+    "ip_address",
+    "is_cleared",
+    "is_deleted",
+    "last_alarm_id",
+    "last_event",
+    "organization",
+    "parent_ci_id",
+    "probable_cause",
+    "severity",
+    "termination_status",
+    "trackid"
+  ],
+  "properties": {
+    "_id": {
+      "$ref": "#/$defs/ObjectId"
+    },
+    "account_name": {
+      "type": "string"
+    },
+    "additional_info": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "Account Name": {
+          "type": "string"
+        },
+        "Domain Name": {
+          "type": "string"
+        },
+        "indices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "kql_query": {
+          "type": "string"
+        },
+        "Logon Type": {
+          "type": "null"
+        },
+        "Machine Name": {
+          "type": "string"
+        },
+        "rule_name": {
+          "type": "string"
+        },
+        "rule_type": {
+          "type": "string"
+        },
+        "rule_uuid": {
+          "type": "string"
+        },
+        "threshold_terms": {
+          "type": "object",
+          "required": [
+            "event.organization.keyword",
+            "host.ip.keyword"
+          ],
+          "properties": {
+            "event.organization.keyword": {
+              "type": "string"
+            },
+            "host.ip.keyword": {
+              "type": "string"
+            }
+          }
+        },
+        "time_from": {
+          "type": "string"
+        },
+        "time_to": {
+          "type": "string"
+        }
+      }
+    },
+    "additional_text": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "alarm_category": {
+      "type": "string"
+    },
+    "alarm_msg": {
+      "type": "string"
+    },
+    "alarm_profile_id": {
+      "type": "string"
+    },
+    "audible_tone": {
+      "type": "string"
+    },
+    "ci_id": {
+      "type": "string"
+    },
+    "creation_time": {
+      "$ref": "#/$defs/Date"
+    },
+    "datetim_ticks": {
+      "type": "integer"
+    },
+    "datetime": {
+      "type": "string"
+    },
+    "device_type": {
+      "type": "string"
+    },
+    "domain_name": {
+      "type": "string"
+    },
+    "event_category": {
+      "type": "string"
+    },
+    "event_count": {
+      "type": "integer"
+    },
+    "event_id": {
+      "type": "integer"
+    },
+    "event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "event_suppression": {
+      "type": "integer"
+    },
+    "event_type": {
+      "type": "string"
+    },
+    "first_event": {
+      "$ref": "#/$defs/Date"
+    },
+    "impacted_services": {
+      "type": "array",
+      "items": {
+        "type": []
+      }
+    },
+    "ip_address": {
+      "type": "string"
+    },
+    "is_cleared": {
+      "type": "integer"
+    },
+    "is_correlated": {
+      "type": "integer"
+    },
+    "is_deleted": {
+      "type": "boolean"
+    },
+    "is_dependent": {
+      "type": "integer"
+    },
+    "is_root": {
+      "type": "integer"
+    },
+    "last_alarm_id": {
+      "type": [
+        "string",
+        "integer"
+      ]
+    },
+    "last_down_at": {
+      "$ref": "#/$defs/Date"
+    },
+    "last_event": {
+      "$ref": "#/$defs/Date"
+    },
+    "last_update_time": {
+      "$ref": "#/$defs/Date"
+    },
+    "log_type": {
+      "type": "string"
+    },
+    "logon_id": {
+      "type": "string"
+    },
+    "logon_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "machine_name": {
+      "type": "string"
+    },
+    "managed_ems_ip": {
+      "type": "string"
+    },
+    "managed_ems_name": {
+      "type": "string"
+    },
+    "managed_object_class": {
+      "type": "string"
+    },
+    "managed_object_name": {
+      "type": "string"
+    },
+    "managed_object_type": {
+      "type": "string"
+    },
+    "organization": {
+      "type": "string"
+    },
+    "parameter_name": {
+      "type": "string"
+    },
+    "parameter_unit": {
+      "type": "string"
+    },
+    "parameter_value": {
+      "$ref": "#/$defs/Double"
+    },
+    "parent_alarms": {
+      "type": "array",
+      "items": {
+        "type": []
+      }
+    },
+    "parent_ci_id": {
+      "type": "string"
+    },
+    "priority": {
+      "type": "integer"
+    },
+    "probable_cause": {
+      "type": "string"
+    },
+    "provider_name": {
+      "type": "string"
+    },
+    "reference_id": {
+      "type": "integer"
+    },
+    "remediation_procedure": {
+      "type": "string"
+    },
+    "security_id": {
+      "type": "string"
+    },
+    "severity": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "stat_dn": {
+      "type": "string"
+    },
+    "system_dn": {
+      "type": "null"
+    },
+    "termination_status": {
+      "type": "boolean"
+    },
+    "threshold_type": {
+      "type": "string"
+    },
+    "thresid": {
+      "type": "string"
+    },
+    "trackid": {
+      "type": "string"
+    },
+    "tracking_indicator": {
+      "type": "string"
+    },
+    "underlying_alarms": {
+      "type": "array",
+      "items": {
+        "type": []
+      }
+    },
+    "vendor": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "ObjectId": {
+      "type": "object",
+      "properties": {
+        "$oid": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{24}$"
+        }
+      },
+      "required": [
+        "$oid"
+      ],
+      "additionalProperties": false
+    },
+    "Double": {
+      "oneOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "$numberDouble": {
+              "enum": [
+                "Infinity",
+                "-Infinity",
+                "NaN"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Date": {
+      "type": "object",
+      "properties": {
+        "$date": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "$date"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+    "event": [
+        {
+            "alarmEvent": {
+                "alarmKey": {
+                    "applicationDN": "",
+                    "primaryKey": 2345,
+                    "type": ""
+                },
+                "internalKey": 109092,
+                "alarm": {
+                    "internalKey": 2345,
+                    "originatingEntity": {
+                        "kind": "OTU",
+                        "name": "Ludhiana",
+                        "internalKey": 106190,
+                        "contexts": []
+                    },
+                    "alarmSpecificInfos": [],
+                    "acknowledgementTrackingRecords": [],
+                    "clearingTrackingRecords": [
+                        {
+                            "userId": null,
+                            "systemId": null,
+                            "time": 1754997050000,
+                            "description": ""
+                        }
+                    ],
+                    "changeAlarmSeverityTrackingRecords": [],
+                    "comments": [],
+                    "alarmChangedTime": 1754997050000,
+                    "alarmRaisedTime": 1754996702000,
+                    "perceivedSeverity": "MAJOR",
+                    "probableCause": "OTHER",
+                    "specificProblem": "HEARTBEAT",
+                    "alarmClearStatus": "CLEARED",
+                    "alarmAckStatus": "UNACKNOWLEDGED",
+                    "alarmType": "COMMUNICATIONS_ALARM",
+                    "additionalText": "",
+                    "originatingManagedEntityOid": "/otu=106190",
+                    "alarmKey": {
+                        "applicationDN": "",
+                        "primaryKey": 2345,
+                        "type": ""
+                    },
+                    "originatingManagedEntityKey": {
+                        "applicationDN": "",
+                        "type": "",
+                        "primaryKeyLong": 106190
+                    },
+                    "systemDN": "ONMSi",
+                    "additionalAttributes": {}
+                },
+                "eventTime": 1754997050000,
+                "alarmClearStatus": "CLEARED",
+                "clearingTrackingRecord": null
+            },
+            "sequenceNumber": 11
+        }
+    ]
+}

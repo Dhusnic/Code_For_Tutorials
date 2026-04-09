@@ -1,0 +1,181 @@
+{
+    "event": [
+        {
+            "alarmEvent": {
+                "alarmKey": {
+                    "applicationDN": "",
+                    "primaryKey": 2344,
+                    "type": ""
+                },
+                "internalKey": 109072,
+                "alarm": {
+                    "internalKey": 2344,
+                    "originatingEntity": {
+                        "kind": "LINK",
+                        "name": "Ludhiana-Mundian",
+                        "internalKey": 108256,
+                        "contexts": [
+                            {
+                                "otuInternalKey": 106190
+                            }
+                        ]
+                    },
+                    "alarmSpecificInfos": [
+                        {
+                            "internalKey": 108264,
+                            "name": "test1",
+                            "lastMarkerDistanceM": 2018.199951171875
+                        },
+                        {
+                            "distanceM": 0.0,
+                            "distanceValid": true,
+                            "attenuationDb": 22.81,
+                            "attenuationValid": true
+                        },
+                        {
+                            "acquisitionInternalKey": 108262,
+                            "acquisitionType": "DETECTION_REF"
+                        },
+                        {
+                            "acquisitionInternalKey": 108262,
+                            "acquisitionType": "LOCALIZATION1_REF"
+                        },
+                        {
+                            "acquisitionInternalKey": 109067,
+                            "acquisitionType": "LOCALIZATION1"
+                        },
+                        {
+                            "deviationFirstMarkerDb": 0.0,
+                            "deviationFirstMarkerValid": true,
+                            "deviationLinkLossDb": 17.57,
+                            "deviationLinkLossValid": true,
+                            "problemConfirmed": true,
+                            "rootCause": null
+                        },
+                        {
+                            "latitude": 19.169961,
+                            "longitude": 72.999252
+                        },
+                        {
+                            "opticalDistanceFromOriginM": 0.0,
+                            "cableLengthFromNetworkM": 0.0,
+                            "primaryLandmarkAfter": null,
+                            "primaryLandmarkBefore": null,
+                            "secondaryLandmarkAfter": {
+                                "landmarkName": "Jamalpur",
+                                "landmarkDescription": "",
+                                "distLandmarkM": 972.0889752579955
+                            },
+                            "secondaryLandmarkBefore": {
+                                "landmarkName": "Ludhiana",
+                                "landmarkDescription": "",
+                                "distLandmarkM": 0.0
+                            },
+                            "onOutOfSyncTest": false,
+                            "landmarkOpticalEventAssociationDisabled": false,
+                            "landmarkOpticalEventAssociationInvalid": false,
+                            "inLaunchCable": false
+                        }
+                    ],
+                    "acknowledgementTrackingRecords": [],
+                    "clearingTrackingRecords": [],
+                    "changeAlarmSeverityTrackingRecords": [],
+                    "comments": [],
+                    "alarmChangedTime": 1754991971000,
+                    "alarmRaisedTime": 1754991971000,
+                    "perceivedSeverity": "MAJOR",
+                    "probableCause": "THRESHOLD_CROSSED",
+                    "specificProblem": "ATTENUATION",
+                    "alarmClearStatus": "UNCLEARED",
+                    "alarmAckStatus": "UNACKNOWLEDGED",
+                    "alarmType": "QUALITY_OF_SERVICE_ALARM",
+                    "additionalText": "INJECTION",
+                    "originatingManagedEntityOid": "108256",
+                    "alarmKey": {
+                        "applicationDN": "",
+                        "primaryKey": 2344,
+                        "type": ""
+                    },
+                    "originatingManagedEntityKey": {
+                        "applicationDN": "",
+                        "type": "",
+                        "primaryKeyLong": 108256
+                    },
+                    "systemDN": "OTU ID=106190, SN=0",
+                    "additionalAttributes": {}
+                },
+                "eventTime": 1754991971000,
+                "additionalText": "INJECTION",
+                "alarmType": 4,
+                "originatingManagedEntityKey": {
+                    "applicationDN": "",
+                    "type": "",
+                    "primaryKeyLong": 108256
+                },
+                "originatingManagedEntityOID": "108256",
+                "probableCause": "thresholdCrossed",
+                "systemDN": "OTU ID=106190, SN=0",
+                "perceivedSeverity": "MAJOR",
+                "alarmSpecificInfos": [
+                    {
+                        "internalKey": 108264,
+                        "name": "test1",
+                        "lastMarkerDistanceM": 2018.199951171875
+                    },
+                    {
+                        "distanceM": 0.0,
+                        "distanceValid": true,
+                        "attenuationDb": 22.81,
+                        "attenuationValid": true
+                    },
+                    {
+                        "acquisitionInternalKey": 108262,
+                        "acquisitionType": "DETECTION_REF"
+                    },
+                    {
+                        "acquisitionInternalKey": 108262,
+                        "acquisitionType": "LOCALIZATION1_REF"
+                    },
+                    {
+                        "acquisitionInternalKey": 109067,
+                        "acquisitionType": "LOCALIZATION1"
+                    },
+                    {
+                        "deviationFirstMarkerDb": 0.0,
+                        "deviationFirstMarkerValid": true,
+                        "deviationLinkLossDb": 17.57,
+                        "deviationLinkLossValid": true,
+                        "problemConfirmed": true,
+                        "rootCause": null
+                    },
+                    {
+                        "latitude": 19.169961,
+                        "longitude": 72.999252
+                    },
+                    {
+                        "opticalDistanceFromOriginM": 0.0,
+                        "cableLengthFromNetworkM": 0.0,
+                        "primaryLandmarkAfter": null,
+                        "primaryLandmarkBefore": null,
+                        "secondaryLandmarkAfter": {
+                            "landmarkName": "Jamalpur",
+                            "landmarkDescription": "",
+                            "distLandmarkM": 972.0889752579955
+                        },
+                        "secondaryLandmarkBefore": {
+                            "landmarkName": "Ludhiana",
+                            "landmarkDescription": "",
+                            "distLandmarkM": 0.0
+                        },
+                        "onOutOfSyncTest": false,
+                        "landmarkOpticalEventAssociationDisabled": false,
+                        "landmarkOpticalEventAssociationInvalid": false,
+                        "inLaunchCable": false
+                    }
+                ],
+                "specificProblem": "ATTENUATION"
+            },
+            "sequenceNumber": 6
+        }
+    ]
+}

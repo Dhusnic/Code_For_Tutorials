@@ -1,0 +1,132 @@
+service: nginx
+rules:
+    - id: NGINX_AUTO_MAR_GET_INFRAON_BUNDLES_879F0B08
+      signal_key: nginx_auto_mar_get_infraon_bundles_879f
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: mar get infraon bundles'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: mar get infraon bundles
+    - id: NGINX_AUTO_MAR_GET_INFRAON_135098068173316952064_F6818E12
+      signal_key: nginx_auto_mar_get_infraon_135098068173316952064_f681
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: mar get infraon 135098068173316952064'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: mar get infraon 135098068173316952064
+    - id: NGINX_AUTO_APR_GET_INFRAON_BUNDLES_121505EF
+      signal_key: nginx_auto_apr_get_infraon_bundles_1215
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: apr get infraon bundles'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: apr get infraon bundles
+    - id: NGINX_AUTO_AUTHENTICATION_NEXT_2FINFRAON_2FS_E78CC56B
+      signal_key: nginx_auto_authentication_next_2finfraon_2fs_e78c
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: authentication next 2finfraon 2fs'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: authentication next 2finfraon 2fs
+    - id: NGINX_AUTO_AUTHENTICATION_MOZILLA_WINDOWS_NT_B1ECEBF9
+      signal_key: nginx_auto_authentication_mozilla_windows_nt_b1ec
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: authentication mozilla windows nt'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: authentication mozilla windows nt
+    - id: NGINX_AUTO_APR_GET_INFRAON_135098068173316952064_A76CA9BB
+      signal_key: nginx_auto_apr_get_infraon_135098068173316952064_a76c
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: apr get infraon 135098068173316952064'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: apr get infraon 135098068173316952064
+    - id: NGINX_AUTO_APR_GET_SVG_HTTP_736AE510
+      signal_key: nginx_auto_apr_get_svg_http_736a
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: apr get svg http'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: apr get svg http
+    - id: NGINX_AUTO_SIMULATED_SIGNAL_NGINX_ACCESS_6F00568C
+      signal_key: nginx_auto_simulated_signal_nginx_access_6f00
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: simulated signal nginx access'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: simulated signal nginx access
+    - id: NGINX_AUTO_AUTHENTICATION_MOZILLA_MACINTOSH_INTEL_910CE6AE
+      signal_key: nginx_auto_authentication_mozilla_macintosh_intel_910c
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: authentication mozilla macintosh intel'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: authentication mozilla macintosh intel
+    - id: NGINX_AUTO_APR_GET_ASSETS_IMAGES_03511314
+      signal_key: nginx_auto_apr_get_assets_images_0351
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: apr get assets images'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: apr get assets images

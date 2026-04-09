@@ -1,0 +1,12 @@
+{
+  "minimalSeverity": "MINOR",
+  "page": 1,
+  "pageSize": 50,
+  "cleared": false,
+  "qualityOfServiceLink": true,
+  "nonQualityOfService": false,
+  "qualityOfServiceCableRoute": false,
+  "dateFilter": "RAISED",
+  "dateFrom": "2025-05-04",
+  "dateTo": "2025-11-14"
+}
