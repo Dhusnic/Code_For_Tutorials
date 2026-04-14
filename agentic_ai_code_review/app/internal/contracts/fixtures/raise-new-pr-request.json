@@ -1,0 +1,34 @@
+{
+  "repo_path": "D:\\Product\\Infraon",
+  "organization": "infraon",
+  "project": "Infraon",
+  "repository_name": "Infraon",
+  "azure_pat": "****",
+  "defaults_path": "config/pr_workflow_defaults.json",
+  "feature_id": 17070,
+  "selected_serials": [
+    1,
+    2,
+    3
+  ],
+  "reviewer_ids": [
+    "reviewer-a",
+    "reviewer-b"
+  ],
+  "reviewer_ids_by_branch": {
+    "main": [
+      "reviewer-a"
+    ],
+    "prerelease": [
+      "reviewer-b"
+    ]
+  },
+  "target_branches": [
+    "main",
+    "prerelease"
+  ],
+  "additional_work_item_ids": [
+    17201
+  ],
+  "commit_message": "[Feature #17070] Infra hardening"
+}

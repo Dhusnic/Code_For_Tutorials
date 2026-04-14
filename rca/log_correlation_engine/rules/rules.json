@@ -5,7 +5,7 @@
     "rule_type": "ordered_signal_sequence",
     "window": "15m",
     "max_gap_between_steps": "3m",
-    "group_by": ["event.organization", "host.name", "service.name"],
+    "group_by": ["event.organization", "topology.identity"],
     "priority": 1,
     "sequence": [
       {
@@ -38,7 +38,7 @@
     "rule_type": "ordered_signal_sequence",
     "window": "20m",
     "max_gap_between_steps": "4m",
-    "group_by": ["event.organization", "host.name", "service.name"],
+    "group_by": ["event.organization", "topology.identity"],
     "priority": 2,
     "sequence": [
       {
@@ -66,12 +66,45 @@
     }
   },
   {
+    "id": "CORR_H6D4_MONGO_AUTH_CHAIN_SPARSE",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "window": "10m",
+    "max_gap_between_steps": "3m",
+    "group_by": ["event.organization", "topology.identity"],
+    "priority": 4,
+    "sequence": [
+      {
+        "signal_key": "mongodb_auth_failed",
+        "min_count": 1,
+        "within": "5m"
+      },
+      {
+        "signal_key": "mongodb_interrupted_client_disconnected",
+        "min_count": 1,
+        "within": "3m"
+      },
+      {
+        "signal_key": "mongodb_host_unreachable",
+        "min_count": 1,
+        "within": "3m"
+      }
+    ],
+    "not_sequence": [
+      { "signal_key": "mongodb_auth_success" }
+    ],
+    "deduplication": {
+      "key": ["signal_key", "host.name"],
+      "window": "2m"
+    }
+  },
+  {
     "id": "CORR_T7Q1_WEB_FAILURE_SPIKE",
     "organization_id": "135098068173316952064",
     "rule_type": "ordered_signal_sequence",
     "window": "10m",
     "max_gap_between_steps": "2m",
-    "group_by": ["event.organization", "host.name"],
+    "group_by": ["event.organization", "topology.identity"],
     "priority": 3,
     "sequence": [
       {
@@ -99,7 +132,7 @@
     "rule_type": "ordered_signal_sequence",
     "window": "15m",
     "max_gap_between_steps": "3m",
-    "group_by": ["event.organization", "host.name", "service.name"],
+    "group_by": ["event.organization", "topology.identity"],
     "priority": 2,
     "sequence": [
       {
@@ -130,6 +163,7 @@
     "id": "CORR_V8N2_MULTI_SYSTEM_COLLAPSE",
     "organization_id": "135098068173316952064",
     "rule_type": "ordered_signal_sequence",
+    "shadow_mode": true,
     "window": "20m",
     "max_gap_between_steps": "5m",
     "group_by": ["event.organization"],

@@ -67,19 +67,19 @@ cd /d/Code\ for\ tutorials/rca/signalizing/signalizing_go
 
 Both scripts:
 
-- remove the previous `bin/rca-engine.exe`
+- remove the previous `bin/signalizing-engine.exe`
 - remove the previous `bin/validate-rules.exe`
 - remove leftover `*.exe~` backup files when possible
 - rebuild both executables using the current folder structure
 - use the repo-local `.gocache` and `.gomodcache`
 
-If PM2 is still running the old binary, Windows may keep a `bin\rca-engine.exe~` file until you restart or stop PM2 and rebuild again.
+If PM2 is still running the old binary, Windows may keep a `bin\signalizing-engine.exe~` file until you restart or stop PM2 and rebuild again.
 
 Build the main RCA executable:
 
 ```powershell
 cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
-go build -o .\bin\rca-engine.exe .\cmd\rca-engine
+go build -o .\bin\signalizing-engine.exe .\cmd\signalizing-engine
 ```
 
 Build the rule validator:
@@ -100,13 +100,13 @@ Run the shared default config:
 
 ```powershell
 cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
-.\bin\rca-engine.exe --config ..\config.yml --run-once
+.\bin\signalizing-engine.exe --config ..\config.yml --run-once
 ```
 
 Run continuously:
 
 ```powershell
-.\bin\rca-engine.exe --config ..\config.yml
+.\bin\signalizing-engine.exe --config ..\config.yml
 ```
 
 Validate rules:
@@ -119,7 +119,7 @@ Validate rules:
 
 ```powershell
 cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
-go run .\cmd\rca-engine --config ..\config.yml --run-once
+go run .\cmd\signalizing-engine --config ..\config.yml --run-once
 ```
 
 ## PM2 Usage
@@ -131,7 +131,7 @@ Start it with:
 ```powershell
 cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
 pm2 start .\app.json
-pm2 logs rca-engine
+pm2 logs signalizing-engine
 ```
 
 The Go runtime also reads `instances` from [app.json](./app.json) to infer `RCA_WORKER_COUNT` when PM2 sets `RCA_WORKER_ID`.
@@ -171,8 +171,8 @@ Rebuild and rerun after a code change:
 
 ```powershell
 go test ./...
-go build -o .\bin\rca-engine.exe .\cmd\rca-engine
-.\bin\rca-engine.exe --config ..\config.yml --run-once
+go build -o .\bin\signalizing-engine.exe .\cmd\signalizing-engine
+.\bin\signalizing-engine.exe --config ..\config.yml --run-once
 ```
 
 ## Notes

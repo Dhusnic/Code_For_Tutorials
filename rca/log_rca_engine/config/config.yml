@@ -1,0 +1,50 @@
+service_name: log-rca-engine
+
+logging:
+  level: info
+  format: json
+
+scheduler:
+  interval: 1m
+  run_timeout: 50s
+
+elasticsearch:
+  addresses:
+    - http://10.0.4.132:9200
+  username: "elastic"
+  password: "elastic"
+  api_key: ""
+  correlation_index: rca_correlated_incidents_current*
+  source_index_fallback: "*"
+  request_timeout: 20s
+  page_size: 100
+  replay_window: 1h
+
+rules:
+  file: ../../log_correlation_engine/rules/rules.json
+
+topology:
+  file: ../data/topology.json
+
+storage:
+  results_file: ../data/results/rca_results.json
+  checkpoint_file: ../data/checkpoints/reader_checkpoint.json
+
+scoring:
+  confidence_threshold: 4.0
+  nearby_log_trigger_threshold: 2.0
+  weights:
+    sequence_match: 0.30
+    dependency_match: 0.25
+    time_proximity: 0.15
+    signal_severity: 0.15
+    rule_completeness: 0.15
+
+openai:
+  enabled: true
+  base_url: https://api.openai.com/v1
+  api_key: ""
+  model: "gpt-4o-mini"
+  request_timeout: 30s
+  neighborhood_log_limit: 50
+  max_output_tokens: 1200

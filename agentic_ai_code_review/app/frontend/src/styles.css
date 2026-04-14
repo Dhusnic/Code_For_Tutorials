@@ -1,0 +1,83 @@
+:root {
+  --bg: #020617;
+  --panel: #0b1220;
+  --panel-2: #111a2d;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --border: #263247;
+  --accent: #3b82f6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at top left, #0f1a2f 0%, #020617 55%);
+  color: var(--text);
+}
+
+.desktop-shell {
+  width: 100%;
+  height: 100%;
+}
+
+.web-parity-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #0b1220;
+}
+
+.boot-card {
+  width: min(860px, calc(100% - 36px));
+  margin: 36px auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(160deg, var(--panel) 0%, var(--panel-2) 100%);
+  padding: 26px;
+}
+
+.boot-card h1 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+.boot-subtitle {
+  margin: 10px 0 16px;
+  color: var(--muted);
+}
+
+.boot-console {
+  margin: 0;
+  min-height: 130px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  color: #b8f3d3;
+  background: #020c1f;
+  font-family: "Cascadia Code", "Consolas", monospace;
+}
+
+.boot-actions {
+  margin-top: 14px;
+}
+
+.boot-btn {
+  border: 1px solid #2a63b9;
+  color: #dbeafe;
+  background: linear-gradient(120deg, #1d4ed8, var(--accent));
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor: pointer;
+}

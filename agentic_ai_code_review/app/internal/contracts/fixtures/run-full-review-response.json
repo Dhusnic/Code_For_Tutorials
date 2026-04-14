@@ -1,0 +1,27 @@
+{
+  "review": "## AI Review\nNo required changes.",
+  "code_changes": [],
+  "no_changes_required": true,
+  "resolution_status": "no_changes_required",
+  "filter_relaxed_to_include_generated": false,
+  "token_estimate": 0,
+  "tokens_used": 0,
+  "token_source": "estimated",
+  "token_usage": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "total_tokens": 0,
+    "source": "estimated"
+  },
+  "raw_response": "",
+  "usage": {
+    "timestamp": 0,
+    "endpoint": "/api/run-full-review",
+    "model": "gpt-4o-mini",
+    "tokens_used": 0,
+    "token_source": "estimated",
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "estimated_cost_usd": 0
+  }
+}

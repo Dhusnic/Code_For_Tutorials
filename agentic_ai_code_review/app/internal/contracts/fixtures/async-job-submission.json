@@ -1,0 +1,6 @@
+{
+  "job_id": "17cf5a7b4f9b42afb0906e50f8aa3417",
+  "status": "queued",
+  "poll_url": "/api/jobs/17cf5a7b4f9b42afb0906e50f8aa3417",
+  "ws_url": "/ws/jobs/17cf5a7b4f9b42afb0906e50f8aa3417"
+}

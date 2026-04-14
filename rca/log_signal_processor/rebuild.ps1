@@ -1,8 +1,13 @@
+param(
+    [switch]$RunTests,
+    [switch]$SkipClean
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $scriptDir
+$projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $projectRoot
 
 function Resolve-GoExe {
     $goCommand = Get-Command go -ErrorAction SilentlyContinue
@@ -18,39 +23,73 @@ function Resolve-GoExe {
     throw "Go executable not found. Install Go or add 'go' to PATH."
 }
 
-$goExe = Resolve-GoExe
-$repoRoot = Split-Path -Parent $scriptDir
-$binDir = Join-Path $scriptDir "bin"
-$collectorExe = Join-Path $binDir "signaled-logs-collector.exe"
-$collectorExeBackup = Join-Path $binDir "signaled-logs-collector.exe~"
-$env:GOCACHE = Join-Path $repoRoot ".gocache"
+function Ensure-Directory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
 
-if (-not (Test-Path $binDir)) {
-    New-Item -ItemType Directory -Path $binDir | Out-Null
+    if (-not (Test-Path $Path)) {
+        New-Item -ItemType Directory -Path $Path | Out-Null
+    }
 }
+
+function Remove-BinaryIfRequested {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [switch]$Skip
+    )
+
+    if ($Skip) {
+        return
+    }
+
+    foreach ($candidate in @($Path, "$Path~")) {
+        if (-not (Test-Path $candidate)) {
+            continue
+        }
+
+        try {
+            Remove-Item -LiteralPath $candidate -Force -ErrorAction Stop
+        }
+        catch {
+            throw "Unable to remove '$candidate'. Stop the running binary or PM2 process and rerun the rebuild."
+        }
+    }
+}
+
+$goExe = Resolve-GoExe
+$binaryDir = Join-Path $projectRoot "bin"
+$binaryPath = Join-Path $binaryDir "signaled-logs-collector.exe"
+$env:GOCACHE = Join-Path $projectRoot ".gocache"
+
+Ensure-Directory -Path $binaryDir
+Ensure-Directory -Path $env:GOCACHE
+Remove-BinaryIfRequested -Path $binaryPath -Skip:$SkipClean
 
 Write-Host "Using Go executable: $goExe"
 Write-Host "Using GOCACHE: $env:GOCACHE"
-if ($env:GOMODCACHE) {
-    Write-Host "Using GOMODCACHE from environment: $env:GOMODCACHE"
-}
-else {
-    Write-Host "Using default Go module cache."
-}
-Write-Host "Removing previous collector binary if it exists..."
-Remove-Item $collectorExe -Force -ErrorAction SilentlyContinue
-Remove-Item $collectorExeBackup -Force -ErrorAction SilentlyContinue
+Write-Host "Building signaled logs collector..."
 
-Write-Host "Building signaled-logs-collector.exe..."
-& $goExe build -o $collectorExe .\cmd\signaled_logs_collector
+& $goExe build -trimpath -o $binaryPath .\cmd\signaled_logs_collector
 if ($LASTEXITCODE -ne 0) {
     throw "go build failed with exit code $LASTEXITCODE"
 }
 
-Write-Host "Rebuild completed."
-Write-Host "Created:"
-Write-Host "  $collectorExe"
-
-if (Test-Path $collectorExeBackup) {
-    Write-Warning "A .exe~ backup file is still present. This usually means the old binary was in use. Restart or stop PM2 and rerun this script for a fully clean replacement."
+if (-not (Test-Path $binaryPath)) {
+    throw "Build completed without producing '$binaryPath'."
 }
+
+if ($RunTests) {
+    Write-Host "Running go test ./..."
+    & $goExe test ./...
+    if ($LASTEXITCODE -ne 0) {
+        throw "go test failed with exit code $LASTEXITCODE"
+    }
+}
+
+Write-Host ""
+Write-Host "Rebuild completed successfully."
+Write-Host "Binary: $binaryPath"
+Write-Host "Run with: .\bin\signaled-logs-collector.exe --config .\config.yml"

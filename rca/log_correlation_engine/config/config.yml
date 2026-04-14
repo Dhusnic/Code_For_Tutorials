@@ -5,8 +5,8 @@ logging:
   format: json
 
 scheduler:
-  interval: 1m
-  run_timeout: 50s
+  interval: 20s
+  run_timeout: 10s
   organization_workers: 4
 
 redis:
@@ -22,6 +22,11 @@ redis:
   result_list: correlated_events
   result_list_max_len: 1000
   publish_results: false
+  signal_stream_enabled: true
+  signal_stream_key: Rca:signalized_log_events
+  signal_stream_batch_size: 1000
+  signal_stream_consumed_retention: 30m
+  signal_stream_unconsumed_retention: 2h
 
 elasticsearch:
   addresses:
@@ -30,6 +35,7 @@ elasticsearch:
   password: "elastic"
   api_key: ""
   index: rca_correlated_events
+  current_index: rca_correlated_incidents_current
   request_timeout: 15s
   bulk_batch_size: 250
 

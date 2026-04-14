@@ -2,6 +2,14 @@
 
 This folder contains a production-oriented Go background service that polls Elasticsearch every minute, extracts documents that contain a configured `signal` field, groups them by `event.organization` by default, and stores the retained signal history in Redis.
 
+It now sits alongside an optional direct handoff path:
+
+```text
+log_signalizing -> Redis stream -> log_correlation_engine
+```
+
+When that stream path is enabled, the correlation engine can hydrate the same Redis hot state directly from compact signal events without waiting for this collector to reread Elasticsearch. That means this service becomes a compatibility or fallback path instead of a hard requirement, while the Redis hash contract and final RCA output shape stay the same.
+
 ## What It Does
 
 On each cycle the service:
@@ -26,7 +34,22 @@ On each cycle the service:
 8. Trims anything older than the configured retention window, 30 minutes by default.
 9. Skips the Redis write completely if the merged organization payload is byte-for-byte unchanged.
 10. Persists organizations in parallel with a bounded worker pool.
-11. Writes the sorted JSON array back to the Redis hash field `signaled_logs` and keeps a lightweight Redis organization index in sync.
+11. Writes the sorted JSON array back to the Redis hash field `signaled_logs` without creating a separate Redis organization index key.
+
+## When To Run This Service
+
+Use this collector when:
+
+- you want the original Elasticsearch -> Redis retained-signal path
+- you want a fallback path while migrating to direct stream ingest
+- `log_signalizing` is not publishing compact signal events into Redis stream yet
+
+You can treat it as optional when both of these are enabled:
+
+- `log_signalizing/config.yml` -> `signal_stream.enabled: true`
+- `log_correlation_engine/config/config.yml` -> `redis.signal_stream_enabled: true`
+
+In that direct-stream mode, `log_correlation_engine` ingests compact signal events first, refreshes the same `Rca:{organization}` `signaled_logs` hot state itself, and then runs the normal correlation flow. The existing Redis key structure and downstream RCA outputs do not change.
 
 ## Redis Storage Contract
 
@@ -67,21 +90,7 @@ Field value example:
 ]
 ```
 
-The service removes an organization key when its retained list becomes empty.
-
-Organization index key:
-
-```text
-Rca:organizations
-```
-
-Organization index type:
-
-```text
-SET
-```
-
-The collector uses this set to enumerate organizations cheaply on later cycles instead of scanning the full Redis keyspace every time. If the set is missing, the service falls back to a scan and repairs the index automatically.
+The service removes only the `signaled_logs` field when that retained list becomes empty. If the same organization hash also carries correlation incident state, the hash itself is preserved.
 
 ## Configuration
 
@@ -185,6 +194,14 @@ You can also start the whole RCA stack from the repo root with:
 cd "D:\Code for tutorials\rca"
 pm2 start .\ecosystem.config.js
 ```
+
+That root PM2 stack no longer starts this collector by default. It boots the direct stream path instead:
+
+```text
+log_signalizing/signalizing_go -> Redis stream -> log_correlation_engine
+```
+
+Run this collector separately only when you want the legacy Elasticsearch -> Redis compatibility flow.
 
 ## Package Layout
 

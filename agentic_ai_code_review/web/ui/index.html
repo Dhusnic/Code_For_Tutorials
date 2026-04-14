@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agentic AI Code Review</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <div class="header-top">
+          <div>
+            <h1>Agentic AI Code Review</h1>
+            <p>AI-powered pull request reviewer</p>
+          </div>
+          <div class="header-actions">
+            <button
+              id="settingsToggle"
+              class="icon-button"
+              type="button"
+              aria-label="Open settings"
+              onclick="openSettingsDrawer()"
+            >
+              <i class="fas fa-gear"></i>
+            </button>
+            <div class="theme-toggle">
+              <span id="themeLabel">Light</span>
+              <label class="switch">
+                <input type="checkbox" id="themeToggle" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="tab-bar" role="tablist" aria-label="Main views">
+        <button id="reviewTabButton" class="tab-button active" role="tab" onclick="switchMainTab('review')">
+          Code Review
+        </button>
+        <button id="raisePrTabButton" class="tab-button" role="tab" onclick="switchMainTab('raise-pr')">
+          Raise PR
+        </button>
+      </div>
+
+      <div id="reviewTabPanel" class="tab-panel active">
+        <section class="card">
+          <h2>Configuration</h2>
+          <div class="grid">
+            <div>
+              <label>Repository Path</label>
+              <input id="repoPath" value="D:\Product\Infraon" />
+            </div>
+
+            <div>
+              <label>AI Model</label>
+              <input id="aiModel" value="gpt-4o-mini" />
+            </div>
+
+            <div>
+              <label>Max Tokens</label>
+              <input type="number" id="maxTokens" value="30000" />
+            </div>
+
+            <div>
+              <label>Organization</label>
+              <input id="organization" value="infraon" />
+            </div>
+
+            <div>
+              <label>Project</label>
+              <input id="project" value="Infraon" />
+            </div>
+
+            <div>
+              <label>Repository Name</label>
+              <input id="repository" value="Infraon" />
+            </div>
+
+            <div>
+              <label>Pull Request ID</label>
+              <input id="prId" value="" required />
+            </div>
+
+            <div>
+              <label>Azure PAT</label>
+              <div class="secret-input-row">
+                <input
+                  id="password"
+                  type="password"
+                  value=""
+                  placeholder="Enter Azure PAT"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button
+                  type="button"
+                  class="secret-toggle"
+                  onclick="togglePasswordVisibility('password', this)"
+                  aria-label="Show Azure PAT"
+                >
+                  <i class="fas fa-eye"></i>
+                </button>
+              </div>
+              <small>Optional in local mode. Never stored by this UI.</small>
+            </div>
+          </div>
+          <div style="display: flex; gap: 20px; margin-top: 20px; justify-content: flex-start">
+            <div class="toggle-wrapper">
+              <label class="toggle-label">Take Local Changes</label>
+              <label class="switch">
+                <input type="checkbox" id="isLocal" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="toggle-wrapper">
+              <label class="toggle-label">Run Static Checks (Non-AI)</label>
+              <label class="switch">
+                <input type="checkbox" id="runStaticChecks" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="toggle-wrapper">
+              <label class="toggle-label">Show Usage Monitor</label>
+              <label class="switch">
+                <input type="checkbox" id="showUsageMonitor" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="list-controls">
+            <button class="primary" onclick="runReview()">Run Code Review</button>
+            <button onclick="runStaticChecksOnly()">Run Static Checks</button>
+          </div>
+        </section>
+
+        <section id="usageMonitorSection" class="card hidden">
+          <div class="card-header">
+            <h2>Usage Monitor</h2>
+            <button onclick="refreshUsageMetrics()">Refresh</button>
+          </div>
+          <div id="usageRequestSummary" class="summary-grid"></div>
+          <div class="meter-group">
+            <div>
+              <div class="meter-header">
+                <span>Token Budget</span>
+                <span id="tokenMeterLabel">0%</span>
+              </div>
+              <div class="meter">
+                <div id="tokenMeterFill" class="meter-fill"></div>
+              </div>
+            </div>
+            <div>
+              <div class="meter-header">
+                <span>Cost Budget</span>
+                <span id="costMeterLabel">0%</span>
+              </div>
+              <div class="meter">
+                <div id="costMeterFill" class="meter-fill cost"></div>
+              </div>
+            </div>
+          </div>
+          <details class="static-section" open>
+            <summary>Recent AI Requests</summary>
+            <div id="usageRecentRequests"></div>
+          </details>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>AI Review</h2>
+            <button onclick="copyText('aiReview')">Copy</button>
+          </div>
+          <div id="aiReview" class="markdown"></div>
+        </section>
+
+        <section id="codeChangesContainer" class="card">
+          <div class="card-header">
+            <h2>Code Change Suggestions</h2>
+            <div class="changes-actions">
+              <button onclick="copyAllChanges()">Copy All</button>
+              <button class="primary" onclick="applyAllChanges()">Apply All</button>
+            </div>
+          </div>
+          <div class="list-controls">
+            <input id="codeChangesSearch" placeholder="Search by file, category, explanation..." />
+            <select id="codeChangesPageSize">
+              <option value="10">10 / page</option>
+              <option value="25" selected>25 / page</option>
+              <option value="50">50 / page</option>
+            </select>
+          </div>
+          <div id="codeChanges"></div>
+          <div id="codeChangesPagination" class="pagination-bar"></div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>Execution Logs</h2>
+            <button onclick="copyText('logs')">Copy</button>
+          </div>
+          <pre id="logs" class="console"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>Static Checks</h2>
+            <button onclick="copyText('staticChecksOutput')">Copy</button>
+          </div>
+          <div class="runner-status">
+            <div id="staticChecksSpinner" class="spinner hidden"></div>
+            <div id="staticChecksRunState" class="muted-text">Idle</div>
+          </div>
+          <ol id="staticChecksSteps" class="steps-list"></ol>
+          <div id="staticChecksSummary" class="summary-grid"></div>
+          <div id="staticChecksMajorIssues" class="static-section"></div>
+          <details class="static-section">
+            <summary>Critical Issues Grid</summary>
+            <div class="list-controls">
+              <input id="staticIssuesSearch" placeholder="Search issues by message, file, language, tool..." />
+              <select id="staticIssuesPageSize">
+                <option value="10">10 / page</option>
+                <option value="25" selected>25 / page</option>
+                <option value="50">50 / page</option>
+                <option value="100">100 / page</option>
+              </select>
+            </div>
+            <div id="staticChecksIssues"></div>
+            <div id="staticIssuesPagination" class="pagination-bar"></div>
+          </details>
+          <details class="static-section">
+            <summary>Executed Commands</summary>
+            <div class="list-controls">
+              <input id="staticCommandsSearch" placeholder="Search commands by tool, language, status..." />
+              <select id="staticCommandsPageSize">
+                <option value="5">5 / page</option>
+                <option value="10" selected>10 / page</option>
+                <option value="25">25 / page</option>
+              </select>
+            </div>
+            <div id="staticChecksCommands"></div>
+            <div id="staticCommandsPagination" class="pagination-bar"></div>
+          </details>
+          <pre id="staticChecksOutput" class="console"></pre>
+        </section>
+      </div>
+
+      <div id="raisePrTabPanel" class="tab-panel hidden">
+        <section class="card">
+          <div class="card-header">
+            <h2>Raise PR Configuration</h2>
+            <button onclick="syncPrConfigFromReview()">Sync From Review Config</button>
+          </div>
+          <div class="grid">
+            <div>
+              <label>Repository Path</label>
+              <input id="prRepoPath" value="D:\Product\Infraon" />
+            </div>
+            <div>
+              <label>Organization</label>
+              <input id="prOrganization" value="infraon" />
+            </div>
+            <div>
+              <label>Project</label>
+              <input id="prProject" value="Infraon" />
+            </div>
+            <div>
+              <label>Repository Name</label>
+              <input id="prRepository" value="Infraon" />
+            </div>
+            <div>
+              <label>Azure PAT</label>
+              <div class="secret-input-row">
+                <input
+                  id="prPat"
+                  type="password"
+                  placeholder="Enter Azure PAT"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button
+                  type="button"
+                  class="secret-toggle"
+                  onclick="togglePasswordVisibility('prPat', this)"
+                  aria-label="Show Azure PAT"
+                >
+                  <i class="fas fa-eye"></i>
+                </button>
+              </div>
+            </div>
+            <div>
+              <label>Defaults File Path (Optional)</label>
+              <input id="prDefaultsPath" value="" placeholder="config/pr_workflow_defaults.json" />
+            </div>
+          </div>
+          <small>Step-based workflow stores non-sensitive values in browser local storage.</small>
+        </section>
+
+        <section class="card">
+          <h2>Workflow Option</h2>
+          <div class="grid">
+            <div>
+              <label>Select Option</label>
+              <select id="prWorkflowOption" onchange="onPrWorkflowOptionChange()">
+                <option value="raise-new-pr">1) Raise New PR</option>
+                <option value="cherry-pick">2) Cherry Pick From One Branch</option>
+                <option value="commit-and-push">3) Newly Commit Files And Push</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section id="prStepFeatureContext" class="card">
+          <div class="card-header">
+            <h2>Step 1: Feature Context</h2>
+            <button class="primary" onclick="loadFeatureContext()">Load Feature</button>
+          </div>
+          <div class="grid">
+            <div>
+              <label>Feature ID</label>
+              <input id="prFeatureId" type="number" min="1" />
+            </div>
+            <div>
+              <label>Commit Message (Optional)</label>
+              <input id="prCommitMessage" placeholder="Auto-generated if empty" />
+            </div>
+          </div>
+          <div id="prFeatureContext" class="muted-text"></div>
+        </section>
+
+        <section id="prStepFiles" class="card">
+          <div class="card-header">
+            <h2>Step 2: Choose Files</h2>
+            <button onclick="loadPrChangedFiles()">Refresh Changed Files</button>
+          </div>
+          <div id="prRepoSummary" class="muted-text"></div>
+          <div id="prChangedFiles" class="muted-text">No changed files loaded.</div>
+        </section>
+
+        <section id="prStepReviewers" class="card">
+          <div class="card-header">
+            <h2>Step 3: Reviewers Per Branch And Work Items</h2>
+            <button onclick="loadReviewerCandidates()">Load Reviewers</button>
+          </div>
+          <small>Default reviewer emails are loaded from `.env`. Select different reviewers for Main and PreRelease PRs.</small>
+          <div id="prReviewerList" class="muted-text">No reviewers loaded.</div>
+          <div class="grid">
+            <div>
+              <label>Additional Work Item ID (Optional)</label>
+              <input id="prAdditionalWorkItemId" type="number" min="1" />
+            </div>
+            <div>
+              <label>&nbsp;</label>
+              <button onclick="addAdditionalWorkItem()">Add Work Item + Parent + Child</button>
+            </div>
+          </div>
+          <div id="prAdditionalItems" class="muted-text">No additional work items added.</div>
+        </section>
+
+        <section id="prOptionRaiseNewPr" class="card">
+          <div class="card-header">
+            <h2>Step 4: Raise Two PRs</h2>
+            <button id="prProceedButton" class="primary" onclick="executeRaiseNewPr()">Proceed</button>
+          </div>
+          <div class="grid">
+            <div>
+              <label>Target Branches</label>
+              <div id="prTargetBranches" class="pick-list muted-text">Loading branch options...</div>
+            </div>
+          </div>
+          <small>Creates branches from selected configured targets, pushes selected files, and raises PRs.</small>
+        </section>
+
+        <section id="prOptionCherryPick" class="card hidden">
+          <div class="card-header">
+            <h2>Cherry Pick</h2>
+            <button class="primary" onclick="executeCherryPick()">Run Option 2</button>
+          </div>
+          <div class="grid">
+            <div>
+              <label>Source Branch</label>
+              <input id="prCherrySourceBranch" placeholder="feature/source-branch" />
+            </div>
+            <div>
+              <label>Target Branch</label>
+              <input id="prCherryTargetBranch" placeholder="release/target-branch" />
+            </div>
+            <div>
+              <label>Commit Hashes (comma-separated)</label>
+              <input id="prCherryCommitHashes" placeholder="abc123, def456" />
+            </div>
+          </div>
+        </section>
+
+        <section id="prOptionCommitPush" class="card hidden">
+          <div class="card-header">
+            <h2>Commit And Push</h2>
+            <button class="primary" onclick="executeCommitAndPush()">Run Option 3</button>
+          </div>
+          <div class="grid">
+            <div>
+              <label>Branch Name</label>
+              <input id="prCommitBranchName" placeholder="feature/new-branch-name" />
+            </div>
+            <div>
+              <label>Base Branch</label>
+              <input id="prCommitBaseBranch" placeholder="main" />
+            </div>
+            <div>
+              <label>Commit Message</label>
+              <input id="prCommitPushMessage" placeholder="Commit message for selected files" />
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>Raise PR Logs</h2>
+            <button onclick="copyText('prWorkflowLogs')">Copy</button>
+          </div>
+          <pre id="prWorkflowLogs" class="console"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>Raise PR Result</h2>
+            <button onclick="copyText('prWorkflowResult')">Copy</button>
+          </div>
+          <pre id="prWorkflowResult" class="console"></pre>
+        </section>
+      </div>
+    </div>
+
+    <div id="prApprovalModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="prApprovalTitle">
+      <div class="modal-card approval-modal-card">
+        <div class="approval-modal-header">
+          <div>
+            <h3 id="prApprovalTitle">Review Changes Before Staging</h3>
+            <p id="prApprovalMessage" class="muted-text">
+              Review branch changes in your workspace, update anything if needed, then click Proceed.
+            </p>
+          </div>
+          <div id="prApprovalBranchMeta" class="approval-branch-meta"></div>
+        </div>
+        <div id="prApprovalSummary" class="summary-grid approval-summary-grid"></div>
+        <div class="approval-workspace">
+          <aside class="approval-sidebar">
+            <div class="approval-panel-head">
+              <div>
+                <strong>Changed Files</strong>
+                <div id="prApprovalSelectionInfo" class="muted-text">Loading preview...</div>
+              </div>
+            </div>
+            <div id="prApprovalFileTree" class="approval-file-tree"></div>
+          </aside>
+          <section class="approval-diff-panel">
+            <div class="approval-panel-head">
+              <div>
+                <strong id="prApprovalActiveFileTitle">Select a file</strong>
+                <div id="prApprovalActiveFileMeta" class="muted-text">No file selected.</div>
+              </div>
+            </div>
+            <div id="prApprovalDiffViewer" class="approval-diff-viewer"></div>
+          </section>
+        </div>
+        <div class="modal-actions">
+          <button id="prApprovalRefresh">Refresh Preview</button>
+          <button id="prApprovalProceed" class="primary">Proceed</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="settingsOverlay" class="settings-overlay hidden" onclick="handleSettingsOverlayClick(event)">
+      <aside
+        id="settingsDrawer"
+        class="settings-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settingsDrawerTitle"
+      >
+        <div class="settings-drawer-header">
+          <div>
+            <h3 id="settingsDrawerTitle">Settings</h3>
+            <p class="muted-text">Edit the PR workflow configuration stored in the repo config folder.</p>
+          </div>
+          <button class="icon-button" type="button" aria-label="Close settings" onclick="closeSettingsDrawer()">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+
+        <div class="settings-meta">
+          <span id="settingsFilePath" class="settings-chip">config/pr_workflow_defaults.json</span>
+          <span id="settingsSaveState" class="settings-chip muted">Ready</span>
+        </div>
+
+        <div class="settings-body">
+          <div class="settings-intro card">
+            <div class="card-header">
+              <div>
+                <h4>PR Workflow Defaults</h4>
+                <p class="muted-text">
+                  Update branch mappings, templates, and workspace settings here. Nested sections follow the JSON structure automatically.
+                </p>
+              </div>
+              <button type="button" onclick="reloadSettingsConfig()">Reload</button>
+            </div>
+            <div id="settingsSummary" class="settings-summary-grid" aria-live="polite"></div>
+          </div>
+
+          <div class="settings-editor-card card">
+            <div class="card-header">
+              <div>
+                <h4>Configuration Fields</h4>
+                <p class="muted-text">Every value is rendered as an editable field, including future keys added to the config file later.</p>
+              </div>
+            </div>
+            <div id="settingsForm" class="settings-form" aria-live="polite"></div>
+            <div id="settingsValidationMessage" class="muted-text settings-validation-message">
+              The configuration will be validated automatically before saving.
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button type="button" onclick="resetSettingsEditor()">Reset</button>
+          <button id="settingsSaveButton" type="button" class="primary" onclick="saveSettingsConfig()">Save Changes</button>
+        </div>
+      </aside>
+    </div>
+
+    <template id="emptyChangesTemplate">
+      <div class="empty-changes">
+        <i class="fas fa-code"></i>
+        <p>No required changes needed for this PR diff.</p>
+      </div>
+    </template>
+
+    <template id="changeItemTemplate">
+      <article class="change-item">
+        <div class="file-change-header">
+          <div class="file-info">
+            <i class="fas fa-chevron-right collapse-icon"></i>
+            <div>
+              <div class="file-path">
+                <i class="fas fa-file-code"></i>
+                <span class="file-path-text"></span>
+              </div>
+              <div class="line-info"></div>
+            </div>
+          </div>
+          <div class="change-metadata">
+            <div class="categories"></div>
+            <span class="change-type-badge"></span>
+            <span class="status-indicator" style="display: none"></span>
+          </div>
+        </div>
+
+        <div class="diff-content">
+          <div class="diff-viewer-container">
+            <div class="diff-pane-old">
+              <div class="pane-title">
+                <i class="fas fa-minus-circle" style="color: #f87171"></i>
+                <span class="pane-title-old"></span>
+              </div>
+              <div class="pane-code pane-code-old"></div>
+            </div>
+
+            <div class="diff-pane-new">
+              <div class="pane-title">
+                <i class="fas fa-plus-circle" style="color: #34d399"></i>
+                <span class="pane-title-new"></span>
+              </div>
+              <div class="pane-code pane-code-new"></div>
+            </div>
+          </div>
+
+          <div class="change-explanation">
+            <div class="explanation-title">
+              <i class="fas fa-info-circle"></i>
+              Explanation
+            </div>
+            <div class="explanation-text"></div>
+            <div class="comment-box" hidden>
+              <strong>
+                <i class="fas fa-lightbulb"></i>
+                Note:
+              </strong>
+              <span class="comment-text"></span>
+            </div>
+          </div>
+
+          <div class="change-actions">
+            <button class="btn-copy-old">
+              <i class="fas fa-copy"></i>
+              Copy Old
+            </button>
+            <button class="btn-copy-new">
+              <i class="fas fa-copy"></i>
+              Copy New
+            </button>
+            <button class="btn-copy-change">
+              <i class="fas fa-copy"></i>
+              Copy
+            </button>
+            <button class="btn-cancel">
+              <i class="fas fa-times"></i>
+              Cancel
+            </button>
+            <button class="btn-apply">
+              <i class="fas fa-check"></i>
+              Apply Change
+            </button>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <script src="/static/script.js"></script>
+  </body>
+</html>

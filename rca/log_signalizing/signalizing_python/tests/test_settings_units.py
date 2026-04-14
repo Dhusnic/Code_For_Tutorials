@@ -138,7 +138,7 @@ def test_rules_directory_is_resolved_relative_to_config_file(
     fake_settings = types.ModuleType("settings")
     monkeypatch.setitem(sys.modules, "settings", fake_settings)
 
-    cfg_dir = tmp_path / "rca-engine"
+    cfg_dir = tmp_path / "signalizing-engine"
     cfg_dir.mkdir(parents=True, exist_ok=True)
     config_file = cfg_dir / "config.yml"
     config_file.write_text(

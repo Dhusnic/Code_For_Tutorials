@@ -1,0 +1,28 @@
+service: network
+rules:
+    - id: NETWORK_AUTO_TO_AUTHENTICATE_USER_TEST_1043C3AF
+      signal_key: network_auto_to_authenticate_user_test_1043
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: to authenticate user test'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - network
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: to authenticate user test
+    - id: NETWORK_AUTO_TO_AUTHENTICATE_USER_ROOT_66142196
+      signal_key: network_auto_to_authenticate_user_root_6614
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: to authenticate user root'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - network
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: to authenticate user root

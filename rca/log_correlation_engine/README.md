@@ -2,11 +2,19 @@
 
 This folder contains a production-oriented Go background service that reads retained signal logs from Redis, enriches them with full-log context, applies rule-based correlation, writes matches to Elasticsearch, and can optionally publish the matched results back to Redis for downstream consumers.
 
+It now also supports an optional direct compact-signal stream ingest path:
+
+```text
+log_signalizing -> Redis stream -> log_correlation_engine -> same Redis hot state + same final RCA output
+```
+
+When that stream path is enabled, the correlation engine hydrates its existing `Rca:{organization}` `signaled_logs` state from the Redis stream before it runs the normal rule pipeline. That means the external hot-state contract and final Elasticsearch result shape stay the same, but the extra Elasticsearch reread hop can be skipped.
+
 ## What It Does
 
 On each cycle the service:
 
-1. Loads organizations from the Redis organization index set and falls back to a scan only when that index is missing or stale.
+1. Scans Redis for organization hashes that contain either retained `signaled_logs` or embedded `active_incidents`.
 2. Loads the raw `signaled_logs` hash field payload for each organization.
 3. Loads the persisted correlation checkpoint from a JSON file and the active incident state from Redis for each organization.
 4. Skips unchanged organizations cheaply when there are no active incidents to sweep.
@@ -19,6 +27,7 @@ On each cycle the service:
 11. Suppresses weaker overlapping RCA matches when a stronger incident already explains the same evidence.
 12. Maintains an active incident per `organization + rule + group_by values`, updates the same Elasticsearch document for new evidence, closes incidents on recovery signals or inactivity timeout, and optionally publishes lifecycle events into a capped Redis list.
 13. Emits structured match-audit logs for every live or shadow rule match so you can see exactly which rule, group, steps, metadata filters, and matched document IDs produced the RCA result.
+14. When `redis.signal_stream_enabled` is true, ingests new compact signal events from the Redis stream, merges them into the existing per-organization `signaled_logs` payload with retention/deduplication, checkpoints the stream id, trims the stream by consumer-aware retention, and then runs the normal correlation cycle on that refreshed state.
 
 ## Redis Contract
 
@@ -59,19 +68,30 @@ Input value example:
 ]
 ```
 
-Organization index key:
+Additional incident field in the same organization hash:
 
 ```text
-Rca:organizations
+active_incidents
 ```
 
-Organization index type:
+Incident field type:
 
 ```text
-SET
+JSON array stored inside the same HASH
 ```
 
-The processor uses this set to discover organizations without scanning the full Redis namespace on every cycle. If the set is absent, it can still fall back to a scan and repair the index.
+The engine no longer stores active incidents as separate Redis keys. Each organization now keeps only the mandatory Redis structures:
+
+- one `HASH` at `Rca:{organization}` with:
+  - `signaled_logs`
+  - `active_incidents`
+- one shared `STREAM` at `Rca:signalized_log_events`
+
+Stream retention behavior:
+
+- entries that are already past the saved correlation stream checkpoint are trimmed after `redis.signal_stream_consumed_retention`
+- entries that are still not consumed are allowed to stay longer, up to `redis.signal_stream_unconsumed_retention`
+- this is done with consumer-side stream trimming, not with a plain `EXPIRE` on the whole stream key
 
 Output key:
 
@@ -193,6 +213,11 @@ Key settings:
 - `redis.result_list`: Redis list used for published correlation results. Default `correlated_events`.
 - `redis.result_list_max_len`: maximum Redis correlation results kept per organization. Default `1000`.
 - `redis.publish_results`: when `true`, publish correlation events to `redis.result_list`. Default `false`.
+- `redis.signal_stream_enabled`: when `true`, ingest compact signal events from Redis stream before each cycle. The checked-in config enables this path by default.
+- `redis.signal_stream_key`: Redis stream that carries compact signal events from signalizing. Default `Rca:signalized_log_events`.
+- `redis.signal_stream_batch_size`: maximum stream entries fetched per Redis round trip while catching up. Default `1000`.
+- `redis.signal_stream_consumed_retention`: how long already-consumed stream entries are kept before they are trimmed. Default `30m`.
+- `redis.signal_stream_unconsumed_retention`: how long not-yet-consumed backlog can stay in the stream before it is trimmed. Default `2h`.
 - `elasticsearch.addresses`: list of Elasticsearch hosts.
 - `elasticsearch.index`: destination index for correlation results.
 - `elasticsearch.request_timeout`: per-request timeout for Elasticsearch writes and health checks.
@@ -233,12 +258,20 @@ Phase 3 accuracy and control behavior:
 Phase 1 optimization behavior:
 
 - Raw Redis payloads are fingerprinted before JSON decode, so unchanged organizations are skipped cheaply.
-- Organization discovery uses the shared Redis set `Rca:organizations` instead of full keyspace scans in the steady state.
+- Redis storage is reduced to the mandatory keys only: the shared signal stream plus one organization hash that contains both `signaled_logs` and `active_incidents`.
 - Organizations are processed with a bounded worker pool instead of a single serial loop.
 - Rules are compiled and cached inside the engine, so durations and normalized sequence settings are not reparsed on every match.
 - The engine caches grouped log views per distinct `group_by` set and uses signal indexes for sequence starts.
 - Full-log enrichment batches repeated `doc_id` lookups, so the Elasticsearch fetcher avoids one request per signal when multiple documents need context in the same cycle.
 - Elasticsearch writes use the Bulk API instead of one request per result.
+
+Optional direct stream ingest behavior:
+
+- `log_signalizing` can publish compact signal events into Redis stream `redis.signal_stream_key`.
+- `log_correlation_engine` can ingest that stream directly and refresh the same `Rca:{organization}` hot state it already uses.
+- The correlation consumer trims that stream with two windows: a shorter retention for already-consumed entries and a longer safety buffer for backlog that has not been consumed yet.
+- This keeps the current correlation input and final output contracts stable.
+- The legacy `log_signal_processor` path can remain enabled as a fallback during migration, but it is no longer required for the stream-enabled path.
 
 ## Rule Shape
 
@@ -360,6 +393,14 @@ Start the whole RCA stack from the repo root with PM2:
 cd "D:\Code for tutorials\rca"
 pm2 start .\ecosystem.config.js
 ```
+
+That root PM2 stack now starts the direct-stream path by default:
+
+```text
+log_signalizing/signalizing_go -> Redis stream -> log_correlation_engine
+```
+
+The collector is no longer part of the default root PM2 boot path. Run [log_signal_processor](../log_signal_processor/README.md) separately only when you want the legacy compatibility path.
 
 Run tests:
 

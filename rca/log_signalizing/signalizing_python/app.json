@@ -1,7 +1,7 @@
 {
   "apps": [
     {
-      "name": "rca-engine-python",
+      "name": "signalizing-engine-python",
       "cwd": "D:\\Code for tutorials\\rca\\signalizing\\signalizing_python",
       "script": "D:\\Code for tutorials\\rca\\signalizing\\signalizing_python\\main.py",
       "args": ["--config", "D:\\Code for tutorials\\rca\\signalizing\\config.yml"],
@@ -13,7 +13,7 @@
       "max_restarts": 5,
       "interpreter": "D:\\Code for tutorials\\rca\\.venv\\Scripts\\python.exe",
       "env": {
-        "PM2_APP_NAME": "rca-engine-python"
+        "PM2_APP_NAME": "signalizing-engine-python"
       }
     }
   ]

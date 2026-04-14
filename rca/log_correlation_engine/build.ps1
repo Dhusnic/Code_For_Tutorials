@@ -1,43 +1,95 @@
-$ErrorActionPreference = "Stop"
+param(
+    [switch]$RunTests,
+    [switch]$SkipClean
+)
+
 Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$binDir = Join-Path $projectRoot "bin"
-$binaryPath = Join-Path $binDir "correlation-engine.exe"
-$binaryBackupPath = Join-Path $binDir "correlation-engine.exe~"
-$goCacheDir = Join-Path $projectRoot ".gocache"
+Set-Location $projectRoot
 
-Write-Host "Building log correlation engine..."
+function Resolve-GoExe {
+    $goCommand = Get-Command go -ErrorAction SilentlyContinue
+    if ($goCommand) {
+        return $goCommand.Source
+    }
 
-if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
-    throw "Go is not installed or not available in PATH."
+    $defaultGoExe = "C:\Program Files\Go\bin\go.exe"
+    if (Test-Path $defaultGoExe) {
+        return $defaultGoExe
+    }
+
+    throw "Go executable not found. Install Go or add 'go' to PATH."
 }
 
-New-Item -ItemType Directory -Path $binDir -Force | Out-Null
-New-Item -ItemType Directory -Path $goCacheDir -Force | Out-Null
+function Ensure-Directory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
 
-$env:GOCACHE = $goCacheDir
+    if (-not (Test-Path $Path)) {
+        New-Item -ItemType Directory -Path $Path | Out-Null
+    }
+}
 
-Write-Host "Removing previous correlation-engine binary if it exists..."
-Remove-Item -LiteralPath $binaryPath -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $binaryBackupPath -Force -ErrorAction SilentlyContinue
+function Remove-BinaryIfRequested {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [switch]$Skip
+    )
 
-Push-Location $projectRoot
-try {
-    go build -o $binaryPath .\cmd
+    if ($Skip) {
+        return
+    }
+
+    foreach ($candidate in @($Path, "$Path~")) {
+        if (-not (Test-Path $candidate)) {
+            continue
+        }
+
+        try {
+            Remove-Item -LiteralPath $candidate -Force -ErrorAction Stop
+        }
+        catch {
+            throw "Unable to remove '$candidate'. Stop the running binary or PM2 process and rerun the build."
+        }
+    }
+}
+
+$goExe = Resolve-GoExe
+$binaryDir = Join-Path $projectRoot "bin"
+$binaryPath = Join-Path $binaryDir "correlation-engine.exe"
+$env:GOCACHE = Join-Path $projectRoot ".gocache"
+
+Ensure-Directory -Path $binaryDir
+Ensure-Directory -Path $env:GOCACHE
+Remove-BinaryIfRequested -Path $binaryPath -Skip:$SkipClean
+
+Write-Host "Using Go executable: $goExe"
+Write-Host "Using GOCACHE: $env:GOCACHE"
+Write-Host "Building correlation engine..."
+
+& $goExe build -trimpath -o $binaryPath .\cmd
+if ($LASTEXITCODE -ne 0) {
+    throw "go build failed with exit code $LASTEXITCODE"
+}
+
+if (-not (Test-Path $binaryPath)) {
+    throw "Build completed without producing '$binaryPath'."
+}
+
+if ($RunTests) {
+    Write-Host "Running go test ./..."
+    & $goExe test ./...
     if ($LASTEXITCODE -ne 0) {
-        throw "go build failed with exit code $LASTEXITCODE"
-    }
-    if (-not (Test-Path $binaryPath)) {
-        throw "Build completed without producing $binaryPath"
-    }
-    Write-Host "Build complete!"
-    Write-Host "Binary: $binaryPath"
-    Write-Host "Run with: .\bin\correlation-engine.exe --config .\config\config.yml"
-    if (Test-Path $binaryBackupPath) {
-        Write-Warning "A .exe~ backup file is still present. This usually means the old binary was in use. Stop the running process and rebuild again for a fully clean replacement."
+        throw "go test failed with exit code $LASTEXITCODE"
     }
 }
-finally {
-    Pop-Location
-}
+
+Write-Host ""
+Write-Host "Build completed successfully."
+Write-Host "Binary: $binaryPath"
+Write-Host "Run with: .\bin\correlation-engine.exe --config .\config\config.yml"

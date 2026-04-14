@@ -41,6 +41,20 @@ logging:
   # Log unmatched events at debug-level details; can create high log volume.
   log_unmatched_events: false
 
+signal_stream:
+  # Publish compact signal events into Redis so downstream correlation can ingest them directly.
+  enabled: true
+  address: "10.0.5.97:6379"
+  username: ""
+  password: "InfraonRedis321"
+  db: 0
+  dial_timeout_seconds: "5s"
+  read_timeout_seconds: "3s"
+  write_timeout_seconds: "3s"
+  stream_key: "Rca:signalized_log_events"
+  max_len: 100000
+  organization_field: "event.organization"
+
 # Root directory containing rule files.
 rules_directory: "rules"
 

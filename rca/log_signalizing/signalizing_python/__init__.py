@@ -76,7 +76,7 @@ def _resolve_instances_from_app_json() -> int | None:
     if not isinstance(apps, list):
         return None
 
-    app_name = str(getattr(_appconf, "app_name", "rca-engine")).strip() or "rca-engine"
+    app_name = str(getattr(_appconf, "app_name", "signalizing-engine")).strip() or "signalizing-engine"
     selected = None
     for app in apps:
         if not isinstance(app, dict):

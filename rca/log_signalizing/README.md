@@ -26,6 +26,16 @@ At a high level, RCA does this in a loop:
 7. Stores checkpoints in [state](./state) or the configured external checkpoint backend.
 8. Learns repeated unmatched critical patterns into [rules/suggestions](./rules/suggestions) when rule learning is enabled.
 
+Optional compact signal stream path:
+
+```text
+raw logs -> signalizing -> Redis stream -> log_correlation_engine
+```
+
+When `signal_stream.enabled` is turned on in [config.yml](./config.yml), the Go signalizing runtime publishes one compact signal event per matched log into Redis stream `Rca:signalized_log_events` by default. That stream does not replace the existing Elasticsearch write path by itself; it adds a lower-latency handoff that the correlation engine can ingest directly.
+
+The checked-in config now enables this direct signal stream path by default.
+
 ## Main Runtime Flow
 
 The main service behavior is:
@@ -50,6 +60,14 @@ The main service behavior is:
 - [log_simulations](../log_simulations): raw syslog simulation inputs and the current simulator script.
 - [Flow charts](./Flow%20charts): project flow/reference diagrams.
 
+Relevant `signal_stream` settings in [config.yml](./config.yml):
+
+- `signal_stream.enabled`: turn compact signal publication on or off.
+- `signal_stream.address`: Redis server used for the stream.
+- `signal_stream.stream_key`: Redis stream key. Default `Rca:signalized_log_events`.
+- `signal_stream.max_len`: approximate stream trim length for storage control.
+- `signal_stream.organization_field`: source event field used to extract organization id. Default `event.organization`.
+
 ## Which Folder To Use
 
 Use [signalizing_python](./signalizing_python) when you want the original Python runtime, tests, and legacy adapter flow.
@@ -69,7 +87,7 @@ Go:
 
 ```powershell
 cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
-.\bin\rca-engine.exe --config ..\config.yml --run-once
+.\bin\signalizing-engine.exe --config ..\config.yml --run-once
 ```
 
 PM2 with Go:
@@ -84,6 +102,12 @@ Or start the full RCA stack from the repo root:
 ```powershell
 cd "D:\Code for tutorials\rca"
 pm2 start .\ecosystem.config.js
+```
+
+That root PM2 flow starts the direct path by default:
+
+```text
+raw logs -> signalizing_go -> Redis stream -> log_correlation_engine
 ```
 
 ## Related Docs

@@ -1,0 +1,11 @@
+{
+  "repo_path": "D:\\Product\\Infraon",
+  "ai_model": "gpt-4o-mini",
+  "max_tokens": 30000,
+  "organization": "infraon",
+  "project": "Infraon",
+  "repository_name": "Infraon",
+  "pull_request_id": "17070",
+  "azure_pat": "",
+  "is_local": false
+}

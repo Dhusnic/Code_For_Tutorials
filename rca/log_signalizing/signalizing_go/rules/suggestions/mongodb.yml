@@ -13,3 +13,42 @@ rules:
         field: message
         op: contains
         value: deferring table drop index
+    - id: MONGODB_AUTO_TO_CHECK_SOCKET_CONNECTIVITY_E9199E49
+      signal_key: mongodb_auto_to_check_socket_connectivity_e919
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: to check socket connectivity'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - mongodb
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: to check socket connectivity
+    - id: MONGODB_AUTO_TO_GATHER_STORAGE_STATISTICS_234D410B
+      signal_key: mongodb_auto_to_gather_storage_statistics_234d
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: to gather storage statistics'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - mongodb
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: to gather storage statistics
+    - id: MONGODB_AUTO_ACCEPTING_NEW_CONNECTION_64074E14
+      signal_key: mongodb_auto_accepting_new_connection_6407
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: accepting new connection'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - mongodb
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: accepting new connection

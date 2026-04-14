@@ -20,8 +20,8 @@ else
 fi
 
 BIN_DIR="$SCRIPT_DIR/bin"
-ENGINE_EXE="$BIN_DIR/rca-engine.exe"
-ENGINE_EXE_BACKUP="$BIN_DIR/rca-engine.exe~"
+ENGINE_EXE="$BIN_DIR/signalizing-engine.exe"
+ENGINE_EXE_BACKUP="$BIN_DIR/signalizing-engine.exe~"
 VALIDATOR_EXE="$BIN_DIR/validate-rules.exe"
 VALIDATOR_EXE_BACKUP="$BIN_DIR/validate-rules.exe~"
 
@@ -33,8 +33,8 @@ echo "Using GOMODCACHE: $GOMODCACHE"
 echo "Removing previous binaries if they exist..."
 rm -f "$ENGINE_EXE" "$ENGINE_EXE_BACKUP" "$VALIDATOR_EXE" "$VALIDATOR_EXE_BACKUP"
 
-echo "Building rca-engine.exe..."
-"$GO_EXE" build -o "$ENGINE_EXE" ./cmd/rca-engine
+echo "Building signalizing-engine.exe..."
+"$GO_EXE" build -o "$ENGINE_EXE" ./cmd/signalizing-engine
 
 echo "Building validate-rules.exe..."
 "$GO_EXE" build -o "$VALIDATOR_EXE" ./cmd/validate-rules

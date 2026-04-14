@@ -1,0 +1,20 @@
+{
+  "repo_path": "D:\\Product\\Infraon",
+  "languages_detected": [
+    "python",
+    "typescript"
+  ],
+  "commands": [],
+  "issues": [],
+  "major_issues": [],
+  "summary": {
+    "status": "ok",
+    "total_commands": 0,
+    "failed_commands": 0,
+    "total_issues": 0,
+    "critical_issues": 0,
+    "high_issues": 0
+  },
+  "scope": "repo",
+  "target_files_count": 0
+}
