@@ -461,6 +461,19 @@ rules:
     - field: status
       op: gte
       value: 500
+    - field: status_code
+      op: regex
+      value: ^5[0-9]{2}$
+    - field: message
+      op: regex
+      value: '(?:\\s|")5[0-9]{2}(?:\\s|")'
+    - and:
+      - field: message
+        op: contains
+        value: rca_sim_nginx_access
+      - field: message
+        op: regex
+        value: status=5[0-9]{2}
   signal_key: nginx_access_5xx_any
 - id: NGINX_ACCESS_502_BAD_GATEWAY
   level: critical
@@ -477,6 +490,19 @@ rules:
     - field: status
       op: equals
       value: 502
+    - field: status_code
+      op: regex
+      value: ^502$
+    - field: message
+      op: regex
+      value: '(?:\\s|")502(?:\\s|")'
+    - and:
+      - field: message
+        op: contains
+        value: rca_sim_nginx_access
+      - field: message
+        op: contains
+        value: status=502
   signal_key: nginx_access_502_bad_gateway
 - id: NGINX_ACCESS_503_UNAVAILABLE
   level: critical

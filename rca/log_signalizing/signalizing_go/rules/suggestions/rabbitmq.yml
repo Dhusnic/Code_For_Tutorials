@@ -1,0 +1,28 @@
+service: rabbitmq
+rules:
+    - id: RABBITMQ_AUTO_NODE_DATABASE_DIRECTORY_IS_E6C70A5A
+      signal_key: rabbitmq_auto_node_database_directory_is_e6c7
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: node database directory is'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: node database directory is
+    - id: RABBITMQ_AUTO_RUNNING_BOOT_STEP_DATABASE_ED44B1C4
+      signal_key: rabbitmq_auto_running_boot_step_database_ed44
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: running boot step database'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: running boot step database

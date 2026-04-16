@@ -1,0 +1,67 @@
+service: auth
+rules:
+    - id: AUTH_AUTO_APR_LOCALHOST_SSHD_NO_EEA59EAE
+      signal_key: auth_auto_apr_localhost_sshd_no_eea5
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: apr localhost sshd no'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - auth
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: apr localhost sshd no
+    - id: AUTH_AUTO_MAR_LOCALHOST_SSHD_NO_86A4B26A
+      signal_key: auth_auto_mar_localhost_sshd_no_86a4
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: mar localhost sshd no'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - auth
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: mar localhost sshd no
+    - id: AUTH_AUTO_APR_LOCALHOST_SSHD_SSH_0F80017E
+      signal_key: auth_auto_apr_localhost_sshd_ssh_0f80
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: apr localhost sshd ssh'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - auth
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: apr localhost sshd ssh
+    - id: AUTH_AUTO_MAR_LOCALHOST_SSHD_SSH_B906274F
+      signal_key: auth_auto_mar_localhost_sshd_ssh_b906
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: mar localhost sshd ssh'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - auth
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: mar localhost sshd ssh
+    - id: AUTH_AUTO_APR_LOCALHOST_SSHD_RECEIVED_F13DBF13
+      signal_key: auth_auto_apr_localhost_sshd_received_f13d
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: apr localhost sshd received'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - auth
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: apr localhost sshd received

@@ -26,3 +26,224 @@ rules:
         field: message
         op: contains
         value: topics not in preferred
+    - id: KAFKA_AUTO_PERIODIC_TASK_ELECTPREFERRED_GENERATED_FE8F1315
+      signal_key: kafka_auto_periodic_task_electpreferred_generated_fe8f
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: periodic task electpreferred generated'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: periodic task electpreferred generated
+    - id: KAFKA_AUTO_WILL_NOT_ATTEMPT_TO_9F8CAB2D
+      signal_key: kafka_auto_will_not_attempt_to_9f8c
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: will not attempt to'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: will not attempt to
+    - id: KAFKA_AUTO_LEADER_LOG_ALERTS_TOPIC_1FF22BE0
+      signal_key: kafka_auto_leader_log_alerts_topic_1ff2
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: leader log alerts topic'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: leader log alerts topic
+    - id: KAFKA_AUTO_FOLLOWER_LOG_ALERTS_STARTS_992E1229
+      signal_key: kafka_auto_follower_log_alerts_starts_992e
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: follower log alerts starts'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: follower log alerts starts
+    - id: KAFKA_AUTO_REMOVED_FETCHER_PARTITIONS_SET_16BE936D
+      signal_key: kafka_auto_removed_fetcher_partitions_set_16be
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: removed fetcher partitions set'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: removed fetcher partitions set
+    - id: KAFKA_AUTO_REPLAYED_BROKERREGISTRATIONCHANGERECORD_MODIFYING_REGISTRATION_24ABFA03
+      signal_key: kafka_auto_replayed_brokerregistrationchangerecord_modifying_registration_24ab
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: replayed brokerregistrationchangerecord modifying registration'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: replayed brokerregistrationchangerecord modifying registration
+    - id: KAFKA_AUTO_IGNORING_NO_OP_REGISTRATION_F51B78D0
+      signal_key: kafka_auto_ignoring_no_op_registration_f51b
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: ignoring no op registration'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: ignoring no op registration
+    - id: KAFKA_AUTO_REPLAYED_PARTITIONRECORD_NEW_PARTITION_A45EA0E7
+      signal_key: kafka_auto_replayed_partitionrecord_new_partition_a45e
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: replayed partitionrecord new partition'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: replayed partitionrecord new partition
+    - id: KAFKA_AUTO_TO_LOAD_METADATA_CONSUMER_B27ECA23
+      signal_key: kafka_auto_to_load_metadata_consumer_b27e
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: to load metadata consumer'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: to load metadata consumer
+    - id: KAFKA_AUTO_LOADING_PRODUCER_STATE_SNAPSHOT_99170CFC
+      signal_key: kafka_auto_loading_producer_state_snapshot_9917
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: loading producer state snapshot'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: loading producer state snapshot
+    - id: KAFKA_AUTO_DELETED_PRODUCER_STATE_SNAPSHOT_00A27FD8
+      signal_key: kafka_auto_deleted_producer_state_snapshot_00a2
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: deleted producer state snapshot'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: deleted producer state snapshot
+    - id: KAFKA_AUTO_RECOVERING_UNFLUSHED_SEGMENT_RECOVERED_891DCB22
+      signal_key: kafka_auto_recovering_unflushed_segment_recovered_891d
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: recovering unflushed segment recovered'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: recovering unflushed segment recovered
+    - id: KAFKA_AUTO_LOG_LOADED_PARTITION_ALERTS_8A07E64D
+      signal_key: kafka_auto_log_loaded_partition_alerts_8a07
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: log loaded partition alerts'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: log loaded partition alerts
+    - id: KAFKA_AUTO_CREATING_NEW_PARTITION_LOG_DE0AA9EB
+      signal_key: kafka_auto_creating_new_partition_log_de0a
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: creating new partition log'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: creating new partition log
+    - id: KAFKA_AUTO_COMPLETED_LOAD_OF_LOG_D2AC8C8B
+      signal_key: kafka_auto_completed_load_of_log_d2ac
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: completed load of log'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: completed load of log
+    - id: KAFKA_AUTO_REGISTERBROKER_EVENT_DUPLICATEBROKERREGISTRATIONEXCEPTION_IN_F3C854C3
+      signal_key: kafka_auto_registerbroker_event_duplicatebrokerregistrationexception_in_f3c8
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: registerbroker event duplicatebrokerregistrationexception in'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: registerbroker event duplicatebrokerregistrationexception in
+    - id: KAFKA_AUTO_UNABLE_TO_REGISTER_BROKER_85FDBB68
+      signal_key: kafka_auto_unable_to_register_broker_85fd
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: unable to register broker'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - kafka
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: unable to register broker

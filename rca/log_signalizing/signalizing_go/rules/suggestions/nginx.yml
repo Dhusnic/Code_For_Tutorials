@@ -130,3 +130,16 @@ rules:
         field: message
         op: contains
         value: apr get assets images
+    - id: NGINX_AUTO_OPEN_USR_SHARE_NGINX_07C0AE14
+      signal_key: nginx_auto_open_usr_share_nginx_07c0
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: open usr share nginx'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: open usr share nginx

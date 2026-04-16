@@ -26,3 +26,107 @@ rules:
         field: message
         op: contains
         value: ist value too long
+    - id: POSTGRES_AUTO_IST_INVALID_INPUT_SYNTAX_17F5BEF4
+      signal_key: postgres_auto_ist_invalid_input_syntax_17f5
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: ist invalid input syntax'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - postgres
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: ist invalid input syntax
+    - id: POSTGRES_AUTO_AUDIT_PID_UID_AUID_25F0F68A
+      signal_key: postgres_auto_audit_pid_uid_auid_25f0
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: audit pid uid auid'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - postgres
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: audit pid uid auid
+    - id: POSTGRES_AUTO_IST_FATAL_CONNECTION_TO_063E9E72
+      signal_key: postgres_auto_ist_fatal_connection_to_063e
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: ist fatal connection to'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - postgres
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: ist fatal connection to
+    - id: POSTGRES_AUTO_IST_LOG_JOB_THREW_47854C05
+      signal_key: postgres_auto_ist_log_job_threw_4785
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: ist log job threw'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - postgres
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: ist log job threw
+    - id: POSTGRES_AUTO_UTC_DATABASE_SYSTEM_IS_BDED7197
+      signal_key: postgres_auto_utc_database_system_is_bded
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: utc database system is'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - postgres
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: utc database system is
+    - id: POSTGRES_AUTO_UTC_FATAL_CHECKPOINT_COMPLETE_08F8BC0F
+      signal_key: postgres_auto_utc_fatal_checkpoint_complete_08f8
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: utc fatal checkpoint complete'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - postgres
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: utc fatal checkpoint complete
+    - id: POSTGRES_AUTO_UTC_CHECKPOINT_COMPLETE_WROTE_98BB35E0
+      signal_key: postgres_auto_utc_checkpoint_complete_wrote_98bb
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: utc checkpoint complete wrote'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - postgres
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: utc checkpoint complete wrote
+    - id: POSTGRES_AUTO_UTC_FATAL_DATABASE_SYSTEM_830C50CF
+      signal_key: postgres_auto_utc_fatal_database_system_830c
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: utc fatal database system'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - postgres
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: utc fatal database system

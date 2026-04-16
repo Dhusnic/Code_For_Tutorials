@@ -1,42 +1,45 @@
 {
-  "updated_at": "2026-04-14T09:28:52.1608674Z",
+  "updated_at": "2026-04-16T10:59:26.7625685Z",
   "items": [
     {
       "schema_version": 1,
       "correlation_schema_version": 2,
-      "incident_id": "49a6b4b716c218ec399b2839c139a3b39ca48458f248515d1868881c89dc0d4e",
+      "incident_id": "57327a6b7091aa85d2a6e827311f38ea6058692bee795d18cce408915548b518",
       "organization_id": "135098068173316952064",
-      "rule_id": "CORR_H6D4_MONGO_AUTH_CHAIN_SPARSE",
+      "topology_id": "local_topology",
+      "rule_id": "CORR_9XK2_MONGO_AUTH_CHAIN",
       "status": "open",
       "classification": "confirmed_rca",
-      "confidence_score": 8.9917,
+      "confidence_score": 9.1387,
       "score_breakdown": {
         "sequence_match": 1,
         "dependency_match": 1,
-        "time_proximity": 0.4344,
-        "signal_severity": 0.8933,
+        "time_proximity": 0.5538,
+        "signal_severity": 0.872,
         "rule_completeness": 1,
         "topology_coverage": 1,
         "identity_confidence": 1,
         "completed_step_coverage": 1,
         "contradiction_penalty": 1,
-        "final_weighted": 0.8992
+        "final_weighted": 0.9139
       },
       "involved_services": [
         "10.0.5.97::mongodb"
       ],
       "matched_doc_ids": [
-        "DYFRi50BFK2GVfCYLs9g",
-        "FYFRi50BFK2GVfCYLs9m",
-        "FoFRi50BFK2GVfCYLs9m"
+        "YO_rlZ0BFK2GVfCYzz7c",
+        "Ye_rlZ0BFK2GVfCYzz7c",
+        "XO_rlZ0BFK2GVfCYzz7V",
+        "Yu_rlZ0BFK2GVfCYzz7c",
+        "Y-_rlZ0BFK2GVfCYzz7c"
       ],
       "matched_logs": [
         {
-          "id": "DYFRi50BFK2GVfCYLs9g",
+          "id": "YO_rlZ0BFK2GVfCYzz7c",
           "severity": "warning",
-          "source_index": "linux_logs-2026.04.14",
+          "source_index": "linux_logs-2026.04.16",
           "signal": "mongodb_auth_failed",
-          "timestamp": "2026-04-14T09:21:06.728Z",
+          "timestamp": "2026-04-16T10:54:15.989Z",
           "service_name": "mongodb",
           "host_name": "dhusnicinfant-vm",
           "host_ip": "10.0.5.97",
@@ -45,11 +48,11 @@
           ]
         },
         {
-          "id": "FYFRi50BFK2GVfCYLs9m",
+          "id": "Ye_rlZ0BFK2GVfCYzz7c",
           "severity": "warning",
-          "source_index": "linux_logs-2026.04.14",
-          "signal": "mongodb_interrupted_client_disconnected",
-          "timestamp": "2026-04-14T09:24:05.728Z",
+          "source_index": "linux_logs-2026.04.16",
+          "signal": "mongodb_auth_failed",
+          "timestamp": "2026-04-16T10:55:16.488Z",
           "service_name": "mongodb",
           "host_name": "dhusnicinfant-vm",
           "host_ip": "10.0.5.97",
@@ -58,11 +61,37 @@
           ]
         },
         {
-          "id": "FoFRi50BFK2GVfCYLs9m",
+          "id": "XO_rlZ0BFK2GVfCYzz7V",
+          "severity": "warning",
+          "source_index": "linux_logs-2026.04.16",
+          "signal": "mongodb_auth_failed",
+          "timestamp": "2026-04-16T10:56:16.988Z",
+          "service_name": "mongodb",
+          "host_name": "dhusnicinfant-vm",
+          "host_ip": "10.0.5.97",
+          "host_ips": [
+            "10.0.5.97"
+          ]
+        },
+        {
+          "id": "Yu_rlZ0BFK2GVfCYzz7c",
+          "severity": "warning",
+          "source_index": "linux_logs-2026.04.16",
+          "signal": "mongodb_interrupted_client_disconnected",
+          "timestamp": "2026-04-16T10:56:45.988Z",
+          "service_name": "mongodb",
+          "host_name": "dhusnicinfant-vm",
+          "host_ip": "10.0.5.97",
+          "host_ips": [
+            "10.0.5.97"
+          ]
+        },
+        {
+          "id": "Y-_rlZ0BFK2GVfCYzz7c",
           "severity": "critical",
-          "source_index": "linux_logs-2026.04.14",
+          "source_index": "linux_logs-2026.04.16",
           "signal": "mongodb_host_unreachable",
-          "timestamp": "2026-04-14T09:25:05.728Z",
+          "timestamp": "2026-04-16T10:58:45.988Z",
           "service_name": "mongodb",
           "host_name": "dhusnicinfant-vm",
           "host_ip": "10.0.5.97",
@@ -73,42 +102,41 @@
       ],
       "group_by_values": {
         "event.organization": "135098068173316952064",
-        "topology.identity": "10.0.5.97::mongodb"
+        "host.identity": "10.0.5.97"
       },
-      "matched_at": "2026-04-14T09:25:05.728Z",
-      "first_seen": "2026-04-14T09:25:05.728Z",
-      "last_seen": "2026-04-14T09:25:05.728Z",
-      "result_signature": "c8e79ee4088fecdc23560c051e6b5c4456cd5184e6ec589bb9038b1a55177a99",
-      "last_processed_result_signature": "c8e79ee4088fecdc23560c051e6b5c4456cd5184e6ec589bb9038b1a55177a99",
+      "matched_at": "2026-04-16T10:58:45.988Z",
+      "first_seen": "2026-04-16T10:58:45.988Z",
+      "last_seen": "2026-04-16T10:58:45.988Z",
+      "result_signature": "781dcce7aea2049d13e9fea69296e76c20e6b628920e7545ed1390e83214fab2",
+      "last_processed_result_signature": "781dcce7aea2049d13e9fea69296e76c20e6b628920e7545ed1390e83214fab2",
       "audit": {
         "rule_type": "ordered_signal_sequence",
-        "window": "10m",
-        "max_gap_between_steps": "3m",
+        "window": "15m",
         "group_by": [
           "event.organization",
-          "topology.identity"
+          "host.identity"
         ],
         "group_by_values": {
           "event.organization": "135098068173316952064",
-          "topology.identity": "10.0.5.97::mongodb"
+          "host.identity": "10.0.5.97"
         },
-        "negative_signals": [
-          "mongodb_auth_success"
-        ],
         "deduplication_key": [
           "signal_key",
-          "host.name"
+          "host.name",
+          "service.name"
         ],
-        "deduplication_window": "2m",
+        "deduplication_window": "30s",
         "steps": [
           {
             "step_index": 0,
             "signal_key": "mongodb_auth_failed",
-            "required_count": 1,
-            "matched_count": 1,
+            "required_count": 3,
+            "matched_count": 3,
             "within": "5m",
             "matched_log_ids": [
-              "DYFRi50BFK2GVfCYLs9g"
+              "YO_rlZ0BFK2GVfCYzz7c",
+              "Ye_rlZ0BFK2GVfCYzz7c",
+              "XO_rlZ0BFK2GVfCYzz7V"
             ]
           },
           {
@@ -118,7 +146,7 @@
             "matched_count": 1,
             "within": "3m",
             "matched_log_ids": [
-              "FYFRi50BFK2GVfCYLs9m"
+              "Yu_rlZ0BFK2GVfCYzz7c"
             ]
           },
           {
@@ -128,16 +156,20 @@
             "matched_count": 1,
             "within": "3m",
             "matched_log_ids": [
-              "FoFRi50BFK2GVfCYLs9m"
+              "Y-_rlZ0BFK2GVfCYzz7c"
             ]
           }
         ],
         "matched_log_ids": [
-          "DYFRi50BFK2GVfCYLs9g",
-          "FYFRi50BFK2GVfCYLs9m",
-          "FoFRi50BFK2GVfCYLs9m"
+          "YO_rlZ0BFK2GVfCYzz7c",
+          "Ye_rlZ0BFK2GVfCYzz7c",
+          "XO_rlZ0BFK2GVfCYzz7V",
+          "Yu_rlZ0BFK2GVfCYzz7c",
+          "Y-_rlZ0BFK2GVfCYzz7c"
         ],
         "matched_signals": [
+          "mongodb_auth_failed",
+          "mongodb_auth_failed",
           "mongodb_auth_failed",
           "mongodb_interrupted_client_disconnected",
           "mongodb_host_unreachable"
@@ -146,47 +178,48 @@
       "llm": {
         "provider": "openai",
         "model": "gpt-4o-mini",
-        "root_cause": "The root cause appears to be a combination of initial authentication failures for the root user, followed by network issues causing client disconnections and ultimately the database host becoming unreachable.",
-        "natural_language_summary": "The incident was triggered by a sequence of issues involving the MongoDB service, starting with authentication failures for the root user, which led to client disconnections and ultimately resulted in the database host becoming unreachable. The confirmed signals were logged in a sequence that matched the defined rule for significant events.",
+        "root_cause": "Multiple failed authentication attempts triggered by incorrect credentials for the root user, followed by a network connectivity issue that made the MongoDB host unreachable.",
+        "natural_language_summary": "The most likely root cause of the incident is a series of authentication failures for the MongoDB service, which escalated to a critical state when the host became unreachable due to network issues. This chain of events disrupted MongoDB's availability.",
         "affected_services": [
-          "10.0.5.97::mongodb"
+          "mongodb"
         ],
         "evidence": [
-          "On 2026-04-14T09:21:06.728Z, the log indicates a 'mongodb_auth_failed' signal, citing a failure to authenticate user root against the admin database.",
-          "On 2026-04-14T09:24:05.728Z, the log shows an 'mongodb_interrupted_client_disconnected' signal, indicating that a client disconnected while an operation was in progress.",
-          "At 2026-04-14T09:25:05.728Z, a 'mongodb_host_unreachable' signal was logged due to a 'No route to host' error."
+          "At 2026-04-16T10:54:15.989Z, there were multiple warnings of failed authentication for user root against the admin database from client 10.0.5.97.",
+          "This authentication failure occurred three times within a 5-minute window, as recorded at 10:54:15, 10:55:16, and 10:56:16.",
+          "At 2026-04-16T10:56:45.988Z, there was a warning indicating that a client operation was interrupted due to the client disconnecting.",
+          "At 2026-04-16T10:58:45.988Z, a critical error was logged stating that the host became unreachable, with a message indicating no route to host."
         ],
         "next_checks": [
-          "Investigate the authentication configuration for the MongoDB service to ensure correct user credentials.",
-          "Examine network configurations that could have caused the host to be unreachable, including firewall rules or network outages.",
-          "Review the logs for any additional errors or warnings that occurred prior to the incident that may provide further context."
+          "Verify the MongoDB user credentials and ensure they are correct.",
+          "Check the network configuration and connectivity to ensure that the host can be reached without issues.",
+          "Monitor the MongoDB service for further interruptions or authentication failures."
         ]
       },
-      "updated_at": "2026-04-14T09:28:35.9770468Z"
+      "updated_at": "2026-04-16T10:53:20.0952481Z"
     },
     {
       "schema_version": 1,
       "correlation_schema_version": 2,
-      "incident_id": "509fd9a73c87837c2e4deb1991ca307c0e7e91bf30d1d2d5e74a7ee8d1ce2ede",
+      "incident_id": "785e5cc0bb7a096328d6093d5e0378e43921d598ae76776091d643d1e2d26a1c",
       "organization_id": "135098068173316952064",
-      "rule_id": "CORR_9XK2_MONGO_AUTH_CHAIN",
+      "topology_id": "local_topology",
+      "rule_id": "CORR_H6D4_MONGO_AUTH_CHAIN_SPARSE",
       "status": "open",
       "classification": "probable_cause",
-      "confidence_score": 4.965,
+      "confidence_score": 6.4,
       "score_breakdown": {
-        "sequence_match": 0.2222,
+        "sequence_match": 0.5,
         "dependency_match": 1,
-        "time_proximity": 0.1989,
+        "time_proximity": 0.5,
         "signal_severity": 0.6,
-        "rule_completeness": 0.4,
+        "rule_completeness": 0.5,
         "topology_coverage": 1,
         "identity_confidence": 1,
         "completed_step_coverage": 0,
         "contradiction_penalty": 1,
-        "final_weighted": 0.4965
+        "final_weighted": 0.64
       },
       "below_threshold_reasons": [
-        "Matched logs were too far apart in time to reinforce the incident sequence.",
         "Signal severity stayed too low for a high-confidence RCA.",
         "Rule evidence is only partially complete after topology and identity adjustments.",
         "The observed signal sequence only partially matches the expected rule order."
@@ -195,29 +228,15 @@
         "10.0.5.97::mongodb"
       ],
       "matched_doc_ids": [
-        "DYFRi50BFK2GVfCYLs9g",
-        "FIFRi50BFK2GVfCYLs9m"
+        "cO_QlZ0BFK2GVfCYpABb"
       ],
       "matched_logs": [
         {
-          "id": "DYFRi50BFK2GVfCYLs9g",
+          "id": "cO_QlZ0BFK2GVfCYpABb",
           "severity": "warning",
-          "source_index": "linux_logs-2026.04.14",
+          "source_index": "linux_logs-2026.04.16",
           "signal": "mongodb_auth_failed",
-          "timestamp": "2026-04-14T09:21:06.728Z",
-          "service_name": "mongodb",
-          "host_name": "dhusnicinfant-vm",
-          "host_ip": "10.0.5.97",
-          "host_ips": [
-            "10.0.5.97"
-          ]
-        },
-        {
-          "id": "FIFRi50BFK2GVfCYLs9m",
-          "severity": "warning",
-          "source_index": "linux_logs-2026.04.14",
-          "signal": "mongodb_auth_failed",
-          "timestamp": "2026-04-14T09:23:07.728Z",
+          "timestamp": "2026-04-16T10:24:43.527Z",
           "service_name": "mongodb",
           "host_name": "dhusnicinfant-vm",
           "host_ip": "10.0.5.97",
@@ -228,70 +247,357 @@
       ],
       "group_by_values": {
         "event.organization": "135098068173316952064",
-        "topology.identity": "10.0.5.97::mongodb"
+        "host.identity": "10.0.5.97"
       },
-      "matched_at": "2026-04-14T09:23:07.728Z",
-      "first_seen": "2026-04-14T09:23:07.728Z",
-      "last_seen": "2026-04-14T09:23:07.728Z",
-      "result_signature": "0bc1deb8cda574347538e530a22a0a5a91fabfeb1e1607c2485d4a162a274255",
-      "last_processed_result_signature": "0bc1deb8cda574347538e530a22a0a5a91fabfeb1e1607c2485d4a162a274255",
+      "matched_at": "2026-04-16T10:24:43.527Z",
+      "first_seen": "2026-04-16T10:24:43.527Z",
+      "last_seen": "2026-04-16T10:24:43.527Z",
+      "result_signature": "391f4cf87645fa9cc2b1e86148b6e01eff4b373c2873b50b567055e3deaca0bb",
+      "last_processed_result_signature": "391f4cf87645fa9cc2b1e86148b6e01eff4b373c2873b50b567055e3deaca0bb",
       "audit": {
         "rule_type": "ordered_signal_sequence",
-        "window": "15m",
-        "max_gap_between_steps": "3m",
+        "window": "10m",
         "group_by": [
           "event.organization",
-          "topology.identity"
+          "host.identity"
         ],
         "group_by_values": {
           "event.organization": "135098068173316952064",
-          "topology.identity": "10.0.5.97::mongodb"
+          "host.identity": "10.0.5.97"
         },
-        "negative_signals": [
-          "mongodb_auth_success"
-        ],
         "deduplication_key": [
           "signal_key",
-          "host.name"
+          "host.name",
+          "service.name"
         ],
-        "deduplication_window": "2m",
+        "deduplication_window": "30s",
         "steps": [
           {
             "step_index": 0,
             "signal_key": "mongodb_auth_failed",
-            "required_count": 3,
-            "matched_count": 2,
+            "required_count": 2,
+            "matched_count": 1,
             "within": "5m",
             "matched_log_ids": [
-              "DYFRi50BFK2GVfCYLs9g",
-              "FIFRi50BFK2GVfCYLs9m"
+              "cO_QlZ0BFK2GVfCYpABb"
+            ]
+          }
+        ],
+        "matched_log_ids": [
+          "cO_QlZ0BFK2GVfCYpABb"
+        ],
+        "matched_signals": [
+          "mongodb_auth_failed"
+        ]
+      },
+      "updated_at": "2026-04-16T10:50:13.9760889Z"
+    },
+    {
+      "schema_version": 1,
+      "correlation_schema_version": 2,
+      "incident_id": "9253d43822121f6fa1423311b35ef0cd20558f152504f989daed43627dd7a448",
+      "organization_id": "135098068173316952064",
+      "topology_id": "local_topology",
+      "rule_id": "CORR_T7Q1_WEB_FAILURE_SPIKE",
+      "status": "open",
+      "classification": "probable_cause",
+      "confidence_score": 5.25,
+      "score_breakdown": {
+        "sequence_match": 0.1667,
+        "dependency_match": 1,
+        "time_proximity": 0.25,
+        "signal_severity": 1,
+        "rule_completeness": 0.25,
+        "topology_coverage": 1,
+        "identity_confidence": 1,
+        "completed_step_coverage": 0,
+        "contradiction_penalty": 1,
+        "final_weighted": 0.525
+      },
+      "below_threshold_reasons": [
+        "Matched logs were too far apart in time to reinforce the incident sequence.",
+        "Rule evidence is only partially complete after topology and identity adjustments.",
+        "The observed signal sequence only partially matches the expected rule order."
+      ],
+      "involved_services": [
+        "10.0.5.97::nginx"
+      ],
+      "matched_doc_ids": [
+        "Xe_rlZ0BFK2GVfCYzz7c"
+      ],
+      "matched_logs": [
+        {
+          "id": "Xe_rlZ0BFK2GVfCYzz7c",
+          "severity": "critical",
+          "source_index": "linux_logs-2026.04.16",
+          "signal": "nginx_access_502_bad_gateway",
+          "timestamp": "2026-04-16T10:52:20.766Z",
+          "service_name": "nginx",
+          "host_name": "dhusnicinfant-vm",
+          "host_ip": "10.0.5.97",
+          "host_ips": [
+            "10.0.5.97"
+          ]
+        }
+      ],
+      "group_by_values": {
+        "event.organization": "135098068173316952064",
+        "host.identity": "10.0.5.97"
+      },
+      "matched_at": "2026-04-16T10:52:20.766Z",
+      "first_seen": "2026-04-16T10:52:20.766Z",
+      "last_seen": "2026-04-16T10:52:20.766Z",
+      "result_signature": "5d34e90d563a9b10646031dee8d8bb20d3f48b2947d9f14f50f5f0868128dea1",
+      "last_processed_result_signature": "5d34e90d563a9b10646031dee8d8bb20d3f48b2947d9f14f50f5f0868128dea1",
+      "audit": {
+        "rule_type": "ordered_signal_sequence",
+        "window": "12m",
+        "group_by": [
+          "event.organization",
+          "host.identity"
+        ],
+        "group_by_values": {
+          "event.organization": "135098068173316952064",
+          "host.identity": "10.0.5.97"
+        },
+        "deduplication_key": [
+          "signal_key",
+          "host.name",
+          "service.name"
+        ],
+        "deduplication_window": "30s",
+        "steps": [
+          {
+            "step_index": 0,
+            "signal_key": "nginx_access_502_bad_gateway",
+            "required_count": 3,
+            "matched_count": 1,
+            "within": "4m",
+            "matched_log_ids": [
+              "Xe_rlZ0BFK2GVfCYzz7c"
             ]
           },
           {
             "step_index": 1,
-            "signal_key": "mongodb_interrupted_client_disconnected",
-            "required_count": 1,
-            "matched_count": 0,
-            "within": "3m"
-          },
-          {
-            "step_index": 2,
-            "signal_key": "mongodb_host_unreachable",
+            "signal_key": "nginx_worker_respawned",
             "required_count": 1,
             "matched_count": 0,
             "within": "3m"
           }
         ],
         "matched_log_ids": [
-          "DYFRi50BFK2GVfCYLs9g",
-          "FIFRi50BFK2GVfCYLs9m"
+          "Xe_rlZ0BFK2GVfCYzz7c"
+        ],
+        "matched_signals": [
+          "nginx_access_502_bad_gateway"
+        ]
+      },
+      "updated_at": "2026-04-16T10:53:20.0691469Z"
+    },
+    {
+      "schema_version": 1,
+      "correlation_schema_version": 2,
+      "incident_id": "9ebbb605121af28295aa48e6219ea41d40133d8edb5490fa9bafe58562f7cfd3",
+      "organization_id": "135098068173316952064",
+      "topology_id": "local_topology",
+      "rule_id": "CORR_OPENAI_LOCAL_MONGODB_AUTH_CASCADE",
+      "status": "open",
+      "classification": "confirmed_rca",
+      "confidence_score": 6.4571,
+      "score_breakdown": {
+        "sequence_match": 0.5833,
+        "dependency_match": 0.6938,
+        "time_proximity": 0.4848,
+        "signal_severity": 0.872,
+        "rule_completeness": 0.625,
+        "topology_coverage": 1,
+        "identity_confidence": 1,
+        "completed_step_coverage": 0.5,
+        "contradiction_penalty": 1,
+        "final_weighted": 0.6457
+      },
+      "involved_services": [
+        "10.0.5.97::mongodb",
+        "10.0.5.97::nginx"
+      ],
+      "matched_doc_ids": [
+        "YO_rlZ0BFK2GVfCYzz7c",
+        "Ye_rlZ0BFK2GVfCYzz7c",
+        "XO_rlZ0BFK2GVfCYzz7V",
+        "Yu_rlZ0BFK2GVfCYzz7c",
+        "Iu_xlZ0BFK2GVfCYTUoM"
+      ],
+      "matched_logs": [
+        {
+          "id": "YO_rlZ0BFK2GVfCYzz7c",
+          "severity": "warning",
+          "source_index": "linux_logs-2026.04.16",
+          "signal": "mongodb_auth_failed",
+          "timestamp": "2026-04-16T10:54:15.989Z",
+          "service_name": "mongodb",
+          "host_name": "dhusnicinfant-vm",
+          "host_ip": "10.0.5.97",
+          "host_ips": [
+            "10.0.5.97"
+          ]
+        },
+        {
+          "id": "Ye_rlZ0BFK2GVfCYzz7c",
+          "severity": "warning",
+          "source_index": "linux_logs-2026.04.16",
+          "signal": "mongodb_auth_failed",
+          "timestamp": "2026-04-16T10:55:16.488Z",
+          "service_name": "mongodb",
+          "host_name": "dhusnicinfant-vm",
+          "host_ip": "10.0.5.97",
+          "host_ips": [
+            "10.0.5.97"
+          ]
+        },
+        {
+          "id": "XO_rlZ0BFK2GVfCYzz7V",
+          "severity": "warning",
+          "source_index": "linux_logs-2026.04.16",
+          "signal": "mongodb_auth_failed",
+          "timestamp": "2026-04-16T10:56:16.988Z",
+          "service_name": "mongodb",
+          "host_name": "dhusnicinfant-vm",
+          "host_ip": "10.0.5.97",
+          "host_ips": [
+            "10.0.5.97"
+          ]
+        },
+        {
+          "id": "Yu_rlZ0BFK2GVfCYzz7c",
+          "severity": "warning",
+          "source_index": "linux_logs-2026.04.16",
+          "signal": "mongodb_interrupted_client_disconnected",
+          "timestamp": "2026-04-16T10:56:45.988Z",
+          "service_name": "mongodb",
+          "host_name": "dhusnicinfant-vm",
+          "host_ip": "10.0.5.97",
+          "host_ips": [
+            "10.0.5.97"
+          ]
+        },
+        {
+          "id": "Iu_xlZ0BFK2GVfCYTUoM",
+          "severity": "critical",
+          "source_index": "linux_logs-2026.04.16",
+          "signal": "nginx_access_502_bad_gateway",
+          "timestamp": "2026-04-16T10:58:20.796Z",
+          "service_name": "nginx",
+          "host_name": "dhusnicinfant-vm",
+          "host_ip": "10.0.5.97",
+          "host_ips": [
+            "10.0.5.97"
+          ]
+        }
+      ],
+      "group_by_values": {
+        "event.organization": "135098068173316952064",
+        "host.identity": "10.0.5.97"
+      },
+      "matched_at": "2026-04-16T10:58:20.796Z",
+      "first_seen": "2026-04-16T10:58:20.796Z",
+      "last_seen": "2026-04-16T10:58:20.796Z",
+      "result_signature": "023070fd3da2dd0352dde36decfb2ab192720642fd132fc0c4454a11da21ee4c",
+      "last_processed_result_signature": "023070fd3da2dd0352dde36decfb2ab192720642fd132fc0c4454a11da21ee4c",
+      "audit": {
+        "rule_type": "ordered_signal_sequence",
+        "window": "20m",
+        "group_by": [
+          "event.organization",
+          "host.identity"
+        ],
+        "group_by_values": {
+          "event.organization": "135098068173316952064",
+          "host.identity": "10.0.5.97"
+        },
+        "deduplication_key": [
+          "signal_key",
+          "host.name",
+          "service.name"
+        ],
+        "deduplication_window": "30s",
+        "steps": [
+          {
+            "step_index": 0,
+            "signal_key": "mongodb_auth_failed",
+            "required_count": 3,
+            "matched_count": 3,
+            "within": "5m",
+            "matched_log_ids": [
+              "YO_rlZ0BFK2GVfCYzz7c",
+              "Ye_rlZ0BFK2GVfCYzz7c",
+              "XO_rlZ0BFK2GVfCYzz7V"
+            ]
+          },
+          {
+            "step_index": 1,
+            "signal_key": "mongodb_interrupted_client_disconnected",
+            "required_count": 1,
+            "matched_count": 1,
+            "within": "3m",
+            "matched_log_ids": [
+              "Yu_rlZ0BFK2GVfCYzz7c"
+            ]
+          },
+          {
+            "step_index": 2,
+            "signal_key": "nginx_access_502_bad_gateway",
+            "required_count": 3,
+            "matched_count": 1,
+            "within": "3m",
+            "matched_log_ids": [
+              "Iu_xlZ0BFK2GVfCYTUoM"
+            ]
+          },
+          {
+            "step_index": 3,
+            "signal_key": "mongodb_host_unreachable",
+            "required_count": 1,
+            "matched_count": 0,
+            "within": "4m"
+          }
+        ],
+        "matched_log_ids": [
+          "YO_rlZ0BFK2GVfCYzz7c",
+          "Ye_rlZ0BFK2GVfCYzz7c",
+          "XO_rlZ0BFK2GVfCYzz7V",
+          "Yu_rlZ0BFK2GVfCYzz7c",
+          "Iu_xlZ0BFK2GVfCYTUoM"
         ],
         "matched_signals": [
           "mongodb_auth_failed",
-          "mongodb_auth_failed"
+          "mongodb_auth_failed",
+          "mongodb_auth_failed",
+          "mongodb_interrupted_client_disconnected",
+          "nginx_access_502_bad_gateway"
         ]
       },
-      "updated_at": "2026-04-14T09:28:35.9598925Z"
+      "llm": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "root_cause": "The primary cause of the incident was the failure to authenticate the 'root' user in MongoDB, which subsequently led to client connection issues and ultimately resulted in NGINX reporting a 502 Bad Gateway error.",
+        "natural_language_summary": "The incident was triggered by a series of MongoDB authentication failures, which then led to a client disconnection and ultimately resulted in NGINX reporting a 502 Bad Gateway error due to the MongoDB service being unreachable.",
+        "affected_services": [
+          "10.0.5.97::mongodb",
+          "10.0.5.97::nginx"
+        ],
+        "evidence": [
+          "Three consecutive 'mongodb_auth_failed' logs at 10:54, 10:55, and 10:56 indicating failed login attempts for the 'root' user.",
+          "One 'mongodb_interrupted_client_disconnected' log at 10:56 showing a client disconnect during operation.",
+          "A 'nginx_access_502_bad_gateway' log at 10:58 indicating failed upstream communication due to the MongoDB database not being reachable.",
+          "Following the 'nginx_access_502_bad_gateway', there are subsequent logs showing 'mongodb_host_unreachable' at 10:58 and 11:04."
+        ],
+        "next_checks": [
+          "Verify the MongoDB user credentials to ensure they are correct and have appropriate access.",
+          "Check the MongoDB server for potential network issues or outages that may have caused the host to become unreachable.",
+          "Monitor for continued authentication failures and 502 errors from NGINX to address any further disruptions."
+        ]
+      },
+      "updated_at": "2026-04-16T10:59:20.0939576Z"
     }
   ]
 }

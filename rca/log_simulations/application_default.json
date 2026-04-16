@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "runtime": {
+    "modules": ["nginx", "system", "postgresql", "kafka", "mongodb", "redis", "rabbitmq", "auditd", "activemq", "netflow"],
+    "rate": 2.0,
+    "duration_s": 120,
+    "start_time": "now",
+    "seed": 42,
+    "dry_run": false,
+    "stats_every_s": 10
+  },
+  "linux": {
+    "path_mode": "official",
+    "sandbox_base": "/tmp/beats-sim",
+    "modules_d_path": null,
+    "rotate_bytes": 1048576,
+    "rotate_keep": 3,
+    "file_mode": "append",
+    "hostname": "simhost1",
+    "tzword": "UTC",
+    "system_emit_via_logger": false,
+    "beats_repo": {
+      "local_path": null,
+      "github": {
+        "owner": "elastic",
+        "repo": "beats",
+        "ref": "main",
+        "raw_base": "https://raw.githubusercontent.com",
+        "api_base": "https://api.github.com",
+        "cache_dir": "~/.cache/beats_logsim",
+        "token_env": "GITHUB_TOKEN"
+      }
+    },
+    "netflow": {
+      "host": "127.0.0.1",
+      "port": 2055,
+      "records_per_packet": 10
+    },
+    "modules": {
+      "activemq": {
+        "severity_weights": { "INFO": 0.85, "WARN": 0.1, "ERROR": 0.05 },
+        "messages": [
+          "KahaDB is version 6",
+          "PListStore:[{data_dir}] started",
+          "TransportConnector started on tcp://0.0.0.0:61616",
+          "Apache ActiveMQ started"
+        ],
+        "static_messages": []
+      },
+      "auditd": {
+        "type_weights": { "SYSCALL": 0.6, "USER_AUTH": 0.2, "USER_START": 0.2 },
+        "static_messages": []
+      },
+      "kafka": {
+        "severity_weights": { "INFO": 0.85, "WARN": 0.1, "ERROR": 0.05 },
+        "static_messages": []
+      },
+      "mongodb": {
+        "mode_weights": { "plaintext": 0.6, "json": 0.4 },
+        "severity_weights": { "I": 0.85, "W": 0.1, "E": 0.05 },
+        "static_messages": []
+      },
+      "nginx": {
+        "access_status_weights": { "200": 0.9, "404": 0.08, "500": 0.02 },
+        "error_level_weights": { "error": 0.7, "warn": 0.25, "notice": 0.05 },
+        "static_messages": []
+      },
+      "postgresql": {
+        "severity_weights": { "LOG": 0.85, "ERROR": 0.1, "FATAL": 0.05 },
+        "static_messages": []
+      },
+      "rabbitmq": {
+        "level_weights": { "info": 0.85, "warning": 0.1, "error": 0.05 },
+        "static_messages": []
+      },
+      "redis": {
+        "log_symbol_weights": { "*": 0.8, ".": 0.1, "-": 0.08, "#": 0.02 },
+        "slowlog": {
+          "enabled": true,
+          "hosts": ["localhost:6379"],
+          "password": "",
+          "force_log_all_commands": true,
+          "slowlog_max_len": 256,
+          "client_name": "beats_logsim"
+        },
+        "static_messages": []
+      },
+      "system": {
+        "auth_templates": [
+          "{mon} {day} {time} {host} sshd[{pid}]: Accepted password for {user} from {ip} port {port} ssh2",
+          "{mon} {day} {time} {host} sudo: pam_unix(sudo:session): session opened for user root by {user}(uid=1000)"
+        ],
+        "syslog_templates": [
+          "{iso} {host} systemd[{pid}]: Started Simulated Service.",
+          "{iso} {host} systemd[{pid}]: Stopped target Basic System."
+        ],
+        "static_messages": []
+      },
+      "netflow": {
+        "static_messages": []
+      }
+    },
+    "var_paths_overrides": {},
+    "var_overrides": {}
+  },
+  "windows": {
+    "winlog": {
+      "name": "SimLog",
+      "source": "SimLogGenerator",
+      "base_eventid": 1100,
+      "fallback_to_application": true
+    }
+  }
+}

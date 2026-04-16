@@ -32,6 +32,7 @@ storage:
 
 scoring:
   confidence_threshold: 4.0
+  probable_cause_min_threshold: 2.0
   nearby_log_trigger_threshold: 2.0
   weights:
     sequence_match: 0.30
