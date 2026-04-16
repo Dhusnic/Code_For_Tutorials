@@ -50,6 +50,10 @@ src/environments/*.ts
 large_datasets/
 
 #GO files
-*.go
+# *.go
 .gocache/
 .gomodcache/
+
+#logs and exe files
+.log
+.exe
