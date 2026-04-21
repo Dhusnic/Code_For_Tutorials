@@ -5,9 +5,9 @@ logging:
   format: json
 
 scheduler:
-  interval: 20s
-  run_timeout: 10s
-  organization_workers: 4
+  interval: 5s
+  run_timeout: 2s
+  organization_workers: 1
 
 redis:
   address: 10.0.5.97:6379

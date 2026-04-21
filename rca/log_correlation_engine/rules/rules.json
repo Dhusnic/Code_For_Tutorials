@@ -1,12 +1,12 @@
 [
   {
-    "is_enabled": false,
-    "id": "CORR_DOWN_NGINX_UNIT_TO_EDGE_IMPACT",
+    "is_enabled": true,
+    "id": "CORR_PROD_NGINX_BACKEND_CONNECT_FAILURE",
     "organization_id": "135098068173316952064",
     "rule_type": "ordered_signal_sequence",
-    "description": "Detects nginx service-down conditions that impact users. How to replicate: stop nginx service (or force failed unit), then send HTTP traffic and observe 5xx responses.",
-    "window": "12m",
-    "max_gap_between_steps": "3m",
+    "description": "Production RCA: a backend dependency becomes unavailable, NGINX records upstream connection failures, then users see edge 5xx responses.",
+    "window": "15m",
+    "max_gap_between_steps": "5m",
     "group_by": [
       "event.organization",
       "host.identity"
@@ -14,17 +14,132 @@
     "priority": 1,
     "sequence": [
       {
-        "signal_key": "systemd_unit_failed",
+        "signal_keys": [
+          "mongodb_service_shutting_down",
+          "mongodb_host_unreachable",
+          "rabbitmq_service_manager_failure",
+          "redis_process_exiting",
+          "redis_rejected_connections",
+          "redis_network_connectivity",
+          "kafka_broker_not_available",
+          "kafka_service_shutdown",
+          "postgres_service_down",
+          "postgres_crash_shutdown",
+          "postgres_conn_failed"
+        ],
+        "min_count": 1,
+        "within": "5m"
+      },
+      {
+        "signal_keys": [
+          "nginx_upstream_timeout_connect",
+          "nginx_upstream_connect_failed",
+          "nginx_upstream_connection_refused",
+          "nginx_upstream_host_unreachable",
+          "nginx_upstream_no_live"
+        ],
         "min_count": 1,
         "within": "3m"
       },
       {
-        "signal_key": "nginx_service_manager_failure",
-        "min_count": 1,
-        "within": "3m"
+        "signal_keys": [
+          "nginx_access_502_bad_gateway",
+          "nginx_access_503_unavailable",
+          "nginx_access_504_timeout",
+          "nginx_access_5xx_any"
+        ],
+        "min_count": 2,
+        "within": "5m"
+      }
+    ],
+    "not_sequence": [],
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
+    "topology_ids": [
+      "infraon_onprem_prod"
+    ]
+  },
+  {
+    "is_enabled": true,
+    "id": "CORR_PROD_MONGODB_AUTH_TO_EDGE_5XX",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "description": "Production RCA: repeated MongoDB authentication/authorization failures followed by NGINX 502 or general 5xx user impact.",
+    "window": "12m",
+    "max_gap_between_steps": "5m",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "priority": 1,
+    "sequence": [
+      {
+        "signal_keys": [
+          "mongodb_auth_failed",
+          "mongodb_user_not_found",
+          "mongodb_unauthorized"
+        ],
+        "min_count": 3,
+        "within": "5m"
       },
       {
-        "signal_key": "nginx_access_5xx_any",
+        "signal_keys": [
+          "nginx_access_502_bad_gateway",
+          "nginx_access_5xx_any"
+        ],
+        "min_count": 2,
+        "within": "5m"
+      }
+    ],
+    "not_sequence": [],
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
+    "topology_ids": [
+      "infraon_onprem_prod"
+    ]
+  },
+  {
+    "is_enabled": true,
+    "id": "CORR_PROD_MONGODB_DOWN_TO_EDGE_5XX",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "description": "Production RCA: MongoDB shutdown, unreachable, or fatal storage state followed by NGINX 502/504/5xx impact.",
+    "window": "15m",
+    "max_gap_between_steps": "6m",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "priority": 1,
+    "sequence": [
+      {
+        "signal_keys": [
+          "mongodb_service_shutting_down",
+          "mongodb_host_unreachable",
+          "mongodb_host_not_found",
+          "mongodb_wiredtiger_fatal"
+        ],
+        "min_count": 1,
+        "within": "5m"
+      },
+      {
+        "signal_keys": [
+          "nginx_access_502_bad_gateway",
+          "nginx_access_504_timeout",
+          "nginx_access_5xx_any"
+        ],
         "min_count": 2,
         "within": "6m"
       }
@@ -36,200 +151,21 @@
         "host.name",
         "service.name"
       ],
-      "window": "2m"
+      "window": "0s"
     },
     "topology_ids": [
-      "topology_current"
+      "infraon_onprem_prod"
     ]
   },
   {
-    "is_enabled": false,
-    "id": "CORR_DOWN_MONGODB_TO_EDGE_IMPACT",
+    "is_enabled": true,
+    "id": "CORR_PROD_MONGODB_SLOW_TO_EDGE_TIMEOUT",
     "organization_id": "135098068173316952064",
     "rule_type": "ordered_signal_sequence",
-    "description": "Detects MongoDB down/unreachable states propagating to edge failures. How to replicate: stop mongod or block MongoDB port from API host, then hit API endpoints that query DB and watch nginx 5xx.",
-    "window": "15m",
-    "max_gap_between_steps": "4m",
-    "group_by": [
-      "event.organization",
-      "host.identity"
-    ],
-    "priority": 1,
-    "sequence": [
-      {
-        "signal_key": "mongodb_service_shutting_down",
-        "min_count": 1,
-        "within": "5m"
-      },
-      {
-        "signal_key": "mongodb_host_unreachable",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "nginx_access_5xx_any",
-        "min_count": 1,
-        "within": "6m"
-      }
-    ],
-    "not_sequence": [],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name",
-        "service.name"
-      ],
-      "window": "2m"
-    },
-    "topology_ids": [
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": false,
-    "id": "CORR_DOWN_RABBITMQ_TO_EDGE_IMPACT",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "description": "Detects RabbitMQ broker-down behavior affecting API/edge path. How to replicate: stop rabbitmq-server or break AMQP listener, then execute message-producing API calls and observe gateway/service unavailable errors.",
-    "window": "15m",
-    "max_gap_between_steps": "4m",
-    "group_by": [
-      "event.organization",
-      "host.identity"
-    ],
-    "priority": 1,
-    "sequence": [
-      {
-        "signal_key": "rabbitmq_service_manager_failure",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "rabbitmq_heartbeat_missed",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "nginx_access_503_unavailable",
-        "min_count": 1,
-        "within": "6m"
-      }
-    ],
-    "not_sequence": [
-      {
-        "signal_key": "rabbitmq_alarm_cleared"
-      }
-    ],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name",
-        "service.name"
-      ],
-      "window": "2m"
-    },
-    "topology_ids": [
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": false,
-    "id": "CORR_DOWN_KAFKA_TO_EDGE_IMPACT",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "description": "Detects Kafka broker shutdown/unavailability with user-facing impact. How to replicate: stop Kafka broker or block broker port, then trigger API operations depending on Kafka and observe nginx 5xx.",
-    "window": "15m",
-    "max_gap_between_steps": "4m",
-    "group_by": [
-      "event.organization",
-      "host.identity"
-    ],
-    "priority": 1,
-    "sequence": [
-      {
-        "signal_key": "kafka_service_shutdown",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "kafka_broker_not_available",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "nginx_access_5xx_any",
-        "min_count": 1,
-        "within": "6m"
-      }
-    ],
-    "not_sequence": [],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name",
-        "service.name"
-      ],
-      "window": "2m"
-    },
-    "topology_ids": [
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": false,
-    "id": "CORR_NETWORK_LINK_DOWN_CASCADE",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "description": "Detects host/network link-down cascades across messaging, database, and edge layers. How to replicate: flap NIC or apply network drop/route blackhole, then run normal API traffic to induce timeouts.",
+    "description": "Production RCA: MongoDB slow operations escalate into database timeouts and NGINX upstream latency or timeout symptoms.",
     "window": "20m",
     "max_gap_between_steps": "5m",
     "group_by": [
-      "event.organization"
-    ],
-    "priority": 1,
-    "sequence": [
-      {
-        "signal_key": "system_network_link_down",
-        "min_count": 1,
-        "within": "5m"
-      },
-      {
-        "signal_key": "rabbitmq_cluster_peer_unreachable",
-        "min_count": 1,
-        "within": "5m"
-      },
-      {
-        "signal_key": "mongodb_host_unreachable",
-        "min_count": 1,
-        "within": "5m"
-      },
-      {
-        "signal_key": "nginx_access_504_timeout",
-        "min_count": 1,
-        "within": "5m"
-      }
-    ],
-    "not_sequence": [],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name"
-      ],
-      "window": "3m"
-    },
-    "topology_ids": [
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": false,
-    "id": "CORR_LOAD_MONGODB_PLUS_FAULT",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "description": "Detects MongoDB load increase followed by database faults and edge latency/errors. How to replicate: run heavy read/write load to trigger slow commands and lock waits, then hit API endpoints and observe upstream latency/5xx.",
-    "window": "20m",
-    "max_gap_between_steps": "4m",
-    "group_by": [
       "event.organization",
       "host.identity"
     ],
@@ -241,19 +177,21 @@
         "within": "8m"
       },
       {
-        "signal_key": "mongodb_lock_timeout",
+        "signal_keys": [
+          "mongodb_lock_timeout",
+          "mongodb_maxtime_expired"
+        ],
         "min_count": 1,
-        "within": "4m"
+        "within": "5m"
       },
       {
-        "signal_key": "nginx_access_high_upstream_time",
+        "signal_keys": [
+          "nginx_access_high_upstream_time",
+          "nginx_upstream_timeout_read_header",
+          "nginx_access_504_timeout"
+        ],
         "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "nginx_access_5xx_any",
-        "min_count": 1,
-        "within": "4m"
+        "within": "5m"
       }
     ],
     "not_sequence": [],
@@ -263,20 +201,20 @@
         "host.name",
         "service.name"
       ],
-      "window": "3m"
+      "window": "0s"
     },
     "topology_ids": [
-      "topology_current"
+      "infraon_onprem_prod"
     ]
   },
   {
-    "is_enabled": false,
-    "id": "CORR_LOAD_RABBITMQ_PLUS_FAULT",
+    "is_enabled": true,
+    "id": "CORR_PROD_RABBITMQ_RESOURCE_TO_EDGE_LATENCY",
     "organization_id": "135098068173316952064",
     "rule_type": "ordered_signal_sequence",
-    "description": "Detects RabbitMQ load pressure escalating into broker faults and API latency. How to replicate: flood queue producers so backlog/unacked grow, then continue traffic until heartbeat/blocking appears and nginx upstream latency rises.",
-    "window": "20m",
-    "max_gap_between_steps": "4m",
+    "description": "Production RCA: RabbitMQ resource alarms or blocked publishers create queue pressure and visible NGINX upstream latency.",
+    "window": "22m",
+    "max_gap_between_steps": "8m",
     "group_by": [
       "event.organization",
       "host.identity"
@@ -284,213 +222,25 @@
     "priority": 2,
     "sequence": [
       {
-        "signal_key": "rabbitmq_queue_backlog_high",
-        "min_count": 2,
+        "signal_keys": [
+          "rabbitmq_memory_alarm_set",
+          "rabbitmq_disk_alarm_set",
+          "rabbitmq_connection_blocked"
+        ],
+        "min_count": 1,
+        "within": "5m"
+      },
+      {
+        "signal_keys": [
+          "rabbitmq_queue_backlog_high",
+          "rabbitmq_unacked_messages_high"
+        ],
+        "min_count": 1,
         "within": "8m"
       },
       {
-        "signal_key": "rabbitmq_unacked_messages_high",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "rabbitmq_heartbeat_missed",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
         "signal_key": "nginx_access_high_upstream_time",
         "min_count": 1,
-        "within": "4m"
-      }
-    ],
-    "not_sequence": [
-      {
-        "signal_key": "rabbitmq_alarm_cleared"
-      }
-    ],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name",
-        "service.name"
-      ],
-      "window": "3m"
-    },
-    "topology_ids": [
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": false,
-    "id": "CORR_LOAD_KAFKA_PLUS_FAULT",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "description": "Detects Kafka load/lag growth with replication or timeout faults and user-path slowdown. How to replicate: increase producer rate and/or throttle consumers to build lag, then induce broker stress and watch upstream latency.",
-    "window": "20m",
-    "max_gap_between_steps": "4m",
-    "group_by": [
-      "event.organization",
-      "host.identity"
-    ],
-    "priority": 2,
-    "sequence": [
-      {
-        "signal_key": "kafka_consumer_lag_high",
-        "min_count": 2,
-        "within": "8m"
-      },
-      {
-        "signal_key": "kafka_request_timed_out",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "kafka_under_replicated_partitions",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "nginx_access_high_upstream_time",
-        "min_count": 1,
-        "within": "4m"
-      }
-    ],
-    "not_sequence": [],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name",
-        "service.name"
-      ],
-      "window": "3m"
-    },
-    "topology_ids": [
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": false,
-    "id": "CORR_LOAD_EDGE_WITH_DB_BACKEND_FAULT",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "description": "Detects high edge load that converges with MongoDB degradation and turns into user-visible failures. How to replicate: run high HTTP load while adding slow MongoDB queries; observe upstream timeout/read-header errors and 5xx.",
-    "window": "15m",
-    "max_gap_between_steps": "3m",
-    "group_by": [
-      "event.organization",
-      "host.identity"
-    ],
-    "priority": 2,
-    "sequence": [
-      {
-        "signal_key": "nginx_access_high_request_time",
-        "min_count": 3,
-        "within": "6m"
-      },
-      {
-        "signal_key": "mongodb_slow_command",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "nginx_upstream_timeout_read_header",
-        "min_count": 1,
-        "within": "3m"
-      },
-      {
-        "signal_key": "nginx_access_5xx_any",
-        "min_count": 1,
-        "within": "3m"
-      }
-    ],
-    "not_sequence": [],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name",
-        "service.name"
-      ],
-      "window": "2m"
-    },
-    "topology_ids": [
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": false,
-    "id": "CORR_DEP_API_RABBITMQ_BREAK",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "description": "Detects API to RabbitMQ dependency break manifested at edge. How to replicate: block AMQP between API and RabbitMQ or force broker connection resets, then run API message workflows and observe 503/5xx responses.",
-    "window": "15m",
-    "max_gap_between_steps": "4m",
-    "group_by": [
-      "event.organization",
-      "host.identity"
-    ],
-    "priority": 2,
-    "sequence": [
-      {
-        "signal_key": "rabbitmq_connection_closed_unexpected",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "rabbitmq_connection_blocked",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "nginx_access_503_unavailable",
-        "min_count": 1,
-        "within": "5m"
-      }
-    ],
-    "not_sequence": [
-      {
-        "signal_key": "rabbitmq_alarm_cleared"
-      }
-    ],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name",
-        "service.name"
-      ],
-      "window": "2m"
-    },
-    "topology_ids": [
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": false,
-    "id": "CORR_DEP_API_MONGODB_BREAK",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "description": "Detects API to MongoDB dependency break with request timeout symptoms. How to replicate: firewall MongoDB from API node or force DB disconnects, then call DB-backed APIs and observe nginx 504 and operation interruptions.",
-    "window": "15m",
-    "max_gap_between_steps": "4m",
-    "group_by": [
-      "event.organization",
-      "host.identity"
-    ],
-    "priority": 2,
-    "sequence": [
-      {
-        "signal_key": "mongodb_error_sending_response_to_client",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "mongodb_interrupted_client_disconnected",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "nginx_access_504_timeout",
-        "min_count": 1,
         "within": "5m"
       }
     ],
@@ -501,88 +251,226 @@
         "host.name",
         "service.name"
       ],
-      "window": "2m"
+      "window": "0s"
     },
     "topology_ids": [
-      "topology_current"
+      "infraon_onprem_prod"
     ]
   },
   {
-    "is_enabled": false,
-    "id": "CORR_DEP_API_KAFKA_BREAK",
+    "is_enabled": true,
+    "id": "CORR_PROD_RABBITMQ_CONNECTION_TO_EDGE_503",
     "organization_id": "135098068173316952064",
     "rule_type": "ordered_signal_sequence",
-    "description": "Detects API to Kafka dependency break leading to gateway-path errors. How to replicate: disrupt broker connectivity or reduce ISR below write requirements, then trigger Kafka-backed API paths and monitor nginx gateway errors.",
+    "description": "Production RCA: RabbitMQ connection or service-manager failure followed by NGINX 503 or general 5xx impact.",
     "window": "15m",
-    "max_gap_between_steps": "4m",
-    "group_by": [
-      "event.organization",
-      "host.identity"
-    ],
-    "priority": 2,
-    "sequence": [
-      {
-        "signal_key": "kafka_network_exception",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "kafka_not_enough_replicas",
-        "min_count": 1,
-        "within": "4m"
-      },
-      {
-        "signal_key": "nginx_gateway_path_errors",
-        "min_count": 1,
-        "within": "5m"
-      }
-    ],
-    "not_sequence": [],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name",
-        "service.name"
-      ],
-      "window": "2m"
-    },
-    "topology_ids": [
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": false,
-    "id": "CORR_MULTI_BACKEND_PRESSURE_REALTIME",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "shadow_mode": true,
-    "description": "Shadow validation rule for real-time RCA accuracy when multiple backend services degrade together. How to replicate: simultaneously create MongoDB slow ops, RabbitMQ backlog, and Kafka request timeouts while serving traffic; compare shadow match frequency with confirmed incidents.",
-    "window": "25m",
     "max_gap_between_steps": "6m",
     "group_by": [
-      "event.organization"
+      "event.organization",
+      "host.identity"
     ],
-    "priority": 3,
+    "priority": 1,
     "sequence": [
       {
-        "signal_key": "mongodb_slow_command",
+        "signal_keys": [
+          "rabbitmq_connection_closed_unexpected",
+          "rabbitmq_heartbeat_missed",
+          "rabbitmq_service_manager_failure"
+        ],
         "min_count": 1,
-        "within": "6m"
+        "within": "5m"
       },
       {
-        "signal_key": "rabbitmq_queue_backlog_high",
+        "signal_keys": [
+          "nginx_access_503_unavailable",
+          "nginx_access_5xx_any"
+        ],
+        "min_count": 2,
+        "within": "6m"
+      }
+    ],
+    "not_sequence": [],
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
+    "topology_ids": [
+      "infraon_onprem_prod"
+    ]
+  },
+  {
+    "is_enabled": true,
+    "id": "CORR_PROD_REDIS_RESOURCE_TO_EDGE_IMPACT",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "description": "Production RCA: Redis resource errors or blocking behavior followed by NGINX upstream latency, timeout, or 5xx symptoms.",
+    "window": "15m",
+    "max_gap_between_steps": "6m",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "priority": 2,
+    "sequence": [
+      {
+        "signal_keys": [
+          "redis_oom_maxmemory",
+          "redis_blocked_clients_high",
+          "redis_loading_dataset",
+          "redis_busy_script",
+          "redis_busy_function"
+        ],
+        "min_count": 1,
+        "within": "5m"
+      },
+      {
+        "signal_keys": [
+          "nginx_access_high_upstream_time",
+          "nginx_access_504_timeout",
+          "nginx_access_5xx_any"
+        ],
         "min_count": 1,
         "within": "6m"
+      }
+    ],
+    "not_sequence": [],
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
+    "topology_ids": [
+      "infraon_onprem_prod"
+    ]
+  },
+  {
+    "is_enabled": true,
+    "id": "CORR_PROD_REDIS_DOWN_TO_PIPELINE_IMPACT",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "description": "Production RCA: Redis process exit, rejected connections, network failure, or cluster down state followed by NGINX 502/503/5xx impact.",
+    "window": "15m",
+    "max_gap_between_steps": "6m",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "priority": 1,
+    "sequence": [
+      {
+        "signal_keys": [
+          "redis_process_exiting",
+          "redis_rejected_connections",
+          "redis_network_connectivity",
+          "redis_cluster_down"
+        ],
+        "min_count": 1,
+        "within": "5m"
+      },
+      {
+        "signal_keys": [
+          "nginx_access_502_bad_gateway",
+          "nginx_access_503_unavailable",
+          "nginx_access_5xx_any"
+        ],
+        "min_count": 1,
+        "within": "6m"
+      }
+    ],
+    "not_sequence": [],
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
+    "topology_ids": [
+      "infraon_onprem_prod"
+    ]
+  },
+  {
+    "is_enabled": true,
+    "id": "CORR_PROD_KAFKA_BROKER_TO_PIPELINE_IMPACT",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "description": "Production RCA: Kafka broker, network, shutdown, or KRaft leader issue followed by producer timeout or consumer lag.",
+    "window": "18m",
+    "max_gap_between_steps": "8m",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "priority": 1,
+    "sequence": [
+      {
+        "signal_keys": [
+          "kafka_broker_not_available",
+          "kafka_service_shutdown",
+          "kafka_network_exception",
+          "kafka_kraft_no_leader"
+        ],
+        "min_count": 1,
+        "within": "5m"
+      },
+      {
+        "signal_keys": [
+          "kafka_request_timed_out",
+          "kafka_consumer_lag_high"
+        ],
+        "min_count": 1,
+        "within": "8m"
+      }
+    ],
+    "not_sequence": [],
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
+    "topology_ids": [
+      "infraon_onprem_prod"
+    ]
+  },
+  {
+    "is_enabled": true,
+    "id": "CORR_PROD_KAFKA_REPLICATION_RISK",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "description": "Production RCA: Kafka replication health degrades and then requests time out.",
+    "window": "15m",
+    "max_gap_between_steps": "5m",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "priority": 2,
+    "sequence": [
+      {
+        "signal_keys": [
+          "kafka_under_replicated_partitions",
+          "kafka_under_min_isr_partitions",
+          "kafka_not_enough_replicas",
+          "kafka_offline_partitions_count"
+        ],
+        "min_count": 1,
+        "within": "8m"
       },
       {
         "signal_key": "kafka_request_timed_out",
         "min_count": 1,
-        "within": "6m"
-      },
-      {
-        "signal_key": "nginx_access_5xx_any",
-        "min_count": 1,
-        "within": "6m"
+        "within": "5m"
       }
     ],
     "not_sequence": [],
@@ -592,120 +480,20 @@
         "host.name",
         "service.name"
       ],
-      "window": "3m"
+      "window": "0s"
     },
     "topology_ids": [
-      "topology_current"
+      "infraon_onprem_prod"
     ]
   },
   {
     "is_enabled": true,
-    "id": "CORR_OPENAI_LOCAL_MONGODB_AUTH_CASCADE",
+    "id": "CORR_PROD_POSTGRESQL_TIMESCALE_DOWN",
     "organization_id": "135098068173316952064",
     "rule_type": "ordered_signal_sequence",
-    "description": "Detects local-topology MongoDB authentication failures cascading into client disconnects, repeated nginx 502 responses, and final host-unreachable state. How to replicate: generate mongodb_auth_failed 3 times from /var/log/mongodb/mongod.log, then mongodb_interrupted_client_disconnected once, then nginx_access_502_bad_gateway 3 times from /var/log/nginx/access.log, and finally mongodb_host_unreachable once.",
-    "window": "20m",
-    "max_gap_between_steps": "",
-    "group_by": [
-      "event.organization",
-      "host.identity"
-    ],
-    "priority": 1,
-    "sequence": [
-      {
-        "signal_key": "mongodb_auth_failed",
-        "min_count": 3,
-        "within": "5m"
-      },
-      {
-        "signal_key": "mongodb_interrupted_client_disconnected",
-        "min_count": 1,
-        "within": "3m"
-      },
-      {
-        "signal_key": "nginx_access_502_bad_gateway",
-        "min_count": 3,
-        "within": "3m"
-      },
-      {
-        "signal_key": "mongodb_host_unreachable",
-        "min_count": 1,
-        "within": "4m"
-      }
-    ],
-    "not_sequence": [],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name",
-        "service.name"
-      ],
-      "window": "30s"
-    },
-    "topology_ids": [
-      "local_topology",
-      "simulator_topology",
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": false,
-    "id": "CORR_B7M4_NGINX_MONGO_AUTH_OUTAGE",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "description": "Simulator confirmed scenario: MongoDB auth failures escalate into client disconnects, nginx 502 burst, then MongoDB host unreachable. How to replicate: run write_rca_test_logs_linux.py --scenario nginx_mongodb_auth_outage_confirmed.",
-    "window": "20m",
-    "max_gap_between_steps": "",
-    "group_by": [
-      "event.organization",
-      "host.identity"
-    ],
-    "priority": 1,
-    "sequence": [
-      {
-        "signal_key": "mongodb_auth_failed",
-        "min_count": 3,
-        "within": "5m"
-      },
-      {
-        "signal_key": "mongodb_interrupted_client_disconnected",
-        "min_count": 1,
-        "within": "3m"
-      },
-      {
-        "signal_key": "nginx_access_502_bad_gateway",
-        "min_count": 3,
-        "within": "4m"
-      },
-      {
-        "signal_key": "mongodb_host_unreachable",
-        "min_count": 1,
-        "within": "3m"
-      }
-    ],
-    "not_sequence": [],
-    "deduplication": {
-      "key": [
-        "signal_key",
-        "host.name",
-        "service.name"
-      ],
-      "window": "30s"
-    },
-    "topology_ids": [
-      "local_topology",
-      "simulator_topology",
-      "topology_current"
-    ]
-  },
-  {
-    "is_enabled": true,
-    "id": "CORR_9XK2_MONGO_AUTH_CHAIN",
-    "organization_id": "135098068173316952064",
-    "rule_type": "ordered_signal_sequence",
-    "description": "Simulator confirmed scenario: MongoDB auth failures followed by disconnect and host unreachable. How to replicate: run write_rca_test_logs_linux.py --scenario mongo_auth_chain_confirmed.",
+    "description": "Production RCA: PostgreSQL/Timescale service down, crash, or connection failures followed by NGINX 5xx or upstream latency.",
     "window": "15m",
-    "max_gap_between_steps": "",
+    "max_gap_between_steps": "6m",
     "group_by": [
       "event.organization",
       "host.identity"
@@ -713,19 +501,21 @@
     "priority": 1,
     "sequence": [
       {
-        "signal_key": "mongodb_auth_failed",
-        "min_count": 3,
+        "signal_keys": [
+          "postgres_service_down",
+          "postgres_crash_shutdown",
+          "postgres_conn_failed"
+        ],
+        "min_count": 1,
         "within": "5m"
       },
       {
-        "signal_key": "mongodb_interrupted_client_disconnected",
+        "signal_keys": [
+          "nginx_access_5xx_any",
+          "nginx_access_high_upstream_time"
+        ],
         "min_count": 1,
-        "within": "3m"
-      },
-      {
-        "signal_key": "mongodb_host_unreachable",
-        "min_count": 1,
-        "within": "3m"
+        "within": "6m"
       }
     ],
     "not_sequence": [],
@@ -735,22 +525,122 @@
         "host.name",
         "service.name"
       ],
-      "window": "30s"
+      "window": "0s"
     },
     "topology_ids": [
-      "local_topology",
-      "simulator_topology",
-      "topology_current"
+      "infraon_onprem_prod"
     ]
   },
   {
     "is_enabled": true,
-    "id": "CORR_H6D4_MONGO_AUTH_CHAIN_SPARSE",
+    "id": "CORR_PROD_POSTGRESQL_PRESSURE",
     "organization_id": "135098068173316952064",
     "rule_type": "ordered_signal_sequence",
-    "description": "Simulator sparse scenario: two MongoDB auth failures without full outage chain. How to replicate: run write_rca_test_logs_linux.py --scenario mongo_auth_chain_partial.",
-    "window": "10m",
-    "max_gap_between_steps": "",
+    "description": "Production RCA: PostgreSQL/Timescale pressure or locking issues followed by NGINX request or upstream latency.",
+    "window": "18m",
+    "max_gap_between_steps": "6m",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "priority": 2,
+    "sequence": [
+      {
+        "signal_keys": [
+          "postgres_conn_limit",
+          "postgres_lock_timeout",
+          "postgres_deadlock_found",
+          "postgres_checkpoint_hot"
+        ],
+        "min_count": 1,
+        "within": "8m"
+      },
+      {
+        "signal_keys": [
+          "nginx_access_high_request_time",
+          "nginx_access_high_upstream_time"
+        ],
+        "min_count": 1,
+        "within": "6m"
+      }
+    ],
+    "not_sequence": [],
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
+    "topology_ids": [
+      "infraon_onprem_prod"
+    ]
+  },
+  {
+    "is_enabled": true,
+    "id": "CORR_PROD_NETWORK_UNDERLAY_MULTI_SERVICE",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "description": "Production RCA: network underlay degradation followed by backend reachability errors and NGINX timeout/5xx impact.",
+    "window": "25m",
+    "max_gap_between_steps": "8m",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "priority": 1,
+    "sequence": [
+      {
+        "signal_keys": [
+          "network_link_down",
+          "network_interface_flapping",
+          "network_packet_error_rate_high",
+          "network_device_reboot_or_crash"
+        ],
+        "min_count": 1,
+        "within": "5m"
+      },
+      {
+        "signal_keys": [
+          "mongodb_host_unreachable",
+          "rabbitmq_cluster_peer_unreachable",
+          "kafka_network_exception",
+          "redis_network_connectivity"
+        ],
+        "min_count": 1,
+        "within": "8m"
+      },
+      {
+        "signal_keys": [
+          "nginx_access_504_timeout",
+          "nginx_access_5xx_any"
+        ],
+        "min_count": 1,
+        "within": "6m"
+      }
+    ],
+    "not_sequence": [],
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
+    "topology_ids": [
+      "infraon_onprem_prod"
+    ]
+  },
+  {
+    "is_enabled": true,
+    "id": "CORR_PROD_AUTH_ACCESS_SPIKE_TO_EDGE_4XX",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "description": "Production RCA: host authentication abuse or account lockout spike followed by repeated edge 4xx responses.",
+    "window": "18m",
+    "max_gap_between_steps": "8m",
     "group_by": [
       "event.organization",
       "host.identity"
@@ -758,9 +648,19 @@
     "priority": 3,
     "sequence": [
       {
-        "signal_key": "mongodb_auth_failed",
-        "min_count": 2,
-        "within": "5m"
+        "signal_keys": [
+          "auth_ssh_brute_force",
+          "auth_pam_faillock",
+          "auth_account_locked",
+          "auth_login_rate_limit"
+        ],
+        "min_count": 1,
+        "within": "8m"
+      },
+      {
+        "signal_key": "nginx_access_repeated_4xx_edge",
+        "min_count": 1,
+        "within": "8m"
       }
     ],
     "not_sequence": [],
@@ -770,20 +670,20 @@
         "host.name",
         "service.name"
       ],
-      "window": "30s"
+      "window": "0s"
     },
     "topology_ids": [
-      "local_topology"
+      "infraon_onprem_prod"
     ]
   },
   {
     "is_enabled": true,
-    "id": "CORR_T7Q1_WEB_FAILURE_SPIKE",
+    "id": "CORR_PROD_NGINX_CONFIG_OR_BIND_FAILURE",
     "organization_id": "135098068173316952064",
     "rule_type": "ordered_signal_sequence",
-    "description": "Simulator confirmed web scenario: repeated nginx 502 access failures followed by nginx error spike. How to replicate: run write_rca_test_logs_linux.py --scenario nginx_failure_spike_confirmed.",
-    "window": "12m",
-    "max_gap_between_steps": "",
+    "description": "Production RCA: NGINX config, bind, listen, or service-manager failure followed by edge 5xx or gateway path errors.",
+    "window": "15m",
+    "max_gap_between_steps": "6m",
     "group_by": [
       "event.organization",
       "host.identity"
@@ -791,14 +691,23 @@
     "priority": 1,
     "sequence": [
       {
-        "signal_key": "nginx_access_502_bad_gateway",
-        "min_count": 3,
-        "within": "4m"
+        "signal_keys": [
+          "nginx_startup_config_test_failed",
+          "nginx_bind_address_in_use",
+          "nginx_bind_permission_or_privilege",
+          "nginx_listen_socket_setup_failed",
+          "nginx_service_manager_failure"
+        ],
+        "min_count": 1,
+        "within": "5m"
       },
       {
-        "signal_key": "nginx_worker_respawned",
+        "signal_keys": [
+          "nginx_access_5xx_any",
+          "nginx_gateway_path_errors"
+        ],
         "min_count": 1,
-        "within": "3m"
+        "within": "6m"
       }
     ],
     "not_sequence": [],
@@ -808,10 +717,60 @@
         "host.name",
         "service.name"
       ],
-      "window": "30s"
+      "window": "0s"
     },
     "topology_ids": [
-      "local_topology"
+      "infraon_onprem_prod"
+    ]
+  },
+  {
+    "is_enabled": true,
+    "id": "CORR_PROD_MULTI_BACKEND_RESOURCE_PRESSURE",
+    "organization_id": "135098068173316952064",
+    "rule_type": "ordered_signal_sequence",
+    "description": "Production RCA: multiple backend pressure signals converge and surface as NGINX upstream latency.",
+    "window": "25m",
+    "max_gap_between_steps": "8m",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "priority": 2,
+    "sequence": [
+      {
+        "signal_keys": [
+          "mongodb_slow_command",
+          "postgres_lock_timeout"
+        ],
+        "min_count": 1,
+        "within": "8m"
+      },
+      {
+        "signal_keys": [
+          "rabbitmq_queue_backlog_high",
+          "redis_blocked_clients_high",
+          "kafka_consumer_lag_high"
+        ],
+        "min_count": 1,
+        "within": "8m"
+      },
+      {
+        "signal_key": "nginx_access_high_upstream_time",
+        "min_count": 1,
+        "within": "6m"
+      }
+    ],
+    "not_sequence": [],
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
+    "topology_ids": [
+      "infraon_onprem_prod"
     ]
   }
 ]

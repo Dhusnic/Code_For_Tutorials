@@ -152,6 +152,7 @@ func (s *SignalEnrichmentService) RunCycle() (int, error) {
 
 	allUnits := s.buildWorkUnits()
 	ownedUnits := s.selectOwnedWorkUnits(allUnits)
+	s.logWorkUnitOwnership(len(allUnits), ownedUnits)
 
 	for _, unit := range ownedUnits {
 		indexProcessed, indexTaken, indexLag, err := s.processIndex(unit.serviceConfig, unit.ruleSet, unit.indexName)
@@ -250,13 +251,56 @@ func (s *SignalEnrichmentService) selectOwnedWorkUnits(allUnits []workUnit) []wo
 		return append([]workUnit{}, allUnits...)
 	}
 
+	serviceOwners := serviceOwnerMap(allUnits, workerCount)
 	owned := make([]workUnit, 0, (len(allUnits)+workerCount-1)/workerCount)
-	for index, unit := range allUnits {
-		if index%workerCount == s.config.Pipeline.WorkerID {
+	for _, unit := range allUnits {
+		if serviceOwners[unit.serviceConfig.Name] == s.config.Pipeline.WorkerID {
 			owned = append(owned, unit)
 		}
 	}
 	return owned
+}
+
+func serviceOwnerMap(units []workUnit, workerCount int) map[string]int {
+	serviceNames := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, unit := range units {
+		name := unit.serviceConfig.Name
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		serviceNames = append(serviceNames, name)
+	}
+	sort.Strings(serviceNames)
+
+	owners := make(map[string]int, len(serviceNames))
+	for index, serviceName := range serviceNames {
+		owners[serviceName] = index % workerCount
+	}
+	return owners
+}
+
+func (s *SignalEnrichmentService) logWorkUnitOwnership(totalUnits int, ownedUnits []workUnit) {
+	ownedServices := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, unit := range ownedUnits {
+		serviceName := unit.serviceConfig.Name
+		if _, ok := seen[serviceName]; ok {
+			continue
+		}
+		seen[serviceName] = struct{}{}
+		ownedServices = append(ownedServices, serviceName)
+	}
+	sort.Strings(ownedServices)
+	s.logger.Info(
+		"Worker ownership selected",
+		logging.F("worker_id", s.config.Pipeline.WorkerID),
+		logging.F("worker_count", s.config.Pipeline.WorkerCount),
+		logging.F("total_work_units", totalUnits),
+		logging.F("owned_work_units", len(ownedUnits)),
+		logging.F("owned_services", ownedServices),
+	)
 }
 
 func (s *SignalEnrichmentService) processIndex(serviceConfig config.ServiceConfig, ruleSet *rules.RuleSet, indexName string) (int, int, *float64, error) {

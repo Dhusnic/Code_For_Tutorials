@@ -59,43 +59,43 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         "description": "MongoDB authentication failures escalate into nginx 502 responses on the same host, then the MongoDB node becomes unreachable.",
         "expected_rule": "CORR_B7M4_NGINX_MONGO_AUTH_OUTAGE",
         "events": [
-            {"service": "mongodb", "kind": "mongodb_auth_failed"},
-            {"service": "mongodb", "kind": "mongodb_auth_failed"},
-            {"service": "mongodb", "kind": "mongodb_auth_failed"},
-            {"service": "mongodb", "kind": "mongodb_interrupted_client_disconnected"},
-            {"service": "nginx", "kind": "nginx_access_502"},
-            {"service": "nginx", "kind": "nginx_access_502"},
-            {"service": "nginx", "kind": "nginx_access_502"},
-            {"service": "mongodb", "kind": "mongodb_host_unreachable"},
+            {"service": "mongodb", "kind": "mongodb_auth_failed", "offset_seconds": 0},
+            {"service": "mongodb", "kind": "mongodb_auth_failed", "offset_seconds": 121},
+            {"service": "mongodb", "kind": "mongodb_auth_failed", "offset_seconds": 242},
+            {"service": "mongodb", "kind": "mongodb_interrupted_client_disconnected", "offset_seconds": 300},
+            {"service": "nginx", "kind": "nginx_access_502", "offset_seconds": 361},
+            {"service": "nginx", "kind": "nginx_access_502", "offset_seconds": 422},
+            {"service": "nginx", "kind": "nginx_access_502", "offset_seconds": 483},
+            {"service": "mongodb", "kind": "mongodb_host_unreachable", "offset_seconds": 540},
         ],
     },
     "mongo_auth_chain_confirmed": {
         "description": "Three MongoDB auth failures followed by client disconnect and host unreachable.",
         "expected_rule": "CORR_9XK2_MONGO_AUTH_CHAIN",
         "events": [
-            {"service": "mongodb", "kind": "mongodb_auth_failed"},
-            {"service": "mongodb", "kind": "mongodb_auth_failed"},
-            {"service": "mongodb", "kind": "mongodb_auth_failed"},
-            {"service": "mongodb", "kind": "mongodb_interrupted_client_disconnected"},
-            {"service": "mongodb", "kind": "mongodb_host_unreachable"},
+            {"service": "mongodb", "kind": "mongodb_auth_failed", "offset_seconds": 0},
+            {"service": "mongodb", "kind": "mongodb_auth_failed", "offset_seconds": 121},
+            {"service": "mongodb", "kind": "mongodb_auth_failed", "offset_seconds": 242},
+            {"service": "mongodb", "kind": "mongodb_interrupted_client_disconnected", "offset_seconds": 300},
+            {"service": "mongodb", "kind": "mongodb_host_unreachable", "offset_seconds": 360},
         ],
     },
     "mongo_auth_chain_partial": {
         "description": "Two MongoDB auth failures only.",
         "expected_rule": "CORR_H6D4_MONGO_AUTH_CHAIN_SPARSE",
         "events": [
-            {"service": "mongodb", "kind": "mongodb_auth_failed"},
-            {"service": "mongodb", "kind": "mongodb_auth_failed"},
+            {"service": "mongodb", "kind": "mongodb_auth_failed", "offset_seconds": 0},
+            {"service": "mongodb", "kind": "mongodb_auth_failed", "offset_seconds": 121},
         ],
     },
     "nginx_failure_spike_confirmed": {
         "description": "Three nginx 5xx access logs followed by one nginx error log.",
         "expected_rule": "CORR_T7Q1_WEB_FAILURE_SPIKE",
         "events": [
-            {"service": "nginx", "kind": "nginx_access_502"},
-            {"service": "nginx", "kind": "nginx_access_502"},
-            {"service": "nginx", "kind": "nginx_access_502"},
-            {"service": "nginx", "kind": "nginx_error_failure"},
+            {"service": "nginx", "kind": "nginx_access_502", "offset_seconds": 0},
+            {"service": "nginx", "kind": "nginx_access_502", "offset_seconds": 61},
+            {"service": "nginx", "kind": "nginx_access_502", "offset_seconds": 122},
+            {"service": "nginx", "kind": "nginx_error_failure", "offset_seconds": 180},
         ],
     },
 }
@@ -103,7 +103,7 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Write RCA test logs into Linux service log files with a fixed timestamp gap between generated events."
+        description="Write RCA test logs directly into Linux service log files for Filebeat module pickup."
     )
     parser.add_argument("--scenario", choices=sorted(SCENARIOS), default="nginx_mongodb_auth_outage_confirmed")
     parser.add_argument("--organization-id", default=DEFAULT_ORG_ID)
@@ -122,21 +122,19 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--run-id", default="")
-    parser.add_argument(
-        "--timestamp-gap-seconds",
-        type=float,
-        default=10.0,
-        help="Gap between embedded event timestamps inside the generated log lines.",
-    )
-    parser.add_argument(
-        "--sleep-seconds",
-        type=float,
-        default=0.15,
-        help="Real wait between file writes. Use 10 to also write one line every 10 seconds in wall-clock time.",
-    )
+    parser.add_argument("--sleep-seconds", type=float, default=0.15)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--show-lines", action="store_true")
     parser.add_argument("--base-time-minutes-ago", type=int, default=0)
+    parser.add_argument(
+        "--offset-scale",
+        type=float,
+        default=0.5,
+        help=(
+            "Scales scenario offsets for event timestamps. "
+            "Use 1.0 for original timing, <1.0 for faster replay while preserving sequence."
+        ),
+    )
     parser.add_argument(
         "--checkpoint-safe-seconds",
         type=int,
@@ -237,6 +235,7 @@ def format_mongodb_line(kind: str, ts: datetime, args: argparse.Namespace, run_i
 def format_nginx_access_line(ts: datetime, args: argparse.Namespace, run_id: str) -> str:
     marker_path = f"/api/orders?rca_run_id={run_id}&org={args.organization_id}"
     if args.nginx_access_format == "safe_kv":
+        # Avoids conflicting with ECS `user` object mapping in some Logstash pipelines.
         return (
             f'rca_sim_nginx_access ts="{nginx_access_time(ts)}" '
             f"client_ip={args.device_ip} method=GET path={marker_path} "
@@ -279,7 +278,6 @@ def main() -> int:
     args = parse_args()
     run_id = args.run_id.strip() or uuid.uuid4().hex[:12]
     scenario = SCENARIOS[args.scenario]
-    timestamp_gap_seconds = max(args.timestamp_gap_seconds, 0.0)
     base_time = (
         datetime.now(timezone.utc)
         - timedelta(minutes=max(args.base_time_minutes_ago, 0))
@@ -300,8 +298,7 @@ def main() -> int:
     print(f"Nginx access log file : {Path(args.nginx_access_log).resolve()}")
     print(f"Nginx access format   : {args.nginx_access_format}")
     print(f"Nginx error log file  : {Path(args.nginx_error_log).resolve()}")
-    print(f"Timestamp gap         : {timestamp_gap_seconds}s")
-    print(f"Write sleep           : {max(args.sleep_seconds, 0)}s")
+    print(f"Offset scale          : {args.offset_scale}")
     print(f"Checkpoint-safe skew  : {args.checkpoint_safe_seconds}s")
     print("-" * 80)
 
@@ -309,19 +306,18 @@ def main() -> int:
         print("This script appends lines into the target log files. On Red Hat you may need sudo if /var/log is root-owned.")
         print("-" * 80)
 
-    total_events = len(scenario["events"])
     for index, event in enumerate(scenario["events"], start=1):
-        ts = base_time + timedelta(seconds=(index - 1) * timestamp_gap_seconds)
+        ts = base_time + timedelta(seconds=float(event["offset_seconds"]) * max(args.offset_scale, 0.0))
         min_safe_ts = datetime.now(timezone.utc) + timedelta(seconds=max(args.checkpoint_safe_seconds, 0))
         if ts < min_safe_ts:
             ts = min_safe_ts
         path, line = render_event(event, ts, args, run_id)
-        print(f"[write {index}/{total_events}] {event['kind']} -> {path} @ {ts.isoformat()}")
+        print(f"[write {index}/{len(scenario['events'])}] {event['kind']} -> {path}")
         if args.show_lines or args.dry_run:
             print(line)
         if not args.dry_run:
             write_line(path, line)
-        if index != total_events:
+        if index != len(scenario["events"]):
             time.sleep(max(args.sleep_seconds, 0))
 
     print("-" * 80)
@@ -329,9 +325,9 @@ def main() -> int:
         print("Dry run only. No files were changed.")
     else:
         print("Finished writing service-specific test logs.")
-        print("Generated event timestamps are spaced with a fixed gap per event.")
-        print("Use --timestamp-gap-seconds to change embedded timestamps.")
-        print("Use --sleep-seconds to change real wait time between file writes.")
+        print("If Filebeat modules are watching these paths, they should pick up the new lines automatically.")
+        print("MongoDB JSON lines include event.organization directly.")
+        print("Nginx lines also carry org=<id> in the request path, so the updated signalizing pipeline can recover the organization id from the message/url when needed.")
     return 0
 
 

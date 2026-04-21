@@ -37,6 +37,10 @@ type RulesConfig struct {
 	File string `yaml:"file"`
 }
 
+type SignalCatalogConfig struct {
+	Files []string `yaml:"files"`
+}
+
 type TopologyConfig struct {
 	File string `yaml:"file"`
 }
@@ -77,6 +81,7 @@ type Config struct {
 	Scheduler     SchedulerConfig     `yaml:"scheduler"`
 	Elasticsearch ElasticsearchConfig `yaml:"elasticsearch"`
 	Rules         RulesConfig         `yaml:"rules"`
+	SignalCatalog SignalCatalogConfig `yaml:"signal_catalog"`
 	Topology      TopologyConfig      `yaml:"topology"`
 	Storage       StorageConfig       `yaml:"storage"`
 	Scoring       ScoringConfig       `yaml:"scoring"`
@@ -146,6 +151,9 @@ func defaultConfig() Config {
 
 func (c *Config) resolvePaths(baseDir string) {
 	c.Rules.File = resolvePath(baseDir, c.Rules.File)
+	for idx, file := range c.SignalCatalog.Files {
+		c.SignalCatalog.Files[idx] = resolvePath(baseDir, file)
+	}
 	c.Topology.File = resolvePath(baseDir, c.Topology.File)
 	c.Storage.ResultsFile = resolvePath(baseDir, c.Storage.ResultsFile)
 	c.Storage.CheckpointFile = resolvePath(baseDir, c.Storage.CheckpointFile)
@@ -169,6 +177,7 @@ func (c *Config) normalize() {
 	c.Elasticsearch.CorrelationIndex = strings.TrimSpace(c.Elasticsearch.CorrelationIndex)
 	c.Elasticsearch.SourceIndexFallback = strings.TrimSpace(c.Elasticsearch.SourceIndexFallback)
 	c.Rules.File = strings.TrimSpace(c.Rules.File)
+	c.SignalCatalog.Files = trimNonEmptyStrings(c.SignalCatalog.Files)
 	c.Topology.File = strings.TrimSpace(c.Topology.File)
 	c.Storage.ResultsFile = strings.TrimSpace(c.Storage.ResultsFile)
 	c.Storage.CheckpointFile = strings.TrimSpace(c.Storage.CheckpointFile)
@@ -184,6 +193,16 @@ func (c *Config) normalize() {
 		}
 	}
 	c.Elasticsearch.Addresses = addresses
+}
+
+func trimNonEmptyStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 func (c Config) Validate() error {

@@ -278,7 +278,7 @@ func LoadAppConfig(path string) (AppConfig, error) {
 	if err != nil {
 		return AppConfig{}, err
 	}
-	pollIntervalSeconds, err := coerceSecondsInt(getOrDefault(pipeRaw, "poll_interval_seconds", 10), "pipeline.poll_interval_seconds", 1)
+	pollIntervalSeconds, err := coerceSecondsInt(getOrDefault(pipeRaw, "poll_interval_seconds", 10), "pipeline.poll_interval_seconds", 0)
 	if err != nil {
 		return AppConfig{}, err
 	}

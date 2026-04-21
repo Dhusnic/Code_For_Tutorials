@@ -1,10 +1,13 @@
+const signalizingInstances = Number(process.env.SIGNALIZING_INSTANCES || 4);
+const signalizingModulePartitions = signalizingInstances;
+
 const directStreamApps = [
   {
     name: 'signalizing-engine',
     cwd: './log_signalizing/signalizing_go',
     script: './bin/signalizing-engine.exe',
     args: ['--config', '../config.yml'],
-    instances: 4,
+    instances: signalizingInstances,
     exec_mode: 'fork',
     instance_var: 'RCA_WORKER_ID',
     exec_interpreter: 'none',
@@ -15,7 +18,8 @@ const directStreamApps = [
     out_file: './logs/signalizing-engine.out.log',
     error_file: './logs/signalizing-engine.err.log',
     env: {
-      PM2_APP_NAME: 'signalizing-engine'
+      PM2_APP_NAME: 'signalizing-engine',
+      RCA_WORKER_COUNT: String(signalizingModulePartitions)
     }
   },
   {

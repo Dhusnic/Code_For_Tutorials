@@ -63,7 +63,7 @@ Direct dependencies from [requirements.txt](./requirements.txt):
 Run once:
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_python"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_python"
 ..\..\.venv\Scripts\python .\main.py --config ..\config.yml --run-once
 ```
 
@@ -84,14 +84,14 @@ PM2 config for the Python runtime is [app.json](./app.json).
 ## Validate Rules
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_python"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_python"
 ..\..\.venv\Scripts\python .\scripts\validate_rules.py --rules-dir ..\rules
 ```
 
 ## Run Tests
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_python"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_python"
 ..\..\.venv\Scripts\python -m pytest -q
 ```
 

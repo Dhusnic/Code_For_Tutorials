@@ -52,3 +52,16 @@ rules:
         field: message
         op: contains
         value: accepting new connection
+    - id: MONGODB_AUTO_DEFERRING_TABLE_DROP_COLLECTION_B906AA53
+      signal_key: mongodb_auto_deferring_table_drop_collection_b906
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: deferring table drop collection'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - mongodb
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: deferring table drop collection

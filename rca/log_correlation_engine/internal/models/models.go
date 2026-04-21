@@ -130,9 +130,17 @@ func (r *Rule) UnmarshalJSON(data []byte) error {
 }
 
 type SequenceStep struct {
-	SignalKey string `json:"signal_key"`
-	MinCount  int    `json:"min_count"`
-	Within    string `json:"within"`
+	SignalKey  string           `json:"signal_key,omitempty"`
+	SignalKeys []string         `json:"signal_keys,omitempty"`
+	AnyOf      []SignalSelector `json:"any_of,omitempty"`
+	AllOf      []SignalSelector `json:"all_of,omitempty"`
+	MinCount   int              `json:"min_count"`
+	Within     string           `json:"within"`
+}
+
+type SignalSelector struct {
+	SignalKey  string   `json:"signal_key,omitempty"`
+	SignalKeys []string `json:"signal_keys,omitempty"`
 }
 
 type NegativeStep struct {

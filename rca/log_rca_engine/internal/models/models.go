@@ -58,9 +58,11 @@ type CorrelationEvent struct {
 }
 
 type SequenceStep struct {
-	SignalKey string `json:"signal_key"`
-	MinCount  int    `json:"min_count"`
-	Within    string `json:"within"`
+	SignalKey  string         `json:"signal_key,omitempty"`
+	SignalKeys []string       `json:"signal_keys,omitempty"`
+	AllOf      []SequenceStep `json:"all_of,omitempty"`
+	MinCount   int            `json:"min_count"`
+	Within     string         `json:"within"`
 }
 
 type NegativeStep struct {
@@ -78,6 +80,7 @@ type Rule struct {
 	TopologyIDs        []string       `json:"topology_ids,omitempty"`
 	Sequence           []SequenceStep `json:"sequence"`
 	NotSequence        []NegativeStep `json:"not_sequence,omitempty"`
+	RecoverySignals    []string       `json:"recovery_signals,omitempty"`
 }
 
 type TopologyService struct {
@@ -138,25 +141,44 @@ type ScoreWeights struct {
 }
 
 type ScoreBreakdown struct {
-	SequenceMatch         float64 `json:"sequence_match"`
-	DependencyMatch       float64 `json:"dependency_match"`
-	TimeProximity         float64 `json:"time_proximity"`
-	SignalSeverity        float64 `json:"signal_severity"`
-	RuleCompleteness      float64 `json:"rule_completeness"`
-	TopologyCoverage      float64 `json:"topology_coverage"`
-	IdentityConfidence    float64 `json:"identity_confidence"`
-	CompletedStepCoverage float64 `json:"completed_step_coverage"`
-	ContradictionPenalty  float64 `json:"contradiction_penalty"`
-	FinalWeighted         float64 `json:"final_weighted"`
+	SequenceMatch          float64 `json:"sequence_match"`
+	DependencyMatch        float64 `json:"dependency_match"`
+	TimeProximity          float64 `json:"time_proximity"`
+	SignalSeverity         float64 `json:"signal_severity"`
+	RuleCompleteness       float64 `json:"rule_completeness"`
+	TopologyCoverage       float64 `json:"topology_coverage"`
+	IdentityConfidence     float64 `json:"identity_confidence"`
+	CompletedStepCoverage  float64 `json:"completed_step_coverage"`
+	ExpectedSignalSeverity float64 `json:"expected_signal_severity,omitempty"`
+	SeverityAlignment      float64 `json:"severity_alignment,omitempty"`
+	ContradictionPenalty   float64 `json:"contradiction_penalty"`
+	FinalWeighted          float64 `json:"final_weighted"`
 }
 
 type ScoreResult struct {
-	Classification        string         `json:"classification"`
-	ConfidenceScore       float64        `json:"confidence_score"`
-	Breakdown             ScoreBreakdown `json:"score_breakdown"`
-	BelowThresholdReasons []string       `json:"below_threshold_reasons,omitempty"`
-	InvolvedServices      []string       `json:"involved_services,omitempty"`
-	MatchedDocIDs         []string       `json:"matched_doc_ids,omitempty"`
+	Classification        string                  `json:"classification"`
+	ConfidenceScore       float64                 `json:"confidence_score"`
+	Breakdown             ScoreBreakdown          `json:"score_breakdown"`
+	BelowThresholdReasons []string                `json:"below_threshold_reasons,omitempty"`
+	InvolvedServices      []string                `json:"involved_services,omitempty"`
+	MatchedDocIDs         []string                `json:"matched_doc_ids,omitempty"`
+	ContradictionEvidence []ContradictionEvidence `json:"contradiction_evidence,omitempty"`
+}
+
+type ContradictionEvidence struct {
+	Kind        string    `json:"kind"`
+	Reason      string    `json:"reason"`
+	DocID       string    `json:"doc_id,omitempty"`
+	SourceIndex string    `json:"source_index,omitempty"`
+	Timestamp   time.Time `json:"timestamp,omitempty"`
+	Signal      string    `json:"signal,omitempty"`
+	Severity    string    `json:"severity,omitempty"`
+	ServiceName string    `json:"service_name,omitempty"`
+	HostName    string    `json:"host_name,omitempty"`
+	HostIP      string    `json:"host_ip,omitempty"`
+	Message     string    `json:"message,omitempty"`
+	Relevance   float64   `json:"relevance"`
+	Penalty     float64   `json:"penalty"`
 }
 
 type LLMExplanation struct {
@@ -171,29 +193,30 @@ type LLMExplanation struct {
 }
 
 type RCARecord struct {
-	SchemaVersion                int               `json:"schema_version"`
-	CorrelationSchemaVersion     int               `json:"correlation_schema_version,omitempty"`
-	IncidentID                   string            `json:"incident_id"`
-	OrganizationID               string            `json:"organization_id,omitempty"`
-	TopologyID                   string            `json:"topology_id,omitempty"`
-	RuleID                       string            `json:"rule_id,omitempty"`
-	Status                       string            `json:"status,omitempty"`
-	Classification               string            `json:"classification,omitempty"`
-	ConfidenceScore              float64           `json:"confidence_score,omitempty"`
-	ScoreBreakdown               ScoreBreakdown    `json:"score_breakdown"`
-	BelowThresholdReasons        []string          `json:"below_threshold_reasons,omitempty"`
-	InvolvedServices             []string          `json:"involved_services,omitempty"`
-	MatchedDocIDs                []string          `json:"matched_doc_ids,omitempty"`
-	MatchedLogs                  []EvidenceLog     `json:"matched_logs,omitempty"`
-	GroupByValues                map[string]string `json:"group_by_values,omitempty"`
-	MatchedAt                    time.Time         `json:"matched_at,omitempty"`
-	FirstSeen                    *time.Time        `json:"first_seen,omitempty"`
-	LastSeen                     *time.Time        `json:"last_seen,omitempty"`
-	ResultSignature              string            `json:"result_signature,omitempty"`
-	LastProcessedResultSignature string            `json:"last_processed_result_signature,omitempty"`
-	Audit                        *MatchAudit       `json:"audit,omitempty"`
-	LLM                          *LLMExplanation   `json:"llm,omitempty"`
-	UpdatedAt                    time.Time         `json:"updated_at,omitempty"`
+	SchemaVersion                int                     `json:"schema_version"`
+	CorrelationSchemaVersion     int                     `json:"correlation_schema_version,omitempty"`
+	IncidentID                   string                  `json:"incident_id"`
+	OrganizationID               string                  `json:"organization_id,omitempty"`
+	TopologyID                   string                  `json:"topology_id,omitempty"`
+	RuleID                       string                  `json:"rule_id,omitempty"`
+	Status                       string                  `json:"status,omitempty"`
+	Classification               string                  `json:"classification,omitempty"`
+	ConfidenceScore              float64                 `json:"confidence_score,omitempty"`
+	ScoreBreakdown               ScoreBreakdown          `json:"score_breakdown"`
+	BelowThresholdReasons        []string                `json:"below_threshold_reasons,omitempty"`
+	InvolvedServices             []string                `json:"involved_services,omitempty"`
+	MatchedDocIDs                []string                `json:"matched_doc_ids,omitempty"`
+	MatchedLogs                  []EvidenceLog           `json:"matched_logs,omitempty"`
+	ContradictionEvidence        []ContradictionEvidence `json:"contradiction_evidence,omitempty"`
+	GroupByValues                map[string]string       `json:"group_by_values,omitempty"`
+	MatchedAt                    time.Time               `json:"matched_at,omitempty"`
+	FirstSeen                    *time.Time              `json:"first_seen,omitempty"`
+	LastSeen                     *time.Time              `json:"last_seen,omitempty"`
+	ResultSignature              string                  `json:"result_signature,omitempty"`
+	LastProcessedResultSignature string                  `json:"last_processed_result_signature,omitempty"`
+	Audit                        *MatchAudit             `json:"audit,omitempty"`
+	LLM                          *LLMExplanation         `json:"llm,omitempty"`
+	UpdatedAt                    time.Time               `json:"updated_at,omitempty"`
 }
 
 type RCAOutputDocument struct {

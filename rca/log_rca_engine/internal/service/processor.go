@@ -14,6 +14,8 @@ import (
 	"log_rca_engine/internal/utils"
 )
 
+const rcaRecordSchemaVersion = 6
+
 type CorrelationEventReader interface {
 	ReadCorrelationEvents(ctx context.Context, checkpoint models.ReaderCheckpoint) ([]models.CorrelationEvent, models.ReaderCheckpoint, error)
 	FetchMatchedLogs(ctx context.Context, evidence []models.EvidenceLog) ([]models.RelatedLog, error)
@@ -142,6 +144,13 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 	recordsByIncident := storage.ByIncident(resultDoc)
 	summary := CycleSummary{}
 	changed := false
+	upgraded, err := p.upgradeStaleRecords(ctx, recordsByIncident, rulesByID, topologyDoc, &summary)
+	if err != nil {
+		return err
+	}
+	if upgraded {
+		changed = true
+	}
 	nextCheckpoint := checkpoint
 
 	for {
@@ -182,7 +191,7 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 			}
 			scopedTopologyID, scopedToSingleTopology := singleRuleTopologyID(rule)
 
-			if normalizedStatus == "closed" {
+			if normalizedStatus == "closed" && (!hasExisting || existing.SchemaVersion >= rcaRecordSchemaVersion) {
 				if !hasExisting {
 					summary.EventsSkipped++
 					if p.logger != nil {
@@ -388,6 +397,100 @@ func (p *Processor) effectiveProbableCauseMin() float64 {
 		return 0
 	}
 	return p.probableCauseMin
+}
+
+func (p *Processor) upgradeStaleRecords(
+	ctx context.Context,
+	recordsByIncident map[string]models.RCARecord,
+	rulesByID map[string]models.Rule,
+	topologyDoc models.TopologyDocument,
+	summary *CycleSummary,
+) (bool, error) {
+	changed := false
+	for incidentID, existing := range recordsByIncident {
+		if existing.SchemaVersion >= rcaRecordSchemaVersion || strings.TrimSpace(existing.IncidentID) == "" {
+			continue
+		}
+
+		event := correlationEventFromRecord(existing)
+		if len(event.LogID) == 0 {
+			continue
+		}
+
+		var rule *models.Rule
+		if loadedRule, ok := rulesByID[event.RuleID]; ok {
+			rule = &loadedRule
+		}
+		scopedTopologyID, scopedToSingleTopology := singleRuleTopologyID(rule)
+		var topologyCandidates []organizationTopologyCandidate
+		if !scopedToSingleTopology {
+			topologyCandidates = resolveOrganizationTopologies(event.OrganizationID, topologyDoc)
+		}
+
+		selection, eligible := p.selectScoringTopology(
+			event,
+			rule,
+			event.OrganizationID,
+			topologyDoc,
+			scopedTopologyID,
+			topologyCandidates,
+			nil,
+		)
+		if !eligible {
+			continue
+		}
+
+		score := selection.Score
+		var nearbyLogs []models.RelatedLog
+		if p.shouldLoadScoringNearbyLogs(score) {
+			nearbyLogs = p.loadScoringNearbyLogs(ctx, event)
+			if len(nearbyLogs) > 0 {
+				if rescored, ok := p.selectScoringTopology(
+					event,
+					rule,
+					event.OrganizationID,
+					topologyDoc,
+					scopedTopologyID,
+					topologyCandidates,
+					nearbyLogs,
+				); ok {
+					selection = rescored
+					score = rescored.Score
+				}
+			}
+		}
+		if !p.shouldPersistProbableCause(score) {
+			continue
+		}
+
+		record := buildRecord(existing, true, event, selection.TopologyID, score, p.now().UTC())
+		record.Status = normalizeStatus(existing.Status)
+		record.LLM = existing.LLM
+		if score.Classification == scoring.ClassificationConfirmed && p.explainer != nil && p.explainer.Enabled() && record.LLM == nil {
+			summary.LLMCalls++
+			explanation, explainErr := p.explainIncident(ctx, event, rule, selection.Topology, score, nearbyLogs)
+			if explainErr != nil {
+				summary.LLMFailures++
+				record.LLM = &models.LLMExplanation{
+					Provider: "openai",
+					Error:    explainErr.Error(),
+				}
+			} else {
+				record.LLM = explanation
+			}
+		}
+
+		recordsByIncident[incidentID] = record
+		summary.EventsScored++
+		if score.Classification == scoring.ClassificationConfirmed {
+			summary.ConfirmedRCAs++
+		} else {
+			summary.ProbableCauses++
+		}
+		summary.ResultWrites++
+		changed = true
+	}
+	return changed, nil
 }
 
 func (p *Processor) selectScoringTopology(
@@ -604,9 +707,46 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func correlationEventFromRecord(record models.RCARecord) models.CorrelationEvent {
+	return models.CorrelationEvent{
+		SchemaVersion:   record.CorrelationSchemaVersion,
+		LogID:           cloneEvidenceLogs(record.MatchedLogs),
+		RuleCompletion:  estimatedRuleCompletion(record.ScoreBreakdown),
+		RuleID:          record.RuleID,
+		SequenceMatch:   record.ScoreBreakdown.SequenceMatch,
+		IncidentID:      record.IncidentID,
+		Status:          normalizeStatus(record.Status),
+		FirstSeen:       cloneTimePtr(record.FirstSeen),
+		LastSeen:        cloneTimePtr(record.LastSeen),
+		OrganizationID:  record.OrganizationID,
+		GroupByValues:   utils.CloneStringMap(record.GroupByValues),
+		MatchedAt:       record.MatchedAt,
+		ResultSignature: strings.TrimSpace(record.ResultSignature),
+		Audit:           cloneAudit(record.Audit),
+	}
+}
+
+func estimatedRuleCompletion(breakdown models.ScoreBreakdown) float64 {
+	denominator := breakdown.TopologyCoverage * breakdown.IdentityConfidence
+	if denominator > 0 {
+		return clampUnit(breakdown.RuleCompleteness / denominator)
+	}
+	return clampUnit(breakdown.RuleCompleteness)
+}
+
+func clampUnit(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
+}
+
 func buildRecord(existing models.RCARecord, hasExisting bool, event models.CorrelationEvent, topologyID string, score models.ScoreResult, now time.Time) models.RCARecord {
 	record := models.RCARecord{
-		SchemaVersion:                1,
+		SchemaVersion:                rcaRecordSchemaVersion,
 		CorrelationSchemaVersion:     event.SchemaVersion,
 		IncidentID:                   event.IncidentID,
 		OrganizationID:               event.OrganizationID,
@@ -620,6 +760,7 @@ func buildRecord(existing models.RCARecord, hasExisting bool, event models.Corre
 		InvolvedServices:             append([]string(nil), score.InvolvedServices...),
 		MatchedDocIDs:                append([]string(nil), score.MatchedDocIDs...),
 		MatchedLogs:                  cloneEvidenceLogs(event.LogID),
+		ContradictionEvidence:        cloneContradictionEvidence(score.ContradictionEvidence),
 		GroupByValues:                utils.CloneStringMap(event.GroupByValues),
 		MatchedAt:                    event.MatchedAt.UTC(),
 		FirstSeen:                    cloneTimePtr(event.FirstSeen),
@@ -639,7 +780,7 @@ func updateClosedRecord(existing models.RCARecord, hasExisting bool, event model
 	record := existing
 	if !hasExisting {
 		record = models.RCARecord{
-			SchemaVersion:            1,
+			SchemaVersion:            rcaRecordSchemaVersion,
 			IncidentID:               event.IncidentID,
 			OrganizationID:           event.OrganizationID,
 			TopologyID:               strings.TrimSpace(topologyID),
@@ -649,6 +790,7 @@ func updateClosedRecord(existing models.RCARecord, hasExisting bool, event model
 			CorrelationSchemaVersion: event.SchemaVersion,
 		}
 	}
+	record.SchemaVersion = rcaRecordSchemaVersion
 	record.Status = "closed"
 	record.OrganizationID = event.OrganizationID
 	if strings.TrimSpace(record.TopologyID) == "" {
@@ -677,6 +819,9 @@ func updateClosedRecord(existing models.RCARecord, hasExisting bool, event model
 
 func isDuplicateEvent(existing models.RCARecord, normalizedStatus, resultSignature string) bool {
 	if strings.TrimSpace(existing.IncidentID) == "" {
+		return false
+	}
+	if existing.SchemaVersion < rcaRecordSchemaVersion {
 		return false
 	}
 	if strings.TrimSpace(resultSignature) == "" {
@@ -748,6 +893,15 @@ func cloneEvidenceLogs(input []models.EvidenceLog) []models.EvidenceLog {
 			cloned[idx].HostIPs = append([]string(nil), entry.HostIPs...)
 		}
 	}
+	return cloned
+}
+
+func cloneContradictionEvidence(input []models.ContradictionEvidence) []models.ContradictionEvidence {
+	if len(input) == 0 {
+		return nil
+	}
+	cloned := make([]models.ContradictionEvidence, len(input))
+	copy(cloned, input)
 	return cloned
 }
 

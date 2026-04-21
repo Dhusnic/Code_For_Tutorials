@@ -5,8 +5,8 @@ logging:
   format: json
 
 scheduler:
-  interval: 1m
-  run_timeout: 50s
+  interval: 30s
+  run_timeout: 25s
 
 elasticsearch:
   addresses:
@@ -22,6 +22,14 @@ elasticsearch:
 
 rules:
   file: ../../log_correlation_engine/rules/rules.json
+
+signal_catalog:
+  files:
+    - ../../log_signalizing/rules/services/*.yml
+    - ../../log_signalizing/rules/network/*.yml
+    - ../../log_signalizing/rules/network/vendors/*.yml
+    - ../../log_signalizing/rules/suggestions/*.yml
+    - ../../log_signalizing/rules/correlation/*.json
 
 topology:
   file: ../data/topology.json

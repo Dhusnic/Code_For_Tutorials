@@ -353,10 +353,72 @@ func TestProcessorDedupesSameSignatureAndCallsLLMOnce(t *testing.T) {
 	}
 }
 
+func TestProcessorUpgradesStaleRecordWithoutNewCorrelationEvent(t *testing.T) {
+	now := time.Now().UTC()
+	existing := models.RCARecord{
+		SchemaVersion:                rcaRecordSchemaVersion - 1,
+		CorrelationSchemaVersion:     2,
+		IncidentID:                   "incident-1",
+		OrganizationID:               "org-1",
+		RuleID:                       "rule-1",
+		Status:                       "open",
+		Classification:               scoring.ClassificationProbable,
+		ScoreBreakdown:               models.ScoreBreakdown{SequenceMatch: 0.8333, RuleCompleteness: 0.8333, TopologyCoverage: 1, IdentityConfidence: 1},
+		MatchedLogs:                  []models.EvidenceLog{{ID: "doc-1", Severity: "critical", Timestamp: now, ServiceName: "api"}},
+		MatchedAt:                    now,
+		FirstSeen:                    &now,
+		LastSeen:                     &now,
+		ResultSignature:              "sig-1",
+		LastProcessedResultSignature: "sig-1",
+		Audit: &models.MatchAudit{Steps: []models.MatchStepAudit{
+			{StepIndex: 0, SignalKey: "s1", RequiredCount: 3, MatchedCount: 3},
+			{StepIndex: 1, SignalKey: "s2", RequiredCount: 3, MatchedCount: 2},
+		}},
+	}
+	reader := &stubReader{}
+	results := &stubResults{document: models.RCAOutputDocument{Items: []models.RCARecord{existing}}}
+	scorerStub := &stubScorer{
+		result: models.ScoreResult{
+			Classification:   scoring.ClassificationConfirmed,
+			ConfidenceScore:  8.4,
+			Breakdown:        models.ScoreBreakdown{SequenceMatch: 0.8333, RuleCompleteness: 0.8333, CompletedStepCoverage: 0.5},
+			InvolvedServices: []string{"api"},
+			MatchedDocIDs:    []string{"doc-1"},
+		},
+	}
+	processor := NewProcessor(Dependencies{
+		Reader:           reader,
+		Rules:            &stubRules{rules: map[string]models.Rule{"rule-1": {ID: "rule-1"}}},
+		Topology:         &stubTopology{document: models.TopologyDocument{}},
+		Results:          results,
+		Checkpoints:      &stubCheckpoint{},
+		Scorer:           scorerStub,
+		Explainer:        &stubExplainer{},
+		NearbyLogTrigger: 10,
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("RunCycle returned error: %v", err)
+	}
+	if scorerStub.calls != 1 {
+		t.Fatalf("expected stale record to be rescored once, got %d", scorerStub.calls)
+	}
+	if results.saveCalls != 1 {
+		t.Fatalf("expected upgraded record to be saved once, got %d", results.saveCalls)
+	}
+	record := results.saved.Items[0]
+	if record.SchemaVersion != rcaRecordSchemaVersion || record.Classification != scoring.ClassificationConfirmed {
+		t.Fatalf("expected upgraded confirmed record, got %#v", record)
+	}
+	if len(record.BelowThresholdReasons) != 0 {
+		t.Fatalf("expected no stale below-threshold reasons, got %#v", record.BelowThresholdReasons)
+	}
+}
+
 func TestProcessorClosesExistingIncidentWithoutRescoring(t *testing.T) {
 	now := time.Now().UTC()
 	existing := models.RCARecord{
-		SchemaVersion:                1,
+		SchemaVersion:                rcaRecordSchemaVersion,
 		IncidentID:                   "incident-1",
 		OrganizationID:               "org-1",
 		RuleID:                       "rule-1",
@@ -393,6 +455,55 @@ func TestProcessorClosesExistingIncidentWithoutRescoring(t *testing.T) {
 	}
 	if results.saved.Items[0].LLM == nil || results.saved.Items[0].LLM.RootCause != "original summary" {
 		t.Fatalf("expected existing summary to remain, got %#v", results.saved.Items[0].LLM)
+	}
+}
+
+func TestProcessorRescoresClosedIncidentWhenRecordSchemaIsStale(t *testing.T) {
+	now := time.Now().UTC()
+	existing := models.RCARecord{
+		SchemaVersion:                rcaRecordSchemaVersion - 1,
+		IncidentID:                   "incident-1",
+		OrganizationID:               "org-1",
+		RuleID:                       "rule-1",
+		Status:                       "open",
+		Classification:               scoring.ClassificationConfirmed,
+		ConfidenceScore:              8.2,
+		LastProcessedResultSignature: "sig-open",
+		FirstSeen:                    &now,
+		LastSeen:                     &now,
+	}
+	reader := &stubReader{pages: [][]models.CorrelationEvent{{baseEvent("sig-closed", "closed")}}}
+	results := &stubResults{document: models.RCAOutputDocument{Items: []models.RCARecord{existing}}}
+	scorerStub := &stubScorer{result: models.ScoreResult{
+		Classification:  scoring.ClassificationProbable,
+		ConfidenceScore: 6.4,
+	}}
+	processor := NewProcessor(Dependencies{
+		Reader:               reader,
+		Rules:                &stubRules{rules: map[string]models.Rule{"rule-1": {ID: "rule-1"}}},
+		Topology:             &stubTopology{document: models.TopologyDocument{}},
+		Results:              results,
+		Checkpoints:          &stubCheckpoint{},
+		Scorer:               scorerStub,
+		Explainer:            &stubExplainer{enabled: true},
+		NeighborhoodLogLimit: 10,
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("RunCycle returned error: %v", err)
+	}
+	if scorerStub.calls == 0 {
+		t.Fatal("expected stale closed record to be rescored")
+	}
+	if len(results.saved.Items) != 1 {
+		t.Fatalf("expected saved record, got %#v", results.saved.Items)
+	}
+	record := results.saved.Items[0]
+	if record.Status != "closed" || record.Classification != scoring.ClassificationProbable {
+		t.Fatalf("expected rescored closed probable record, got %#v", record)
+	}
+	if record.SchemaVersion != rcaRecordSchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", rcaRecordSchemaVersion, record.SchemaVersion)
 	}
 }
 
@@ -809,5 +920,63 @@ func TestResolveOrganizationTopologyByID(t *testing.T) {
 	}
 	if _, found := resolveOrganizationTopologyByID("org-1", "missing", document); found {
 		t.Fatal("expected missing topology lookup to fail")
+	}
+}
+
+func TestBuildRecordPersistsContradictionEvidence(t *testing.T) {
+	now := time.Now().UTC()
+	record := buildRecord(models.RCARecord{}, false, models.CorrelationEvent{
+		SchemaVersion:  2,
+		IncidentID:     "incident-1",
+		OrganizationID: "org-1",
+		RuleID:         "rule-1",
+		Status:         "open",
+		MatchedAt:      now,
+		LogID: []models.EvidenceLog{
+			{ID: "matched-1", ServiceName: "mongodb", HostIP: "10.0.4.72"},
+		},
+	}, "topology-1", models.ScoreResult{
+		Classification:  "probable_cause",
+		ConfidenceScore: 5.5,
+		ContradictionEvidence: []models.ContradictionEvidence{
+			{
+				Kind:        "same_service_recovery",
+				DocID:       "nearby-1",
+				SourceIndex: "linux_logs-2026.04.20",
+				Signal:      "mongodb_primary_recovered",
+				ServiceName: "mongodb",
+				HostIP:      "10.0.4.72",
+				Relevance:   1,
+				Penalty:     0.2,
+			},
+		},
+	}, now)
+
+	if len(record.ContradictionEvidence) != 1 {
+		t.Fatalf("expected contradiction evidence to be persisted, got %#v", record.ContradictionEvidence)
+	}
+	if record.ContradictionEvidence[0].DocID != "nearby-1" {
+		t.Fatalf("unexpected persisted evidence: %#v", record.ContradictionEvidence[0])
+	}
+	if record.SchemaVersion != rcaRecordSchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", rcaRecordSchemaVersion, record.SchemaVersion)
+	}
+}
+
+func TestDuplicateEventReprocessesOlderRecordSchema(t *testing.T) {
+	existing := models.RCARecord{
+		SchemaVersion:                rcaRecordSchemaVersion - 1,
+		IncidentID:                   "incident-1",
+		Status:                       "open",
+		LastProcessedResultSignature: "sig-1",
+	}
+
+	if isDuplicateEvent(existing, "open", "sig-1") {
+		t.Fatal("expected older RCA record schema to force reprocessing")
+	}
+
+	existing.SchemaVersion = rcaRecordSchemaVersion
+	if !isDuplicateEvent(existing, "open", "sig-1") {
+		t.Fatal("expected current schema with same signature/status to dedupe")
 	}
 }

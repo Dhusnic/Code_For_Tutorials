@@ -25,7 +25,7 @@ On each cycle the service:
 9. Deduplicates repeated signals within the rule deduplication window.
 10. Matches ordered signal sequences using signal indexes instead of rescanning the full log slice for every candidate, and lets recovery close an incident without erasing a sequence that already completed.
 11. Suppresses weaker overlapping RCA matches when a stronger incident already explains the same evidence.
-12. Maintains an active incident per `organization + rule + group_by values`, updates the same Elasticsearch document for new evidence, closes incidents on recovery signals or inactivity timeout, and optionally publishes lifecycle events into a capped Redis list.
+12. Maintains incident episodes: derives a stable incident key from `organization + rule + group_by values`, reuses the same incident when a match recurs within `engine.incident_inactivity_ttl`, and creates a new `incident_id` when it recurs after that window; closes on recovery signals or inactivity timeout (closed state is retained briefly so fast reopens do not fork new incidents).
 13. Emits structured match-audit logs for every live or shadow rule match so you can see exactly which rule, group, steps, metadata filters, and matched document IDs produced the RCA result.
 14. When `redis.signal_stream_enabled` is true, ingests new compact signal events from the Redis stream, merges them into the existing per-organization `signaled_logs` payload with retention/deduplication, checkpoints the stream id, trims the stream by consumer-aware retention, and then runs the normal correlation cycle on that refreshed state.
 
@@ -239,13 +239,13 @@ Phase 2 incident lifecycle behavior:
 
 - The engine keeps a persistent checkpoint per organization and only correlates `new logs + bounded lookback`.
 - That checkpoint is now stored as a local JSON file instead of a Redis string key, and it also persists the last payload signature and signal count so unchanged organizations can still be skipped after a process restart.
-- The active incident identity is built from `organization_id + rule_id + group_by values`.
+- The engine derives a stable incident key from `organization_id + rule_id + group_by values`, then builds an episode `incident_id` from that key plus the episode start time.
 - If a rule leaves `max_gap_between_steps` empty, only that rule is evaluated against the full retained Redis payload for the organization. Other rules keep using the cheaper incremental lookback slice in the same cycle.
 - Elasticsearch stores correlation result events by deterministic document ID. A new matched signal set creates a new result document, while an exactly identical matched set reuses the same document ID instead of creating a duplicate entry.
-- Lifecycle fields like `status`, `first_seen`, and `last_seen` are kept only in internal incident state and are not written into the final correlation result document.
+- Lifecycle fields like `status`, `first_seen`, and `last_seen` are written into correlation result documents and mirrored in Redis incident state.
 - Incidents still move through `open`, `updated`, and `closed` states.
-- Recovery signals in `not_sequence` close active incidents for the same group.
-- Unmatched active incidents are auto-closed after `engine.incident_inactivity_ttl`.
+- Recovery signals in `not_sequence` close active incidents for the same group key (and are kept for the reopen window).
+- Unmatched active incidents are auto-closed after `engine.incident_inactivity_ttl` and then purged after the same reopen window if no new evidence arrives.
 - Redis publication is optional and append-only: when enabled, `open`, `updated`, and `closed` events are pushed as individual result entries.
 
 Phase 3 accuracy and control behavior:
@@ -254,6 +254,7 @@ Phase 3 accuracy and control behavior:
 - Rules can now run in `shadow_mode`. Shadow rules are evaluated and logged, but they do not create incidents, do not write Elasticsearch result documents, and do not publish Redis result events.
 - When full-payload rules and incremental rules exist together, the processor enriches the full-payload set once and reuses that cache for the incremental pass instead of refetching the same document context twice.
 - Every emitted or shadowed match now carries a structured `audit` log payload in the service logs with rule shape, group-by values, required metadata, negative signals, dedup settings, per-step matched counts, and matched document IDs. This audit payload is for debugging and is not written into the final Elasticsearch result document.
+- Sequence steps can now use `any_of` and `all_of` blocks so one ordered step can express a clean OR group or AND group without flattening everything into one large `signal_keys` list.
 
 Phase 1 optimization behavior:
 
@@ -318,6 +319,62 @@ Example rule:
   }
 }
 ```
+
+Sequence step alternatives:
+
+- Use `signal_key` for a single required signal.
+- Use `signal_keys` for an OR group where any one signal can satisfy the step.
+- Use `any_of` for a block where any one selector satisfies the step.
+- Use `all_of` for a block where every selector must match within the same step window.
+
+Example step:
+
+```json
+{
+  "signal_keys": ["kafka_broker_not_available", "mongodb_host_unreachable", "postgres_conn_failed"],
+  "min_count": 1,
+  "within": "5m"
+}
+```
+
+`any_of` example:
+
+```json
+{
+  "any_of": [
+    { "signal_key": "kafka_broker_not_available" },
+    { "signal_key": "mongodb_host_unreachable" },
+    { "signal_key": "postgres_conn_failed" }
+  ],
+  "within": "10m"
+}
+```
+
+`all_of` example:
+
+```json
+{
+  "all_of": [
+    { "signal_key": "data_collector_service_down" },
+    { "signal_keys": ["systemd_unit_failed", "systemd_watchdog_timeout"] }
+  ],
+  "within": "6m"
+}
+```
+
+Grouped step behavior:
+
+- `any_of` is still one ordered step. The step is complete when any one selector in the block matches.
+- `all_of` is still one ordered step. The step is complete only when every selector in the block matches before the step deadline.
+- Inside one selector object, `signal_key` and `signal_keys` behave the same as today, so you can still use a small OR group inside an `all_of` block.
+- For clarity, use only one selector style per step: either legacy `signal_key` / `signal_keys`, or `any_of`, or `all_of`.
+- `grouped` steps currently assume one match per selector. If you need repeated counts like `min_count: 3`, keep using the legacy `signal_key` / `signal_keys` step style.
+
+Cross-service join behavior:
+
+- `group_by` already supports arbitrary nested metadata fields from the enriched log document.
+- That means you can group by the usual `event.organization` and `host.identity`, and optionally add join keys such as `attr.run_id`, `trace.id`, `transaction.id`, or parsed labels when those fields exist in your logs.
+- This is the clean way to improve accuracy when multiple services on the same host emit related failure signals for the same request or run.
 
 ## Match Scoring
 

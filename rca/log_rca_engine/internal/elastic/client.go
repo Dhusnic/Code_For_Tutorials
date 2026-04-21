@@ -738,7 +738,7 @@ func rankRelatedLogs(event models.CorrelationEvent, logs []models.RelatedLog) []
 		if _, ok := matchedSignals[signal]; ok {
 			score += 1.5
 		}
-		if _, ok := negativeSignals[signal]; ok || looksLikeRecoveryText(signal, log.Message) {
+		if _, ok := negativeSignals[signal]; ok || looksLikeRecoverySignalName(signal) {
 			score += 2.5
 		}
 		score += relatedSeverityWeight(log.Severity)
@@ -790,10 +790,22 @@ func relatedSeverityWeight(raw string) float64 {
 	}
 }
 
-func looksLikeRecoveryText(signal, message string) bool {
-	text := strings.ToLower(strings.TrimSpace(signal + " " + message))
-	for _, keyword := range []string{"recover", "healthy", "success", "resolved", "normal", "stabil"} {
-		if strings.Contains(text, keyword) {
+func looksLikeRecoverySignalName(signal string) bool {
+	tokens := strings.FieldsFunc(strings.ToLower(strings.TrimSpace(signal)), func(r rune) bool {
+		return r == '_' || r == '-' || r == '.' || r == ':' || r == ' ' || r == '\t' || r == '\n'
+	})
+	if len(tokens) == 0 {
+		return false
+	}
+	for _, token := range tokens {
+		switch token {
+		case "abnormal", "conflict", "corrupt", "degraded", "error", "failed", "failure", "recovering", "unhealthy", "unstable":
+			return false
+		}
+	}
+	for _, token := range tokens {
+		switch token {
+		case "cleared", "healthy", "normal", "recovered", "resolved", "restored", "stabilized", "stable":
 			return true
 		}
 	}

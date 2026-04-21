@@ -2,29 +2,34 @@ package scoring
 
 import (
 	"strings"
+	"unicode"
 
 	"log_rca_engine/internal/models"
 )
 
-func computeContradictionPenalty(event models.CorrelationEvent, rule *models.Rule, topology *models.OrganizationTopology, nearbyLogs []models.RelatedLog) (float64, []string) {
+const maxContradictionEvidenceMessageLength = 500
+
+func computeContradictionPenalty(event models.CorrelationEvent, rule *models.Rule, topology *models.OrganizationTopology, nearbyLogs []models.RelatedLog) (float64, []string, []models.ContradictionEvidence) {
 	if len(nearbyLogs) == 0 {
-		return 1, nil
+		return 1, nil, nil
 	}
 
 	known := knownTopologyNodes(topology)
 	graph := buildDirectedGraph(topology)
 	involved := identitiesFromResolved(orderedTopologyMatchesFromEvent(event, topology))
+	involvedSet := trimmedSet(involved)
 	negativeSignals := negativeSignalSet(event, rule)
+	recoverySignals := recoverySignalSet(rule)
 	matchedSignals := matchedSignalSet(event)
 
 	incidentServices := make(map[string]struct{}, len(event.LogID))
 	incidentHosts := make(map[string]struct{}, len(event.LogID))
 	incidentIPs := make(map[string]struct{}, len(event.LogID))
 	for _, log := range event.LogID {
-		if service := strings.TrimSpace(log.ServiceName); service != "" {
+		if service := strings.ToLower(strings.TrimSpace(log.ServiceName)); service != "" {
 			incidentServices[service] = struct{}{}
 		}
-		if host := strings.TrimSpace(log.HostName); host != "" {
+		if host := strings.ToLower(strings.TrimSpace(log.HostName)); host != "" {
 			incidentHosts[host] = struct{}{}
 		}
 		for _, ip := range logIPCandidates(log) {
@@ -37,10 +42,11 @@ func computeContradictionPenalty(event models.CorrelationEvent, rule *models.Rul
 	recoveryFound := false
 	competingFound := false
 	seen := make(map[string]struct{})
+	recoveryPenaltyByScope := make(map[string]float64)
+	evidence := make([]models.ContradictionEvidence, 0, len(nearbyLogs))
 
 	for _, log := range nearbyLogs {
 		signal := strings.ToLower(strings.TrimSpace(log.Signal))
-		message := strings.ToLower(strings.TrimSpace(log.Message))
 		relevance := relatedLogRelevance(log, incidentServices, incidentHosts, incidentIPs)
 		if relevance == 0 {
 			continue
@@ -57,19 +63,42 @@ func computeContradictionPenalty(event models.CorrelationEvent, rule *models.Rul
 				}
 				seen[key] = struct{}{}
 				explicitFound = true
-				penalty += explicitContradictionPenalty * relevance
+				appliedPenalty := explicitContradictionPenalty * relevance
+				penalty += appliedPenalty
+				evidence = append(evidence, contradictionEvidence(
+					"explicit_not_sequence",
+					"signal matched a rule exclusion/not_sequence entry",
+					log,
+					relevance,
+					appliedPenalty,
+				))
 				continue
 			}
 		}
 
-		if looksLikeRecoverySignal(signal, message) {
-			key := "recovery|" + keyBase + "|" + signal
-			if _, exists := seen[key]; exists {
+		if recoverySignal, reason := classifyRecoverySignal(signal, recoverySignals); recoverySignal {
+			scopeKey, ok := recoveryScopeKey(log, signal, identity, involvedSet, incidentServices, incidentHosts, incidentIPs)
+			if !ok {
 				continue
 			}
-			seen[key] = struct{}{}
+			appliedPenalty := recoveryContradictionPenalty * relevance
+			remainingPenalty := recoveryContradictionPenalty - recoveryPenaltyByScope[scopeKey]
+			if remainingPenalty <= 0 {
+				continue
+			}
+			if appliedPenalty > remainingPenalty {
+				appliedPenalty = remainingPenalty
+			}
+			recoveryPenaltyByScope[scopeKey] += appliedPenalty
 			recoveryFound = true
-			penalty += recoveryContradictionPenalty * relevance
+			penalty += appliedPenalty
+			evidence = append(evidence, contradictionEvidence(
+				"same_service_recovery",
+				reason,
+				log,
+				relevance,
+				appliedPenalty,
+			))
 			continue
 		}
 
@@ -95,24 +124,32 @@ func computeContradictionPenalty(event models.CorrelationEvent, rule *models.Rul
 		}
 		seen[key] = struct{}{}
 		competingFound = true
-		penalty += competingSignalPenalty * relevance
+		appliedPenalty := competingSignalPenalty * relevance
+		penalty += appliedPenalty
+		evidence = append(evidence, contradictionEvidence(
+			"competing_high_severity",
+			"high-severity signal appeared on a weakly connected topology identity",
+			log,
+			relevance,
+			appliedPenalty,
+		))
 	}
 
 	penalty = minFloat(penalty, maxContradictionPenalty)
 	reasons := make([]string, 0, 3)
 	if explicitFound {
-		reasons = append(reasons, "Nearby exclusion or recovery signals contradicted the expected incident sequence.")
+		reasons = append(reasons, "Nearby rule exclusion signals contradicted the expected incident sequence.")
 	}
 	if recoveryFound {
-		reasons = append(reasons, "Nearby recovery or healthy signals reduced confidence in an active RCA.")
+		reasons = append(reasons, "Nearby same-service recovery signals reduced confidence in an active RCA.")
 	}
 	if competingFound {
 		reasons = append(reasons, "Competing high-severity signals appeared on weakly related services nearby.")
 	}
 	if !explicitFound && !recoveryFound && !competingFound {
-		return 1, nil
+		return 1, nil, nil
 	}
-	return clamp01(1 - penalty), reasons
+	return clamp01(1 - penalty), reasons, evidence
 }
 
 func resolveRelatedLogTopologyIdentityDetailed(log models.RelatedLog, known map[string]struct{}) resolvedTopologyIdentity {
@@ -152,6 +189,19 @@ func negativeSignalSet(event models.CorrelationEvent, rule *models.Rule) map[str
 	return result
 }
 
+func recoverySignalSet(rule *models.Rule) map[string]struct{} {
+	result := make(map[string]struct{})
+	if rule == nil {
+		return result
+	}
+	for _, signal := range rule.RecoverySignals {
+		if trimmed := strings.ToLower(strings.TrimSpace(signal)); trimmed != "" {
+			result[trimmed] = struct{}{}
+		}
+	}
+	return result
+}
+
 func matchedSignalSet(event models.CorrelationEvent) map[string]struct{} {
 	result := make(map[string]struct{})
 	for _, log := range event.LogID {
@@ -171,10 +221,10 @@ func matchedSignalSet(event models.CorrelationEvent) map[string]struct{} {
 
 func relatedLogRelevance(log models.RelatedLog, incidentServices, incidentHosts, incidentIPs map[string]struct{}) float64 {
 	score := 0.60
-	if _, ok := incidentServices[strings.TrimSpace(log.ServiceName)]; ok {
+	if _, ok := incidentServices[strings.ToLower(strings.TrimSpace(log.ServiceName))]; ok {
 		score = 1.00
 	}
-	if _, ok := incidentHosts[strings.TrimSpace(log.HostName)]; ok && score < 0.90 {
+	if _, ok := incidentHosts[strings.ToLower(strings.TrimSpace(log.HostName))]; ok && score < 0.90 {
 		score = 0.90
 	}
 	for _, ip := range relatedLogIPCandidates(log) {
@@ -185,17 +235,122 @@ func relatedLogRelevance(log models.RelatedLog, incidentServices, incidentHosts,
 	return score
 }
 
-func looksLikeRecoverySignal(signal, message string) bool {
-	text := strings.ToLower(strings.TrimSpace(signal + " " + message))
-	if text == "" {
+func classifyRecoverySignal(signal string, recoverySignals map[string]struct{}) (bool, string) {
+	if signal == "" {
+		return false, ""
+	}
+	if _, ok := recoverySignals[signal]; ok {
+		return true, "signal matched the rule recovery_signals list"
+	}
+	if looksLikeRecoverySignalName(signal) {
+		return true, "signal name is an unambiguous service recovery indicator"
+	}
+	return false, ""
+}
+
+func looksLikeRecoverySignalName(signal string) bool {
+	tokens := signalNameTokens(signal)
+	if len(tokens) == 0 {
 		return false
 	}
-	for _, keyword := range []string{"recover", "healthy", "success", "resolved", "normal", "stabil"} {
-		if strings.Contains(text, keyword) {
+	for _, token := range tokens {
+		switch token {
+		case "abnormal", "conflict", "corrupt", "degraded", "error", "failed", "failure", "recovering", "unhealthy", "unstable":
+			return false
+		}
+	}
+	for _, token := range tokens {
+		switch token {
+		case "cleared", "healthy", "normal", "recovered", "resolved", "restored", "stabilized", "stable":
 			return true
 		}
 	}
 	return false
+}
+
+func signalNameTokens(signal string) []string {
+	return strings.FieldsFunc(strings.ToLower(strings.TrimSpace(signal)), func(r rune) bool {
+		return r == '_' || r == '-' || r == '.' || r == ':' || unicode.IsSpace(r)
+	})
+}
+
+func recoveryScopeKey(log models.RelatedLog, signal, identity string, involved map[string]struct{}, incidentServices, incidentHosts, incidentIPs map[string]struct{}) (string, bool) {
+	service := strings.ToLower(strings.TrimSpace(log.ServiceName))
+	if service != "" {
+		if _, ok := incidentServices[service]; ok {
+			return "service|" + service, true
+		}
+	}
+	if identity != "" {
+		if _, ok := involved[strings.TrimSpace(identity)]; ok {
+			return "identity|" + strings.TrimSpace(identity), true
+		}
+	}
+	if matchedService := serviceFromSignal(signal, incidentServices); matchedService != "" && sharesIncidentHostOrIP(log, incidentHosts, incidentIPs) {
+		return "service|" + matchedService, true
+	}
+	return "", false
+}
+
+func serviceFromSignal(signal string, incidentServices map[string]struct{}) string {
+	signal = strings.ToLower(strings.TrimSpace(signal))
+	if signal == "" {
+		return ""
+	}
+	for service := range incidentServices {
+		if signal == service || strings.HasPrefix(signal, service+"_") || strings.HasPrefix(signal, service+"-") {
+			return service
+		}
+	}
+	return ""
+}
+
+func sharesIncidentHostOrIP(log models.RelatedLog, incidentHosts, incidentIPs map[string]struct{}) bool {
+	if _, ok := incidentHosts[strings.ToLower(strings.TrimSpace(log.HostName))]; ok {
+		return true
+	}
+	for _, ip := range relatedLogIPCandidates(log) {
+		if _, ok := incidentIPs[ip]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func contradictionEvidence(kind, reason string, log models.RelatedLog, relevance, penalty float64) models.ContradictionEvidence {
+	return models.ContradictionEvidence{
+		Kind:        kind,
+		Reason:      reason,
+		DocID:       log.DocID,
+		SourceIndex: log.Index,
+		Timestamp:   log.Timestamp,
+		Signal:      log.Signal,
+		Severity:    log.Severity,
+		ServiceName: log.ServiceName,
+		HostName:    log.HostName,
+		HostIP:      log.HostIP,
+		Message:     trimEvidenceMessage(log.Message),
+		Relevance:   round(relevance),
+		Penalty:     round(penalty),
+	}
+}
+
+func trimEvidenceMessage(message string) string {
+	message = strings.TrimSpace(message)
+	if len(message) <= maxContradictionEvidenceMessageLength {
+		return message
+	}
+	return message[:maxContradictionEvidenceMessageLength]
+}
+
+func trimmedSet(values []string) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			result[trimmed] = struct{}{}
+		}
+	}
+	return result
 }
 
 func maxConnectivityToIncident(graph map[string][]weightedEdge, identity string, involved []string) float64 {

@@ -1,0 +1,43 @@
+service: data_collector
+rules:
+  - id: A_DATA_COLLECTOR_UNCLASSIFIED_FAILURE
+    signal_key: data_collector_unclassified_failure
+    level: critical
+    description: Data collector emitted an error-level failure but no specific data-collector signature matched.
+    tags: [fallback, unclassified, data_collector, critical, triage]
+    condition:
+      and:
+        - field: service.name
+          op: equals
+          value: data_collector
+        - or:
+            - field: log.level
+              op: in
+              value: [crit, critical, err, error, fatal, panic]
+            - field: level
+              op: in
+              value: [crit, critical, err, error, fatal, panic]
+            - field: message
+              op: regex
+              value: '(FATAL|PANIC|CRITICAL|SEVERE|ERROR)'
+
+  - id: DATA_COLLECTOR_SERVICE_DOWN
+    signal_key: data_collector_service_down
+    level: critical
+    description: Data collector service stopped/crashed or entered failed state.
+    tags: [data_collector, service, availability, outage]
+    condition:
+      or:
+        - and:
+            - field: service.name
+              op: equals
+              value: data_collector
+            - field: message
+              op: regex
+              value: '(shutting down|shutdown completed|service down|service stopped|stopped|terminated|crash|fatal|panic|Main process exited|failed \(Result: exit-code\)|entered the ''failed'' state)'
+        - field: message
+          op: regex
+          value: '([Dd]ata[_-]?[Cc]ollector(\.service)? .* (failed|down|stopped|terminated|crash|panic|fatal)|Failed to start data[_-]?[Cc]ollector|data[_-]?[Cc]ollector\.service: Main process exited)'
+        - field: system.syslog.message
+          op: regex
+          value: '([Dd]ata[_-]?[Cc]ollector(\.service)? .* (failed|down|stopped|terminated|crash|panic|fatal)|Failed to start data[_-]?[Cc]ollector|data[_-]?[Cc]ollector\.service: Main process exited)'

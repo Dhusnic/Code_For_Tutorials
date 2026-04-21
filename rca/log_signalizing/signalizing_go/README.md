@@ -41,7 +41,7 @@ If `go` is not on `PATH`, use the full executable path:
 From this folder:
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_go"
 go mod tidy
 ```
 
@@ -56,12 +56,12 @@ go mod download
 Quick rebuild scripts:
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_go"
 .\rebuild.ps1
 ```
 
 ```sh
-cd /d/Code\ for\ tutorials/rca/signalizing/signalizing_go
+cd /d/Code\ for\ tutorials/rca/log_signalizing/signalizing_go
 ./rebuild.sh
 ```
 
@@ -78,7 +78,7 @@ If PM2 is still running the old binary, Windows may keep a `bin\signalizing-engi
 Build the main RCA executable:
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_go"
 go build -o .\bin\signalizing-engine.exe .\cmd\signalizing-engine
 ```
 
@@ -99,7 +99,7 @@ go build ./...
 Run the shared default config:
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_go"
 .\bin\signalizing-engine.exe --config ..\config.yml --run-once
 ```
 
@@ -118,7 +118,7 @@ Validate rules:
 ## Run Without Building
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_go"
 go run .\cmd\signalizing-engine --config ..\config.yml --run-once
 ```
 
@@ -129,7 +129,7 @@ The PM2 file for the Go binary is [app.json](./app.json). It already points to t
 Start it with:
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_go"
 pm2 start .\app.json
 pm2 logs signalizing-engine
 ```
@@ -163,7 +163,7 @@ Transitive dependencies are recorded in [go.sum](./go.sum) and are pulled automa
 Run all Go tests:
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_go"
 go test ./...
 ```
 

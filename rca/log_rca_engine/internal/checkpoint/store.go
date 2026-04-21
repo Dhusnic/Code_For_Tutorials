@@ -1,6 +1,7 @@
 package checkpoint
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -36,6 +37,12 @@ func (s *Store) Load(ctx context.Context) (models.ReaderCheckpoint, error) {
 	}
 	if err != nil {
 		return models.ReaderCheckpoint{}, fmt.Errorf("read checkpoint file: %w", err)
+	}
+	if len(bytes.TrimSpace(payload)) == 0 {
+		if s.logger != nil {
+			s.logger.Warn("checkpoint file was empty; treating as no checkpoint", "path", s.path)
+		}
+		return models.ReaderCheckpoint{}, nil
 	}
 
 	var checkpoint models.ReaderCheckpoint

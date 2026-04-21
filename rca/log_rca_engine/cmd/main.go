@@ -54,6 +54,13 @@ func main() {
 		}
 	}()
 
+	signalSeverityCatalog, err := scoring.LoadSignalSeverityCatalog(cfg.SignalCatalog.Files)
+	if err != nil {
+		log.Error("failed to load signal severity catalog", "error", err)
+		os.Exit(1)
+	}
+	log.Info("signal severity catalog loaded", "signals", len(signalSeverityCatalog))
+
 	processor := service.NewProcessor(service.Dependencies{
 		Reader:      esClient,
 		Rules:       rules.NewFileLoader(cfg.Rules.File),
@@ -66,7 +73,7 @@ func main() {
 			TimeProximity:    cfg.Scoring.Weights.TimeProximity,
 			SignalSeverity:   cfg.Scoring.Weights.SignalSeverity,
 			RuleCompleteness: cfg.Scoring.Weights.RuleCompleteness,
-		}, cfg.Scoring.ConfidenceThreshold),
+		}, cfg.Scoring.ConfidenceThreshold, signalSeverityCatalog),
 		Explainer:            llm.NewOpenAIConversationHandler(cfg.OpenAI, log.With("component", "openai")),
 		NeighborhoodLogLimit: cfg.OpenAI.NeighborhoodLogLimit,
 		NearbyLogTrigger:     cfg.Scoring.NearbyLogTriggerThreshold,

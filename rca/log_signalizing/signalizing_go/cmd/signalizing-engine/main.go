@@ -77,6 +77,8 @@ func main() {
 		if *runOnce {
 			return
 		}
-		time.Sleep(time.Duration(cfg.Pipeline.PollIntervalSeconds) * time.Second)
+		if cfg.Pipeline.PollIntervalSeconds > 0 {
+			time.Sleep(time.Duration(cfg.Pipeline.PollIntervalSeconds) * time.Second)
+		}
 	}
 }

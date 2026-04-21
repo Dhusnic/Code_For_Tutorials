@@ -20,6 +20,55 @@ signalizing -> correlation-engine -> rca_correlated_events -> log-rca-engine -> 
 - Correlation rules: `rules.file`
 - Static topology: `topology.file`
 
+## Topology File Format (Multi-Topology)
+
+`log_rca_engine` supports multiple topologies per organization in a single `topology.json`.
+
+Current structure:
+
+```json
+{
+  "schema_version": 1,
+  "organizations": {
+    "135098068173316952064": {
+      "topology_current": { "...": "..." },
+      "local_topology": { "...": "..." },
+      "data_collector_topology": { "...": "..." }
+    }
+  }
+}
+```
+
+Where each `{ "...": "..." }` topology object can contain:
+
+- `services`: list of `{ service_name, device_ip }`
+- `dependencies`: list of `{ from, to, relation }` using `ip::service` identity strings
+- `devices`: list of devices with per-device service lists
+- `service_relations`: optional explicit relations with `from_service/from_ip` and `to_service/to_ip`
+
+This lets you keep multiple environments, lab setups, or alternative dependency graphs under the same organization id.
+
+## Rule Topology Scoping
+
+Correlation rules can be scoped to one or more topology ids via `topology_ids` in the correlation rule JSON:
+
+- If `topology_ids` is empty or missing: the RCA scorer can consider all topologies for the organization.
+- If `topology_ids` contains 1 or more ids: the scorer only considers those topologies, and will skip the event if none exist for the organization.
+
+When a rule is scoped to exactly one topology id, the engine uses a fast-path lookup:
+
+```text
+organizations[org_id][topology_id]
+```
+
+instead of scanning all topologies for that organization.
+
+## Topology ID In Output
+
+The stored RCA record includes `topology_id` so you can see which topology was used for scoring and for the final classification.
+
+This makes it explicit when the same rule fires for different environments/topology variants under the same organization id.
+
 Topology matching is IP-aware. When a topology node provides `device_ip`, the scorer uses `host.ip` from the original Elasticsearch log evidence as the primary identity and falls back to `service.name`, `event.module`, or `host.name` only when no usable IP is available.
 
 If `host.ip` contains multiple interface addresses in one field, the engine extracts all IPv4 values and uses the topology-matching device IP candidate when one of them matches your topology.
@@ -96,6 +145,20 @@ if Confidence_score >= 7.0 and all confirmation gates pass
 else
     classification = probable_cause
 ```
+
+## Minimum Probable Cause Threshold
+
+By default the engine stores low-confidence incidents as `probable_cause` so you do not lose weak-but-useful leads.
+
+If you want to suppress very weak probable causes, set:
+
+- `scoring.probable_cause_min_threshold` (0 to 10)
+
+Behavior:
+
+- If `scoring.probable_cause_min_threshold` is `0`, all `probable_cause` results are persisted (default).
+- If it is `> 0`, then only incidents with `confidence_score >= scoring.probable_cause_min_threshold` are persisted when the incident is classified as `probable_cause`.
+- The value must be `<= scoring.confidence_threshold`.
 
 ## 1. Sequence Match Score
 
@@ -739,6 +802,21 @@ Final severity score:
 S_sev = clamp01(0.6 * Severity_max + 0.4 * Severity_avg)
 ```
 
+The engine also calculates the severity expected by the correlation rule. It loads the signal catalog from `signal_catalog.files`, reads each signalizing rule's `signal_key` and `level`, and averages the expected severities of the signals mentioned in the RCA rule sequence.
+
+```text
+S_expected = average severity of rule sequence signal keys from the signal catalog
+S_align    = clamp01(S_sev / S_expected)
+```
+
+The weighted confidence score uses `S_align`, while the output still includes all three values:
+
+```text
+signal_severity          = observed evidence severity
+expected_signal_severity = severity expected by the rule's signal keys
+severity_alignment       = observed / expected
+```
+
 ### Signal severity worked sum
 
 Assume three matched logs:
@@ -775,10 +853,23 @@ weights = [0.60, 0.60, 0.60]
 Severity_max = 0.60
 Severity_avg = (0.60 + 0.60 + 0.60) / 3 = 0.60
 S_sev = 0.6 * 0.60 + 0.4 * 0.60 = 0.60
+
+If the rule is built from warning-level signals:
+S_expected = 0.60
+S_align = 0.60 / 0.60 = 1.00
 ```
 
 ```text
-Example C: unknown severities
+Example C: critical rule observed only as warning
+
+weights = [0.60, 0.60]
+S_sev = 0.60
+S_expected = 1.00
+S_align = 0.60 / 1.00 = 0.60
+```
+
+```text
+Example D: unknown severities
 
 weights = [0.20, 0.20]
 Severity_max = 0.20
@@ -787,7 +878,7 @@ S_sev = 0.6 * 0.20 + 0.4 * 0.20 = 0.20
 ```
 
 ```text
-Example D: no matched evidence logs
+Example E: no matched evidence logs
 
 S_sev = 0.00
 ```
@@ -990,6 +1081,8 @@ same IP      -> 1.00
 other nearby -> 0.60
 ```
 
+Recovery contradictions are stricter than general nearby relevance. A log only counts as recovery evidence when its signal is either listed in the rule's `recovery_signals` array or has an unambiguous recovery signal name such as `*_recovered`, `*_healthy`, `*_resolved`, `*_restored`, `*_stable`, or `*_cleared`. Generic raw message text such as `successfully` does not count by itself. Recovery evidence must also be scoped to the same service/topology identity, or to a signal prefix that matches the incident service on the same host/IP.
+
 ### 7.2 Penalty constants
 
 ```text
@@ -1004,7 +1097,7 @@ maximum total penalty          = 0.75
 ```text
 Penalty_raw =
   sum(0.35 * relevance_j for explicit contradiction logs) +
-  sum(0.20 * relevance_k for recovery logs) +
+  sum(0.20 * relevance_k for same-service recovery logs, capped once per service/scope) +
   sum(0.10 * relevance_m for competing high-severity logs)
 ```
 
@@ -1176,6 +1269,7 @@ S_rule     >= 0.45
 C_topo     >= 0.50
 C_id       >= 0.60
 S_time     >= 0.30
+S_align    >= 0.80
 P_contra   >= 0.80
 ```
 

@@ -26,3 +26,146 @@ rules:
         field: message
         op: contains
         value: running boot step database
+    - id: RABBITMQ_AUTO_CELERYEV_6FEB_4F1E_E8B9BFE3
+      signal_key: rabbitmq_auto_celeryev_6feb_4f1e_e8b9
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: << celeryev 6feb 4f1e'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: << celeryev 6feb 4f1e
+    - id: RABBITMQ_AUTO_RESOURCE_QUEUE_59BAE7E5
+      signal_key: rabbitmq_auto_resource_queue_59ba
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: resource << >> queue'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: resource << >> queue
+    - id: RABBITMQ_AUTO_DELIVER_NONE2_22D7A540
+      signal_key: rabbitmq_auto_deliver_none2_22d7
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: deliver << none2 >>'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: deliver << none2 >>
+    - id: RABBITMQ_AUTO_RK_WORKER_HEARTBEAT_0FCCC36D
+      signal_key: rabbitmq_auto_rk_worker_heartbeat_0fcc
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: rk << worker heartbeat'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: rk << worker heartbeat
+    - id: RABBITMQ_AUTO_UNDEFINED_FALSE_49FE8DB2
+      signal_key: rabbitmq_auto_undefined_false_49fe
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: undefined false'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: undefined false
+    - id: RABBITMQ_AUTO_FALSE_CELERYEV_391E7284
+      signal_key: rabbitmq_auto_false_celeryev_391e
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: false << celeryev >>'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: false << celeryev >>
+    - id: RABBITMQ_AUTO_QUEUE_EVENT_91DBABE9
+      signal_key: rabbitmq_auto_queue_event_91db
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: queue event'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: queue event
+    - id: RABBITMQ_AUTO_MC_AMQPL_F1945FAA
+      signal_key: rabbitmq_auto_mc_amqpl_f194
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: mc amqpl'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: mc amqpl
+    - id: RABBITMQ_AUTO_RABBIT_FRAMING_AMQP_9939C194
+      signal_key: rabbitmq_auto_rabbit_framing_amqp_9939
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: rabbit framing amqp'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: rabbit framing amqp
+    - id: RABBITMQ_AUTO_GEN_CAST_0912E49A
+      signal_key: rabbitmq_auto_gen_cast_0912
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: gen cast'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: gen cast
+    - id: RABBITMQ_AUTO_CONTENT_NONE_1066CA20
+      signal_key: rabbitmq_auto_content_none_1066
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: content none'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - rabbitmq
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: content none

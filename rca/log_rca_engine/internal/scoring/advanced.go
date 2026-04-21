@@ -82,13 +82,6 @@ func countCompletedSteps(audit *models.MatchAudit) int {
 	return completed
 }
 
-func confirmationStepRequirement(audit *models.MatchAudit) int {
-	if audit == nil || len(audit.Steps) <= 1 {
-		return 1
-	}
-	return 2
-}
-
 func passesConfirmationGates(event models.CorrelationEvent, breakdown models.ScoreBreakdown) bool {
 	if breakdown.SequenceMatch < 0.55 || breakdown.RuleCompleteness < 0.45 {
 		return false
@@ -99,7 +92,7 @@ func passesConfirmationGates(event models.CorrelationEvent, breakdown models.Sco
 	if breakdown.TimeProximity < 0.30 || breakdown.ContradictionPenalty < 0.80 {
 		return false
 	}
-	if event.Audit != nil && len(event.Audit.Steps) > 0 && countCompletedSteps(event.Audit) < confirmationStepRequirement(event.Audit) {
+	if breakdown.SeverityAlignment < minimumSeverityAlignment {
 		return false
 	}
 	return true

@@ -46,6 +46,13 @@ type sequenceMatch struct {
 	matchedSteps int
 }
 
+type stepMode int
+
+const (
+	stepModeAllOf stepMode = iota
+	stepModeAnyOf
+)
+
 type compiledRule struct {
 	cacheKey         string
 	rule             models.Rule
@@ -55,15 +62,32 @@ type compiledRule struct {
 	maxGapEnabled    bool
 	requiredMetadata map[string]string
 	steps            []compiledStep
-	firstSignal      string
+	firstSignalKeys  []string
 	negativeSignals  map[string]struct{}
 	dedupWindow      time.Duration
 }
 
+type compiledSelector struct {
+	signalKey  string
+	signalKeys map[string]struct{}
+	minCount   int
+}
+
 type compiledStep struct {
 	signalKey string
+	mode      stepMode
+	selectors []compiledSelector
 	minCount  int
 	within    time.Duration
+}
+
+type stepMatchResult struct {
+	logs          []models.FullLog
+	matchedCount  int
+	complete      bool
+	nextIndex     int
+	lastMatchedAt time.Time
+	canceled      bool
 }
 
 const correlationSchemaVersion = 2
@@ -211,7 +235,7 @@ func (e *Engine) slidingWindowMatchCompiled(logs []models.FullLog, index signalI
 		return sequenceMatch{}
 	}
 
-	firstSignalPositions := index[rule.firstSignal]
+	firstSignalPositions := collectFirstSignalPositions(index, rule.firstSignalKeys)
 	if len(firstSignalPositions) == 0 {
 		return sequenceMatch{}
 	}
@@ -266,31 +290,15 @@ func (e *Engine) matchSequence(
 		}
 		stepDeadline := minTime(deadlineCandidates...)
 
-		for searchIndex <= endIndex {
-			log := logs[searchIndex]
-			if _, blocked := rule.negativeSignals[log.Signal]; blocked {
-				return sequenceMatch{}
-			}
-			if log.Timestamp.After(stepDeadline) {
-				break
-			}
-
-			if log.Signal == step.signalKey {
-				matchedLogs = append(matchedLogs, log)
-				stepLogs[stepIndex] = append(stepLogs[stepIndex], log)
-				stepMatches[stepIndex]++
-				lastMatchedTime = log.Timestamp
-				if stepMatches[stepIndex] >= step.minCount {
-					matchedSteps++
-					searchIndex++
-					break
-				}
-			}
-
-			searchIndex++
+		stepMatch := e.matchCompiledStep(logs, searchIndex, endIndex, stepDeadline, rule.negativeSignals, step)
+		if stepMatch.canceled {
+			return sequenceMatch{}
 		}
+		matchedLogs = append(matchedLogs, stepMatch.logs...)
+		stepLogs[stepIndex] = append(stepLogs[stepIndex], stepMatch.logs...)
+		stepMatches[stepIndex] = stepMatch.matchedCount
 
-		if stepMatches[stepIndex] < step.minCount {
+		if !stepMatch.complete {
 			return sequenceMatch{
 				logs:         matchedLogs,
 				stepLogs:     stepLogs,
@@ -298,6 +306,10 @@ func (e *Engine) matchSequence(
 				matchedSteps: matchedSteps,
 			}
 		}
+
+		matchedSteps++
+		searchIndex = stepMatch.nextIndex
+		lastMatchedTime = stepMatch.lastMatchedAt
 	}
 
 	return sequenceMatch{
@@ -309,7 +321,7 @@ func (e *Engine) matchSequence(
 }
 
 func (e *Engine) deduplicate(logs []models.FullLog, keys []string, window time.Duration) []models.FullLog {
-	if len(keys) == 0 {
+	if len(keys) == 0 || window <= 0 {
 		return logs
 	}
 
@@ -606,12 +618,179 @@ func minTime(values ...time.Time) time.Time {
 	return result
 }
 
+func (e *Engine) matchCompiledStep(
+	logs []models.FullLog,
+	startIndex, endIndex int,
+	stepDeadline time.Time,
+	negativeSignals map[string]struct{},
+	step compiledStep,
+) stepMatchResult {
+	switch step.mode {
+	case stepModeAnyOf:
+		return e.matchAnyOfStep(logs, startIndex, endIndex, stepDeadline, negativeSignals, step)
+	default:
+		return e.matchAllOfStep(logs, startIndex, endIndex, stepDeadline, negativeSignals, step)
+	}
+}
+
+func (e *Engine) matchAnyOfStep(
+	logs []models.FullLog,
+	startIndex, endIndex int,
+	stepDeadline time.Time,
+	negativeSignals map[string]struct{},
+	step compiledStep,
+) stepMatchResult {
+	counts := make([]int, len(step.selectors))
+	selectorLogs := make([][]models.FullLog, len(step.selectors))
+
+	for idx := startIndex; idx <= endIndex; idx++ {
+		log := logs[idx]
+		if _, blocked := negativeSignals[log.Signal]; blocked {
+			return stepMatchResult{canceled: true}
+		}
+		if log.Timestamp.After(stepDeadline) {
+			break
+		}
+
+		for selectorIdx, selector := range step.selectors {
+			if counts[selectorIdx] >= selector.minCount {
+				continue
+			}
+			if selector.matchesSignal(log.Signal) {
+				counts[selectorIdx]++
+				selectorLogs[selectorIdx] = append(selectorLogs[selectorIdx], log)
+			}
+		}
+
+		for selectorIdx, selector := range step.selectors {
+			if counts[selectorIdx] >= selector.minCount {
+				return stepMatchResult{
+					logs:          selectorLogs[selectorIdx],
+					matchedCount:  1,
+					complete:      true,
+					nextIndex:     idx + 1,
+					lastMatchedAt: selectorLogs[selectorIdx][len(selectorLogs[selectorIdx])-1].Timestamp,
+				}
+			}
+		}
+	}
+
+	bestIdx := bestSelectorProgressIndex(counts, step.selectors)
+	if bestIdx < 0 {
+		return stepMatchResult{}
+	}
+	return stepMatchResult{
+		logs:         selectorLogs[bestIdx],
+		matchedCount: 0,
+	}
+}
+
+func (e *Engine) matchAllOfStep(
+	logs []models.FullLog,
+	startIndex, endIndex int,
+	stepDeadline time.Time,
+	negativeSignals map[string]struct{},
+	step compiledStep,
+) stepMatchResult {
+	counts := make([]int, len(step.selectors))
+	selectorLogs := make([][]models.FullLog, len(step.selectors))
+	matchedLogs := make([]models.FullLog, 0)
+
+	for idx := startIndex; idx <= endIndex; idx++ {
+		log := logs[idx]
+		if _, blocked := negativeSignals[log.Signal]; blocked {
+			return stepMatchResult{canceled: true}
+		}
+		if log.Timestamp.After(stepDeadline) {
+			break
+		}
+
+		for selectorIdx, selector := range step.selectors {
+			if counts[selectorIdx] >= selector.minCount {
+				continue
+			}
+			if !selector.matchesSignal(log.Signal) {
+				continue
+			}
+
+			counts[selectorIdx]++
+			selectorLogs[selectorIdx] = append(selectorLogs[selectorIdx], log)
+			matchedLogs = append(matchedLogs, log)
+			if allSelectorsSatisfied(counts, step.selectors) {
+				return stepMatchResult{
+					logs:          matchedLogs,
+					matchedCount:  matchedSelectorUnits(counts, step.selectors),
+					complete:      true,
+					nextIndex:     idx + 1,
+					lastMatchedAt: log.Timestamp,
+				}
+			}
+			break
+		}
+	}
+
+	return stepMatchResult{
+		logs:         matchedLogs,
+		matchedCount: matchedSelectorUnits(counts, step.selectors),
+	}
+}
+
 func buildSignalIndex(logs []models.FullLog) signalIndex {
 	index := make(signalIndex, len(logs))
 	for idx, log := range logs {
 		index[log.Signal] = append(index[log.Signal], idx)
 	}
 	return index
+}
+
+func normalizeSelectorSignalKeys(signalKey string, signalKeys []string) []string {
+	seen := make(map[string]struct{}, 1+len(signalKeys))
+	result := make([]string, 0, 1+len(signalKeys))
+	appendSignal := func(raw string) {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return
+		}
+		if _, exists := seen[trimmed]; exists {
+			return
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+
+	appendSignal(signalKey)
+	for _, signal := range signalKeys {
+		appendSignal(signal)
+	}
+	return result
+}
+
+func collectFirstSignalPositions(index signalIndex, signalKeys []string) []int {
+	if len(signalKeys) == 0 {
+		return nil
+	}
+	if len(signalKeys) == 1 {
+		return append([]int(nil), index[signalKeys[0]]...)
+	}
+
+	positions := make([]int, 0)
+	seen := make(map[int]struct{})
+	for _, signal := range signalKeys {
+		for _, idx := range index[signal] {
+			if _, exists := seen[idx]; exists {
+				continue
+			}
+			seen[idx] = struct{}{}
+			positions = append(positions, idx)
+		}
+	}
+	sort.Ints(positions)
+	return positions
+}
+
+func (s compiledSelector) matchesSignal(signal string) bool {
+	_, ok := s.signalKeys[signal]
+	return ok
 }
 
 func upperBoundTimestamp(logs []models.FullLog, target time.Time) int {
@@ -668,15 +847,17 @@ func (e *Engine) compileRule(rule models.Rule) (compiledRule, bool) {
 	}
 
 	for idx, step := range rule.Sequence {
-		compiledStep := compiledStep{
-			signalKey: step.SignalKey,
-			minCount:  normalizeMinCount(step.MinCount),
-			within:    e.parseDurationOrDefault(step.Within, e.defaultWindow),
+		compiledStep, firstSignalKeys, ok := e.compileStep(rule, idx, step)
+		if !ok {
+			return compiledRule{}, false
 		}
 		compiled.steps = append(compiled.steps, compiledStep)
 		if idx == 0 {
-			compiled.firstSignal = step.SignalKey
+			compiled.firstSignalKeys = append([]string(nil), firstSignalKeys...)
 		}
+	}
+	if len(compiled.steps) == 0 || len(compiled.firstSignalKeys) == 0 {
+		return compiledRule{}, false
 	}
 	for _, step := range rule.NotSequence {
 		compiled.negativeSignals[step.SignalKey] = struct{}{}
@@ -697,6 +878,184 @@ func (e *Engine) parseDurationOrDefault(value string, fallback time.Duration) ti
 		return fallback
 	}
 	return parsed
+}
+
+func (e *Engine) compileStep(rule models.Rule, stepIndex int, step models.SequenceStep) (compiledStep, []string, bool) {
+	hasLegacySignals := len(normalizeSelectorSignalKeys(step.SignalKey, step.SignalKeys)) > 0
+	hasAnyOf := len(step.AnyOf) > 0
+	hasAllOf := len(step.AllOf) > 0
+
+	modeCount := 0
+	if hasLegacySignals {
+		modeCount++
+	}
+	if hasAnyOf {
+		modeCount++
+	}
+	if hasAllOf {
+		modeCount++
+	}
+	if modeCount != 1 {
+		if e.logger != nil {
+			e.logger.Warn(
+				"rule step must use exactly one selector mode",
+				"rule_id", rule.ID,
+				"step_index", stepIndex,
+			)
+		}
+		return compiledStep{}, nil, false
+	}
+
+	within := e.parseDurationOrDefault(step.Within, e.defaultWindow)
+	if hasLegacySignals {
+		selector, signalKeys, ok := compileSelector(step.SignalKey, step.SignalKeys, normalizeMinCount(step.MinCount))
+		if !ok {
+			if e.logger != nil {
+				e.logger.Warn("rule step has no signal selectors", "rule_id", rule.ID, "step_index", stepIndex)
+			}
+			return compiledStep{}, nil, false
+		}
+		return compiledStep{
+			signalKey: selector.signalKey,
+			mode:      stepModeAllOf,
+			selectors: []compiledSelector{selector},
+			minCount:  selector.minCount,
+			within:    within,
+		}, signalKeys, true
+	}
+
+	if normalizeMinCount(step.MinCount) > 1 {
+		if e.logger != nil {
+			e.logger.Warn(
+				"grouped rule steps do not support step min_count > 1",
+				"rule_id", rule.ID,
+				"step_index", stepIndex,
+				"min_count", step.MinCount,
+			)
+		}
+		return compiledStep{}, nil, false
+	}
+
+	rawSelectors := step.AnyOf
+	mode := stepModeAnyOf
+	if hasAllOf {
+		rawSelectors = step.AllOf
+		mode = stepModeAllOf
+	}
+
+	selectors := make([]compiledSelector, 0, len(rawSelectors))
+	firstSignalKeys := make([]string, 0)
+	firstSignalSeen := make(map[string]struct{})
+	for selectorIndex, raw := range rawSelectors {
+		selector, signalKeys, ok := compileSelector(raw.SignalKey, raw.SignalKeys, 1)
+		if !ok {
+			if e.logger != nil {
+				e.logger.Warn(
+					"grouped rule selector has no signals",
+					"rule_id", rule.ID,
+					"step_index", stepIndex,
+					"selector_index", selectorIndex,
+				)
+			}
+			return compiledStep{}, nil, false
+		}
+		selectors = append(selectors, selector)
+		for _, signalKey := range signalKeys {
+			if _, exists := firstSignalSeen[signalKey]; exists {
+				continue
+			}
+			firstSignalSeen[signalKey] = struct{}{}
+			firstSignalKeys = append(firstSignalKeys, signalKey)
+		}
+	}
+
+	stepSummary := renderStepSummary(mode, selectors)
+	requiredCount := 1
+	if mode == stepModeAllOf {
+		requiredCount = len(selectors)
+	}
+	return compiledStep{
+		signalKey: stepSummary,
+		mode:      mode,
+		selectors: selectors,
+		minCount:  requiredCount,
+		within:    within,
+	}, firstSignalKeys, true
+}
+
+func compileSelector(signalKey string, signalKeys []string, minCount int) (compiledSelector, []string, bool) {
+	normalizedSignals := normalizeSelectorSignalKeys(signalKey, signalKeys)
+	if len(normalizedSignals) == 0 {
+		return compiledSelector{}, nil, false
+	}
+
+	signalSet := make(map[string]struct{}, len(normalizedSignals))
+	for _, signal := range normalizedSignals {
+		signalSet[signal] = struct{}{}
+	}
+
+	return compiledSelector{
+		signalKey:  strings.Join(normalizedSignals, "|"),
+		signalKeys: signalSet,
+		minCount:   normalizeMinCount(minCount),
+	}, normalizedSignals, true
+}
+
+func renderStepSummary(mode stepMode, selectors []compiledSelector) string {
+	parts := make([]string, 0, len(selectors))
+	for _, selector := range selectors {
+		parts = append(parts, selector.signalKey)
+	}
+	switch mode {
+	case stepModeAnyOf:
+		return "any_of(" + strings.Join(parts, "; ") + ")"
+	default:
+		return "all_of(" + strings.Join(parts, "; ") + ")"
+	}
+}
+
+func bestSelectorProgressIndex(counts []int, selectors []compiledSelector) int {
+	bestIdx := -1
+	bestProgress := -1.0
+	bestMatched := -1
+	for idx, selector := range selectors {
+		progress := float64(minInt(counts[idx], selector.minCount)) / float64(selector.minCount)
+		if progress > bestProgress {
+			bestIdx = idx
+			bestProgress = progress
+			bestMatched = counts[idx]
+			continue
+		}
+		if progress == bestProgress && counts[idx] > bestMatched {
+			bestIdx = idx
+			bestMatched = counts[idx]
+		}
+	}
+	return bestIdx
+}
+
+func allSelectorsSatisfied(counts []int, selectors []compiledSelector) bool {
+	for idx, selector := range selectors {
+		if counts[idx] < selector.minCount {
+			return false
+		}
+	}
+	return true
+}
+
+func matchedSelectorUnits(counts []int, selectors []compiledSelector) int {
+	matched := 0
+	for idx, selector := range selectors {
+		matched += minInt(counts[idx], selector.minCount)
+	}
+	return matched
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 func (e *Engine) recordMetrics(logCount, resultCount int, duration time.Duration) {

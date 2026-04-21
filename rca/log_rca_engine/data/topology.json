@@ -2,418 +2,10 @@
   "schema_version": 1,
   "organizations": {
     "135098068173316952064": {
-      "topology_current": {
+      "infraon_onprem_prod": {
         "services": [
           {
             "service_name": "nginx",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "api",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "rabbitmq",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "mongodb",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "kafka",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "nginx",
-            "device_ip": "10.0.6.79"
-          },
-          {
-            "service_name": "api",
-            "device_ip": "10.0.6.79"
-          },
-          {
-            "service_name": "rabbitmq",
-            "device_ip": "10.0.6.79"
-          },
-          {
-            "service_name": "mongodb",
-            "device_ip": "10.0.6.79"
-          },
-          {
-            "service_name": "kafka",
-            "device_ip": "10.0.6.79"
-          }
-        ],
-        "dependencies": [
-          {
-            "from": "10.0.5.97::nginx",
-            "to": "10.0.5.97::api",
-            "relation": "upstream"
-          },
-          {
-            "from": "10.0.5.97::api",
-            "to": "10.0.5.97::rabbitmq",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.5.97::api",
-            "to": "10.0.5.97::mongodb",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.5.97::api",
-            "to": "10.0.5.97::kafka",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.5.97::rabbitmq",
-            "to": "10.0.5.97::mongodb",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.6.79::nginx",
-            "to": "10.0.6.79::api",
-            "relation": "upstream"
-          },
-          {
-            "from": "10.0.6.79::api",
-            "to": "10.0.6.79::rabbitmq",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.6.79::api",
-            "to": "10.0.6.79::mongodb",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.6.79::api",
-            "to": "10.0.6.79::kafka",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.6.79::rabbitmq",
-            "to": "10.0.6.79::mongodb",
-            "relation": "depends_on"
-          }
-        ],
-        "devices": [
-          {
-            "device_ip": "10.0.5.97",
-            "host_name": "localhost.localdomain",
-            "services": [
-              {
-                "service_name": "nginx",
-                "role": "upstream",
-                "upstream_for": [
-                  "api"
-                ]
-              },
-              {
-                "service_name": "api",
-                "role": "application",
-                "receives_from": [
-                  "nginx"
-                ],
-                "depends_on": [
-                  "rabbitmq",
-                  "mongodb",
-                  "kafka"
-                ]
-              },
-              {
-                "service_name": "rabbitmq",
-                "role": "messaging",
-                "depends_on": [
-                  "mongodb"
-                ]
-              },
-              {
-                "service_name": "mongodb",
-                "role": "database"
-              },
-              {
-                "service_name": "kafka",
-                "role": "streaming"
-              }
-            ]
-          },
-          {
-            "device_ip": "10.0.6.79",
-            "host_name": "win-rca-lab",
-            "services": [
-              {
-                "service_name": "nginx",
-                "role": "upstream",
-                "upstream_for": [
-                  "api"
-                ]
-              },
-              {
-                "service_name": "api",
-                "role": "application",
-                "receives_from": [
-                  "nginx"
-                ],
-                "depends_on": [
-                  "rabbitmq",
-                  "mongodb",
-                  "kafka"
-                ]
-              },
-              {
-                "service_name": "rabbitmq",
-                "role": "messaging",
-                "depends_on": [
-                  "mongodb"
-                ]
-              },
-              {
-                "service_name": "mongodb",
-                "role": "database"
-              },
-              {
-                "service_name": "kafka",
-                "role": "streaming"
-              }
-            ]
-          }
-        ],
-        "service_relations": [
-          {
-            "from_service": "nginx",
-            "from_ip": "10.0.5.97",
-            "to_service": "api",
-            "to_ip": "10.0.5.97",
-            "relation": "upstream"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.5.97",
-            "to_service": "rabbitmq",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.5.97",
-            "to_service": "mongodb",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.5.97",
-            "to_service": "kafka",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "rabbitmq",
-            "from_ip": "10.0.5.97",
-            "to_service": "mongodb",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "nginx",
-            "from_ip": "10.0.6.79",
-            "to_service": "api",
-            "to_ip": "10.0.6.79",
-            "relation": "upstream"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.6.79",
-            "to_service": "rabbitmq",
-            "to_ip": "10.0.6.79",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.6.79",
-            "to_service": "mongodb",
-            "to_ip": "10.0.6.79",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.6.79",
-            "to_service": "kafka",
-            "to_ip": "10.0.6.79",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "rabbitmq",
-            "from_ip": "10.0.6.79",
-            "to_service": "mongodb",
-            "to_ip": "10.0.6.79",
-            "relation": "depends_on"
-          }
-        ]
-      },
-      "local_topology": {
-        "services": [
-          {
-            "service_name": "nginx",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "api",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "rabbitmq",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "mongodb",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "kafka",
-            "device_ip": "10.0.5.97"
-          }
-        ],
-        "dependencies": [
-          {
-            "from": "10.0.5.97::nginx",
-            "to": "10.0.5.97::api",
-            "relation": "upstream"
-          },
-          {
-            "from": "10.0.5.97::api",
-            "to": "10.0.5.97::rabbitmq",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.5.97::api",
-            "to": "10.0.5.97::mongodb",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.5.97::api",
-            "to": "10.0.5.97::kafka",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.5.97::rabbitmq",
-            "to": "10.0.5.97::mongodb",
-            "relation": "depends_on"
-          }
-        ],
-        "devices": [
-          {
-            "device_ip": "10.0.5.97",
-            "host_name": "localhost.localdomain",
-            "services": [
-              {
-                "service_name": "nginx",
-                "role": "upstream",
-                "upstream_for": [
-                  "api"
-                ]
-              },
-              {
-                "service_name": "api",
-                "role": "application",
-                "receives_from": [
-                  "nginx"
-                ],
-                "depends_on": [
-                  "rabbitmq",
-                  "mongodb",
-                  "kafka"
-                ]
-              },
-              {
-                "service_name": "rabbitmq",
-                "role": "messaging",
-                "depends_on": [
-                  "mongodb"
-                ]
-              },
-              {
-                "service_name": "mongodb",
-                "role": "database"
-              },
-              {
-                "service_name": "kafka",
-                "role": "streaming"
-              }
-            ]
-          }
-        ],
-        "service_relations": [
-          {
-            "from_service": "nginx",
-            "from_ip": "10.0.5.97",
-            "to_service": "api",
-            "to_ip": "10.0.5.97",
-            "relation": "upstream"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.5.97",
-            "to_service": "rabbitmq",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.5.97",
-            "to_service": "mongodb",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.5.97",
-            "to_service": "kafka",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "rabbitmq",
-            "from_ip": "10.0.5.97",
-            "to_service": "mongodb",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          }
-        ]
-      },
-      "simulator_topology": {
-        "services": [
-          {
-            "service_name": "nginx",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "api",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "rabbitmq",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "mongodb",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "kafka",
-            "device_ip": "10.0.5.97"
-          },
-          {
-            "service_name": "nginx",
-            "device_ip": "10.0.4.72"
-          },
-          {
-            "service_name": "api",
-            "device_ip": "10.0.4.72"
-          },
-          {
-            "service_name": "rabbitmq",
             "device_ip": "10.0.4.72"
           },
           {
@@ -421,140 +13,174 @@
             "device_ip": "10.0.4.72"
           },
           {
+            "service_name": "rabbitmq",
+            "device_ip": "10.0.4.72"
+          },
+          {
+            "service_name": "redis",
+            "device_ip": "10.0.4.72"
+          },
+          {
             "service_name": "kafka",
+            "device_ip": "10.0.4.72"
+          },
+          {
+            "service_name": "postgresql",
+            "device_ip": "10.0.4.72"
+          },
+          {
+            "service_name": "auth",
+            "device_ip": "10.0.4.72"
+          },
+          {
+            "service_name": "network",
             "device_ip": "10.0.4.72"
           }
         ],
         "dependencies": [
           {
-            "from": "10.0.5.97::nginx",
-            "to": "10.0.5.97::api",
-            "relation": "upstream"
-          },
-          {
-            "from": "10.0.5.97::api",
-            "to": "10.0.5.97::rabbitmq",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.5.97::api",
-            "to": "10.0.5.97::mongodb",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.5.97::api",
-            "to": "10.0.5.97::kafka",
-            "relation": "depends_on"
-          },
-          {
-            "from": "10.0.5.97::rabbitmq",
-            "to": "10.0.5.97::mongodb",
-            "relation": "depends_on"
+            "from": "10.0.4.72::nginx",
+            "to": "10.0.4.72::mongodb",
+            "relation": "crud_report_api_db_path"
           },
           {
             "from": "10.0.4.72::nginx",
-            "to": "10.0.4.72::api",
-            "relation": "upstream"
-          },
-          {
-            "from": "10.0.4.72::api",
             "to": "10.0.4.72::rabbitmq",
-            "relation": "depends_on"
+            "relation": "background_job_submission_path"
           },
           {
-            "from": "10.0.4.72::api",
-            "to": "10.0.4.72::mongodb",
-            "relation": "depends_on"
+            "from": "10.0.4.72::nginx",
+            "to": "10.0.4.72::redis",
+            "relation": "realtime_status_cache_path"
           },
           {
-            "from": "10.0.4.72::api",
+            "from": "10.0.4.72::nginx",
             "to": "10.0.4.72::kafka",
-            "relation": "depends_on"
+            "relation": "event_action_pipeline_path"
+          },
+          {
+            "from": "10.0.4.72::rabbitmq",
+            "to": "10.0.4.72::redis",
+            "relation": "job_execution_result_backend_path"
           },
           {
             "from": "10.0.4.72::rabbitmq",
             "to": "10.0.4.72::mongodb",
-            "relation": "depends_on"
+            "relation": "background_job_result_persistence"
+          },
+          {
+            "from": "10.0.4.72::redis",
+            "to": "10.0.4.72::mongodb",
+            "relation": "active_events_rules_cache_to_db_path"
+          },
+          {
+            "from": "10.0.4.72::kafka",
+            "to": "10.0.4.72::redis",
+            "relation": "processed_stats_events_rules_cache_path"
+          },
+          {
+            "from": "10.0.4.72::kafka",
+            "to": "10.0.4.72::mongodb",
+            "relation": "active_events_incidents_path"
+          },
+          {
+            "from": "10.0.4.72::kafka",
+            "to": "10.0.4.72::postgresql",
+            "relation": "processed_events_computed_stats_path"
+          },
+          {
+            "from": "10.0.4.72::mongodb",
+            "to": "10.0.4.72::postgresql",
+            "relation": "historical_reports_detail_events_path"
+          },
+          {
+            "from": "10.0.4.72::network",
+            "to": "10.0.4.72::nginx",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from": "10.0.4.72::network",
+            "to": "10.0.4.72::mongodb",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from": "10.0.4.72::network",
+            "to": "10.0.4.72::rabbitmq",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from": "10.0.4.72::network",
+            "to": "10.0.4.72::redis",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from": "10.0.4.72::network",
+            "to": "10.0.4.72::kafka",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from": "10.0.4.72::network",
+            "to": "10.0.4.72::postgresql",
+            "relation": "underlay_dependency"
           }
         ],
         "devices": [
-          {
-            "device_ip": "10.0.5.97",
-            "host_name": "localhost.localdomain",
-            "services": [
-              {
-                "service_name": "nginx",
-                "role": "upstream",
-                "upstream_for": [
-                  "api"
-                ]
-              },
-              {
-                "service_name": "api",
-                "role": "application",
-                "receives_from": [
-                  "nginx"
-                ],
-                "depends_on": [
-                  "rabbitmq",
-                  "mongodb",
-                  "kafka"
-                ]
-              },
-              {
-                "service_name": "rabbitmq",
-                "role": "messaging",
-                "depends_on": [
-                  "mongodb"
-                ]
-              },
-              {
-                "service_name": "mongodb",
-                "role": "database"
-              },
-              {
-                "service_name": "kafka",
-                "role": "streaming"
-              }
-            ]
-          },
           {
             "device_ip": "10.0.4.72",
             "host_name": "localhost.localdomain",
             "services": [
               {
                 "service_name": "nginx",
-                "role": "upstream",
-                "upstream_for": [
-                  "api"
-                ]
-              },
-              {
-                "service_name": "api",
-                "role": "application",
-                "receives_from": [
-                  "nginx"
-                ],
+                "role": "edge_web_server",
                 "depends_on": [
-                  "rabbitmq",
                   "mongodb",
+                  "rabbitmq",
+                  "redis",
                   "kafka"
                 ]
               },
               {
+                "service_name": "mongodb",
+                "role": "primary_operational_database",
+                "depends_on": [
+                  "postgresql"
+                ]
+              },
+              {
                 "service_name": "rabbitmq",
-                "role": "messaging",
+                "role": "background_job_broker",
+                "depends_on": [
+                  "redis",
+                  "mongodb"
+                ]
+              },
+              {
+                "service_name": "redis",
+                "role": "realtime_cache_and_job_backend",
                 "depends_on": [
                   "mongodb"
                 ]
               },
               {
-                "service_name": "mongodb",
-                "role": "database"
+                "service_name": "kafka",
+                "role": "agent_event_stream",
+                "depends_on": [
+                  "redis",
+                  "mongodb",
+                  "postgresql"
+                ]
               },
               {
-                "service_name": "kafka",
-                "role": "streaming"
+                "service_name": "postgresql",
+                "role": "timeseries_statistics_store"
+              },
+              {
+                "service_name": "auth",
+                "role": "host_control_plane_auth"
+              },
+              {
+                "service_name": "network",
+                "role": "host_and_network_underlay"
               }
             ]
           }
@@ -562,73 +188,122 @@
         "service_relations": [
           {
             "from_service": "nginx",
-            "from_ip": "10.0.5.97",
-            "to_service": "api",
-            "to_ip": "10.0.5.97",
-            "relation": "upstream"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.5.97",
-            "to_service": "rabbitmq",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.5.97",
+            "from_ip": "10.0.4.72",
             "to_service": "mongodb",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.5.97",
-            "to_service": "kafka",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
-          },
-          {
-            "from_service": "rabbitmq",
-            "from_ip": "10.0.5.97",
-            "to_service": "mongodb",
-            "to_ip": "10.0.5.97",
-            "relation": "depends_on"
+            "to_ip": "10.0.4.72",
+            "relation": "crud_report_api_db_path"
           },
           {
             "from_service": "nginx",
             "from_ip": "10.0.4.72",
-            "to_service": "api",
-            "to_ip": "10.0.4.72",
-            "relation": "upstream"
-          },
-          {
-            "from_service": "api",
-            "from_ip": "10.0.4.72",
             "to_service": "rabbitmq",
             "to_ip": "10.0.4.72",
-            "relation": "depends_on"
+            "relation": "background_job_submission_path"
           },
           {
-            "from_service": "api",
+            "from_service": "nginx",
             "from_ip": "10.0.4.72",
-            "to_service": "mongodb",
+            "to_service": "redis",
             "to_ip": "10.0.4.72",
-            "relation": "depends_on"
+            "relation": "realtime_status_cache_path"
           },
           {
-            "from_service": "api",
+            "from_service": "nginx",
             "from_ip": "10.0.4.72",
             "to_service": "kafka",
             "to_ip": "10.0.4.72",
-            "relation": "depends_on"
+            "relation": "event_action_pipeline_path"
+          },
+          {
+            "from_service": "rabbitmq",
+            "from_ip": "10.0.4.72",
+            "to_service": "redis",
+            "to_ip": "10.0.4.72",
+            "relation": "job_execution_result_backend_path"
           },
           {
             "from_service": "rabbitmq",
             "from_ip": "10.0.4.72",
             "to_service": "mongodb",
             "to_ip": "10.0.4.72",
-            "relation": "depends_on"
+            "relation": "background_job_result_persistence"
+          },
+          {
+            "from_service": "redis",
+            "from_ip": "10.0.4.72",
+            "to_service": "mongodb",
+            "to_ip": "10.0.4.72",
+            "relation": "active_events_rules_cache_to_db_path"
+          },
+          {
+            "from_service": "kafka",
+            "from_ip": "10.0.4.72",
+            "to_service": "redis",
+            "to_ip": "10.0.4.72",
+            "relation": "processed_stats_events_rules_cache_path"
+          },
+          {
+            "from_service": "kafka",
+            "from_ip": "10.0.4.72",
+            "to_service": "mongodb",
+            "to_ip": "10.0.4.72",
+            "relation": "active_events_incidents_path"
+          },
+          {
+            "from_service": "kafka",
+            "from_ip": "10.0.4.72",
+            "to_service": "postgresql",
+            "to_ip": "10.0.4.72",
+            "relation": "processed_events_computed_stats_path"
+          },
+          {
+            "from_service": "mongodb",
+            "from_ip": "10.0.4.72",
+            "to_service": "postgresql",
+            "to_ip": "10.0.4.72",
+            "relation": "historical_reports_detail_events_path"
+          },
+          {
+            "from_service": "network",
+            "from_ip": "10.0.4.72",
+            "to_service": "nginx",
+            "to_ip": "10.0.4.72",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from_service": "network",
+            "from_ip": "10.0.4.72",
+            "to_service": "mongodb",
+            "to_ip": "10.0.4.72",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from_service": "network",
+            "from_ip": "10.0.4.72",
+            "to_service": "rabbitmq",
+            "to_ip": "10.0.4.72",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from_service": "network",
+            "from_ip": "10.0.4.72",
+            "to_service": "redis",
+            "to_ip": "10.0.4.72",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from_service": "network",
+            "from_ip": "10.0.4.72",
+            "to_service": "kafka",
+            "to_ip": "10.0.4.72",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from_service": "network",
+            "from_ip": "10.0.4.72",
+            "to_service": "postgresql",
+            "to_ip": "10.0.4.72",
+            "relation": "underlay_dependency"
           }
         ]
       }

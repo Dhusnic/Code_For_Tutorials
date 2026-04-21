@@ -68,6 +68,25 @@ Relevant `signal_stream` settings in [config.yml](./config.yml):
 - `signal_stream.max_len`: approximate stream trim length for storage control.
 - `signal_stream.organization_field`: source event field used to extract organization id. Default `event.organization`.
 
+## Adding Service Rules
+
+Service signal rules live under:
+
+- [rules/services](./rules/services)
+
+Each file typically maps one service (or one logical component) to a set of YAML matchers and signal keys.
+
+Example:
+
+- [rules/services/data_collector.yml](./rules/services/data_collector.yml) introduces a `data_collector_service_down` signal that can be used by correlation rules to explain downstream failures.
+
+After editing or adding rule files, validate them with:
+
+```powershell
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_go"
+.\bin\validate-rules.exe --rules-dir ..\rules
+```
+
 ## Which Folder To Use
 
 Use [signalizing_python](./signalizing_python) when you want the original Python runtime, tests, and legacy adapter flow.
@@ -79,21 +98,21 @@ Use [signalizing_go](./signalizing_go) when you want to build or run the Go impl
 Python:
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_python"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_python"
 ..\..\.venv\Scripts\python .\main.py --config ..\config.yml --run-once
 ```
 
 Go:
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_go"
 .\bin\signalizing-engine.exe --config ..\config.yml --run-once
 ```
 
 PM2 with Go:
 
 ```powershell
-cd "D:\Code for tutorials\rca\signalizing\signalizing_go"
+cd "D:\Code for tutorials\rca\log_signalizing\signalizing_go"
 pm2 start .\app.json
 ```
 

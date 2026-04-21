@@ -29,18 +29,31 @@ const (
 	identityConfidenceIPOnly    = 0.85
 	identityConfidenceService   = 0.65
 	identityConfidenceHost      = 0.40
+
+	defaultExpectedSignalSeverity = 0.70
+	minimumSeverityAlignment      = 0.80
 )
 
 type Scorer struct {
-	weights   models.ScoreWeights
-	threshold float64
+	weights               models.ScoreWeights
+	threshold             float64
+	signalSeverityCatalog SignalSeverityCatalog
 }
 
-func NewScorer(weights models.ScoreWeights, threshold float64) *Scorer {
-	return &Scorer{
-		weights:   weights,
-		threshold: threshold,
+func NewScorer(weights models.ScoreWeights, threshold float64, catalogs ...SignalSeverityCatalog) *Scorer {
+	scorer := &Scorer{
+		weights:               weights,
+		threshold:             threshold,
+		signalSeverityCatalog: make(SignalSeverityCatalog),
 	}
+	for _, catalog := range catalogs {
+		for signal, severity := range catalog {
+			if trimmed := strings.ToLower(strings.TrimSpace(signal)); trimmed != "" && severity > 0 {
+				scorer.signalSeverityCatalog[trimmed] = clamp01(severity)
+			}
+		}
+	}
+	return scorer
 }
 
 func (s *Scorer) Score(event models.CorrelationEvent, rule *models.Rule, topology *models.OrganizationTopology, nearbyLogs []models.RelatedLog) models.ScoreResult {
@@ -59,14 +72,16 @@ func (s *Scorer) Score(event models.CorrelationEvent, rule *models.Rule, topolog
 	dependencyScore := computeDependencyScore(topologyIdentities, topology, topologyCoverage, identityConfidence)
 	timeScore := computeTimeProximityScore(event, rule)
 	severityScore := computeSignalSeverityScore(event.LogID)
+	expectedSeverityScore := computeExpectedRuleSeverity(rule, s.signalSeverityCatalog)
+	severityAlignmentScore := computeSeverityAlignmentScore(severityScore, expectedSeverityScore)
 	ruleCompletenessScore := clamp01(event.RuleCompletion) * topologyCoverage * identityConfidence
 	completedStepCoverage := computeCompletedStepCoverage(event.Audit)
-	contradictionPenalty, contradictionReasons := computeContradictionPenalty(event, rule, topology, nearbyLogs)
+	contradictionPenalty, contradictionReasons, contradictionEvidence := computeContradictionPenalty(event, rule, topology, nearbyLogs)
 
 	weightedSum := (sequenceScore * s.weights.SequenceMatch) +
 		(dependencyScore * s.weights.DependencyMatch) +
 		(timeScore * s.weights.TimeProximity) +
-		(severityScore * s.weights.SignalSeverity) +
+		(severityAlignmentScore * s.weights.SignalSeverity) +
 		(ruleCompletenessScore * s.weights.RuleCompleteness)
 	totalWeight := s.weights.SequenceMatch + s.weights.DependencyMatch + s.weights.TimeProximity + s.weights.SignalSeverity + s.weights.RuleCompleteness
 	finalWeighted := 0.0
@@ -77,31 +92,35 @@ func (s *Scorer) Score(event models.CorrelationEvent, rule *models.Rule, topolog
 
 	classification := ClassificationProbable
 	if finalScore >= s.threshold && passesConfirmationGates(event, models.ScoreBreakdown{
-		SequenceMatch:         sequenceScore,
-		DependencyMatch:       dependencyScore,
-		TimeProximity:         timeScore,
-		SignalSeverity:        severityScore,
-		RuleCompleteness:      ruleCompletenessScore,
-		TopologyCoverage:      topologyCoverage,
-		IdentityConfidence:    identityConfidence,
-		CompletedStepCoverage: completedStepCoverage,
-		ContradictionPenalty:  contradictionPenalty,
-		FinalWeighted:         finalScore / 10,
+		SequenceMatch:          sequenceScore,
+		DependencyMatch:        dependencyScore,
+		TimeProximity:          timeScore,
+		SignalSeverity:         severityScore,
+		ExpectedSignalSeverity: expectedSeverityScore,
+		SeverityAlignment:      severityAlignmentScore,
+		RuleCompleteness:       ruleCompletenessScore,
+		TopologyCoverage:       topologyCoverage,
+		IdentityConfidence:     identityConfidence,
+		CompletedStepCoverage:  completedStepCoverage,
+		ContradictionPenalty:   contradictionPenalty,
+		FinalWeighted:          finalScore / 10,
 	}) {
 		classification = ClassificationConfirmed
 	}
 
 	breakdown := models.ScoreBreakdown{
-		SequenceMatch:         round(sequenceScore),
-		DependencyMatch:       round(dependencyScore),
-		TimeProximity:         round(timeScore),
-		SignalSeverity:        round(severityScore),
-		RuleCompleteness:      round(ruleCompletenessScore),
-		TopologyCoverage:      round(topologyCoverage),
-		IdentityConfidence:    round(identityConfidence),
-		CompletedStepCoverage: round(completedStepCoverage),
-		ContradictionPenalty:  round(contradictionPenalty),
-		FinalWeighted:         round(finalScore / 10),
+		SequenceMatch:          round(sequenceScore),
+		DependencyMatch:        round(dependencyScore),
+		TimeProximity:          round(timeScore),
+		SignalSeverity:         round(severityScore),
+		ExpectedSignalSeverity: round(expectedSeverityScore),
+		SeverityAlignment:      round(severityAlignmentScore),
+		RuleCompleteness:       round(ruleCompletenessScore),
+		TopologyCoverage:       round(topologyCoverage),
+		IdentityConfidence:     round(identityConfidence),
+		CompletedStepCoverage:  round(completedStepCoverage),
+		ContradictionPenalty:   round(contradictionPenalty),
+		FinalWeighted:          round(finalScore / 10),
 	}
 
 	return models.ScoreResult{
@@ -111,6 +130,7 @@ func (s *Scorer) Score(event models.CorrelationEvent, rule *models.Rule, topolog
 		BelowThresholdReasons: buildBelowThresholdReasons(classification, finalScore, s.threshold, breakdown, contradictionReasons),
 		InvolvedServices:      involvedServices,
 		MatchedDocIDs:         matchedDocIDs,
+		ContradictionEvidence: contradictionEvidence,
 	}
 }
 
@@ -356,6 +376,61 @@ func computeSignalSeverityScore(logs []models.EvidenceLog) float64 {
 	return clamp01((0.6 * maxSeverity) + (0.4 * average))
 }
 
+func computeExpectedRuleSeverity(rule *models.Rule, catalog SignalSeverityCatalog) float64 {
+	signals := ruleSignalKeys(rule)
+	if len(signals) == 0 || len(catalog) == 0 {
+		return defaultExpectedSignalSeverity
+	}
+
+	total := 0.0
+	count := 0.0
+	for _, signal := range signals {
+		if severity, ok := catalog[strings.ToLower(strings.TrimSpace(signal))]; ok && severity > 0 {
+			total += clamp01(severity)
+			count++
+		}
+	}
+	if count == 0 {
+		return defaultExpectedSignalSeverity
+	}
+	return clamp01(total / count)
+}
+
+func computeSeverityAlignmentScore(observed, expected float64) float64 {
+	observed = clamp01(observed)
+	expected = clamp01(expected)
+	if expected <= 0 {
+		return 1
+	}
+	return clamp01(observed / expected)
+}
+
+func ruleSignalKeys(rule *models.Rule) []string {
+	if rule == nil {
+		return nil
+	}
+	signals := make([]string, 0, len(rule.Sequence))
+	for _, step := range rule.Sequence {
+		signals = appendRuleStepSignals(signals, step)
+	}
+	return utils.UniqueStrings(signals)
+}
+
+func appendRuleStepSignals(signals []string, step models.SequenceStep) []string {
+	if signal := strings.TrimSpace(step.SignalKey); signal != "" {
+		signals = append(signals, signal)
+	}
+	for _, signal := range step.SignalKeys {
+		if trimmed := strings.TrimSpace(signal); trimmed != "" {
+			signals = append(signals, trimmed)
+		}
+	}
+	for _, nested := range step.AllOf {
+		signals = appendRuleStepSignals(signals, nested)
+	}
+	return signals
+}
+
 func severityWeight(raw string) float64 {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "critical", "crit", "fatal", "panic", "alert", "emergency", "emerg":
@@ -389,17 +464,14 @@ func buildBelowThresholdReasons(classification string, score, threshold float64,
 	if breakdown.TimeProximity < 0.50 {
 		reasons = append(reasons, "Matched logs were too far apart in time to reinforce the incident sequence.")
 	}
-	if breakdown.SignalSeverity < 0.70 {
-		reasons = append(reasons, "Signal severity stayed too low for a high-confidence RCA.")
+	if breakdown.SeverityAlignment > 0 && breakdown.SeverityAlignment < minimumSeverityAlignment {
+		reasons = append(reasons, "Observed signal severity did not meet the severity expected by the rule.")
 	}
 	if breakdown.RuleCompleteness < 0.70 {
 		reasons = append(reasons, "Rule evidence is only partially complete after topology and identity adjustments.")
 	}
 	if breakdown.SequenceMatch < 0.70 {
 		reasons = append(reasons, "The observed signal sequence only partially matches the expected rule order.")
-	}
-	if breakdown.CompletedStepCoverage > 0 && breakdown.CompletedStepCoverage < 0.67 {
-		reasons = append(reasons, "Too few rule steps were fully completed to confirm a root cause.")
 	}
 	if breakdown.ContradictionPenalty < 0.80 {
 		reasons = append(reasons, "Nearby recovery or competing signals contradicted the RCA evidence.")

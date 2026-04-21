@@ -27,6 +27,17 @@ func approxEqual(got, want float64) bool {
 	return math.Abs(got-want) < 0.000001
 }
 
+func mergeMetadata(base map[string]any, overlay map[string]any) map[string]any {
+	merged := make(map[string]any, len(base)+len(overlay))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range overlay {
+		merged[key] = value
+	}
+	return merged
+}
+
 func TestSlidingWindowMatchHonorsMinCount(t *testing.T) {
 	engine := newTestEngine(t)
 	now := time.Now().UTC()
@@ -109,6 +120,165 @@ func TestSlidingWindowMatchWithoutMaxGapSearchesAcrossWholeWindow(t *testing.T) 
 	}
 	if len(match.logs) != 2 {
 		t.Fatalf("expected 2 matched logs without explicit max gap, got %d", len(match.logs))
+	}
+}
+
+func TestSlidingWindowMatchSupportsSignalKeyAlternatives(t *testing.T) {
+	engine := newTestEngine(t)
+	now := time.Now().UTC()
+
+	logs := []models.FullLog{
+		{DocID: "1", Timestamp: now, Signal: "kafka_broker_not_available", Metadata: map[string]any{}},
+		{DocID: "2", Timestamp: now.Add(time.Minute), Signal: "data_collector_service_down", Metadata: map[string]any{}},
+	}
+
+	match := engine.slidingWindowMatch(logs, models.Rule{
+		RuleType:           "ordered_signal_sequence",
+		Window:             "10m",
+		MaxGapBetweenSteps: "3m",
+		Sequence: []models.SequenceStep{
+			{
+				SignalKeys: []string{
+					"kafka_broker_not_available",
+					"mongodb_host_unreachable",
+					"postgres_conn_failed",
+				},
+				MinCount: 1,
+				Within:   "5m",
+			},
+			{SignalKey: "data_collector_service_down", MinCount: 1, Within: "3m"},
+		},
+	})
+
+	if match.matchedSteps != 2 {
+		t.Fatalf("expected 2 matched steps, got %d", match.matchedSteps)
+	}
+	if len(match.logs) != 2 {
+		t.Fatalf("expected 2 matched logs, got %d", len(match.logs))
+	}
+	if match.logs[0].Signal != "kafka_broker_not_available" {
+		t.Fatalf("expected first step to match one alternative signal, got %#v", match.logs[0])
+	}
+}
+
+func TestSlidingWindowMatchSupportsAnyOfBlocks(t *testing.T) {
+	engine := newTestEngine(t)
+	now := time.Now().UTC()
+
+	logs := []models.FullLog{
+		{DocID: "1", Timestamp: now, Signal: "mongodb_host_unreachable", Metadata: map[string]any{}},
+		{DocID: "2", Timestamp: now.Add(time.Minute), Signal: "data_collector_service_down", Metadata: map[string]any{}},
+	}
+
+	match := engine.slidingWindowMatch(logs, models.Rule{
+		RuleType:           "ordered_signal_sequence",
+		Window:             "10m",
+		MaxGapBetweenSteps: "3m",
+		Sequence: []models.SequenceStep{
+			{
+				AnyOf: []models.SignalSelector{
+					{SignalKey: "kafka_broker_not_available"},
+					{SignalKey: "mongodb_host_unreachable"},
+					{SignalKey: "postgres_conn_failed"},
+				},
+				Within: "5m",
+			},
+			{
+				AnyOf: []models.SignalSelector{
+					{SignalKey: "data_collector_service_down"},
+					{SignalKey: "systemd_unit_failed"},
+				},
+				Within: "3m",
+			},
+		},
+	})
+
+	if match.matchedSteps != 2 {
+		t.Fatalf("expected 2 matched steps, got %d", match.matchedSteps)
+	}
+	if len(match.logs) != 2 {
+		t.Fatalf("expected 2 matched logs, got %d", len(match.logs))
+	}
+}
+
+func TestSlidingWindowMatchSupportsAllOfBlocksInAnyOrder(t *testing.T) {
+	engine := newTestEngine(t)
+	now := time.Now().UTC()
+
+	logs := []models.FullLog{
+		{DocID: "1", Timestamp: now, Signal: "systemd_unit_failed", Metadata: map[string]any{}},
+		{DocID: "2", Timestamp: now.Add(time.Minute), Signal: "data_collector_service_down", Metadata: map[string]any{}},
+	}
+
+	match := engine.slidingWindowMatch(logs, models.Rule{
+		RuleType:           "ordered_signal_sequence",
+		Window:             "10m",
+		MaxGapBetweenSteps: "3m",
+		Sequence: []models.SequenceStep{
+			{
+				AllOf: []models.SignalSelector{
+					{SignalKey: "data_collector_service_down"},
+					{SignalKeys: []string{"systemd_unit_failed", "systemd_watchdog_timeout"}},
+				},
+				Within: "5m",
+			},
+		},
+	})
+
+	if match.matchedSteps != 1 {
+		t.Fatalf("expected 1 matched all_of step, got %d", match.matchedSteps)
+	}
+	if len(match.logs) != 2 {
+		t.Fatalf("expected 2 matched logs for all_of step, got %d", len(match.logs))
+	}
+}
+
+func TestCorrelateEmitsPartialResultForIncompleteAllOfStep(t *testing.T) {
+	engine := newTestEngine(t)
+	now := time.Now().UTC()
+
+	logs := []models.FullLog{
+		{
+			DocID:     "1",
+			Timestamp: now,
+			Signal:    "data_collector_service_down",
+			LogLevel:  "error",
+			Metadata: map[string]any{
+				"event.organization": "org-1",
+			},
+		},
+	}
+
+	results, err := engine.Correlate(context.Background(), "org-1", logs, []models.Rule{
+		{
+			ID:                 "rule-allof-partial",
+			OrganizationID:     "org-1",
+			RuleType:           "ordered_signal_sequence",
+			Window:             "10m",
+			MaxGapBetweenSteps: "2m",
+			GroupBy:            []string{"event.organization"},
+			Sequence: []models.SequenceStep{
+				{
+					AllOf: []models.SignalSelector{
+						{SignalKey: "data_collector_service_down"},
+						{SignalKeys: []string{"systemd_unit_failed", "systemd_watchdog_timeout"}},
+					},
+					Within: "4m",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("correlate returned error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 partial result, got %d", len(results))
+	}
+	if !approxEqual(results[0].RuleCompletion, 0.5) {
+		t.Fatalf("expected rule completion 0.5, got %.6f", results[0].RuleCompletion)
+	}
+	if !approxEqual(results[0].SequenceMatch, 0.5) {
+		t.Fatalf("expected sequence match 0.5, got %.6f", results[0].SequenceMatch)
 	}
 }
 
@@ -304,6 +474,99 @@ func TestCorrelateEmitsPartialResultForIncompleteMinCount(t *testing.T) {
 	}
 	if !approxEqual(result.SequenceMatch, 1.0/6.0) {
 		t.Fatalf("expected sequence match %.6f, got %.6f", 1.0/6.0, result.SequenceMatch)
+	}
+}
+
+func TestCorrelateZeroDedupWindowKeepsSameTimestampEvidence(t *testing.T) {
+	engine := newTestEngine(t)
+	now := time.Now().UTC()
+	commonMetadata := map[string]any{
+		"event.organization": "org-1",
+		"host.identity":      "10.0.4.72",
+		"host.name":          "localhost.localdomain",
+	}
+
+	logs := []models.FullLog{
+		{
+			DocID:     "mongo-1",
+			Timestamp: now,
+			Signal:    "mongodb_user_not_found",
+			LogLevel:  "warning",
+			Metadata: mergeMetadata(commonMetadata, map[string]any{
+				"service.name": "mongodb",
+			}),
+		},
+		{
+			DocID:     "mongo-2",
+			Timestamp: now.Add(time.Second),
+			Signal:    "mongodb_user_not_found",
+			LogLevel:  "warning",
+			Metadata: mergeMetadata(commonMetadata, map[string]any{
+				"service.name": "mongodb",
+			}),
+		},
+		{
+			DocID:     "mongo-3",
+			Timestamp: now.Add(2 * time.Second),
+			Signal:    "mongodb_user_not_found",
+			LogLevel:  "warning",
+			Metadata: mergeMetadata(commonMetadata, map[string]any{
+				"service.name": "mongodb",
+			}),
+		},
+		{
+			DocID:     "nginx-1",
+			Timestamp: now.Add(10 * time.Second),
+			Signal:    "nginx_access_502_bad_gateway",
+			LogLevel:  "critical",
+			Metadata: mergeMetadata(commonMetadata, map[string]any{
+				"service.name": "nginx",
+			}),
+		},
+		{
+			DocID:     "nginx-2",
+			Timestamp: now.Add(10 * time.Second),
+			Signal:    "nginx_access_502_bad_gateway",
+			LogLevel:  "critical",
+			Metadata: mergeMetadata(commonMetadata, map[string]any{
+				"service.name": "nginx",
+			}),
+		},
+	}
+
+	results, err := engine.Correlate(context.Background(), "org-1", logs, []models.Rule{
+		{
+			ID:             "mongo-to-nginx",
+			OrganizationID: "org-1",
+			RuleType:       "ordered_signal_sequence",
+			Window:         "10m",
+			GroupBy:        []string{"event.organization", "host.identity"},
+			Sequence: []models.SequenceStep{
+				{SignalKey: "mongodb_user_not_found", MinCount: 3, Within: "3m"},
+				{SignalKey: "nginx_access_502_bad_gateway", MinCount: 3, Within: "3m"},
+			},
+			Deduplication: models.Deduplication{
+				Key:    []string{"signal_key", "host.name", "service.name"},
+				Window: "0s",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("correlate returned error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 partial result, got %d", len(results))
+	}
+	if results[0].Audit == nil || len(results[0].Audit.Steps) != 2 {
+		t.Fatalf("expected two audited steps, got %#v", results[0].Audit)
+	}
+
+	nginxStep := results[0].Audit.Steps[1]
+	if nginxStep.MatchedCount != 2 {
+		t.Fatalf("expected both same-timestamp nginx docs to be counted, got %d", nginxStep.MatchedCount)
+	}
+	if len(nginxStep.MatchedLogIDs) != 2 {
+		t.Fatalf("expected both same-timestamp nginx doc ids, got %#v", nginxStep.MatchedLogIDs)
 	}
 }
 
