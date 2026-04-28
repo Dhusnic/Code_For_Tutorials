@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"log_correlation_engine/internal/autoscaling"
 	"log_correlation_engine/internal/config"
+	"log_correlation_engine/internal/fetch"
 	"log_correlation_engine/internal/models"
 )
 
@@ -180,6 +182,7 @@ func (f *testFetcher) FetchLog(_ context.Context, docID string) (*models.FullLog
 type batchTestFetcher struct {
 	batchCalls int
 	requests   []string
+	batchSizes []int
 }
 
 func (f *batchTestFetcher) FetchLog(_ context.Context, docID string) (*models.FullLog, error) {
@@ -190,9 +193,14 @@ func (f *batchTestFetcher) FetchLog(_ context.Context, docID string) (*models.Fu
 	}, nil
 }
 
-func (f *batchTestFetcher) FetchLogs(_ context.Context, docIDs []string) (map[string]*models.FullLog, error) {
+func (f *batchTestFetcher) FetchLogs(ctx context.Context, docIDs []string) (map[string]*models.FullLog, error) {
+	return f.FetchLogsWithOptions(ctx, docIDs, fetch.BatchFetchOptions{})
+}
+
+func (f *batchTestFetcher) FetchLogsWithOptions(_ context.Context, docIDs []string, options fetch.BatchFetchOptions) (map[string]*models.FullLog, error) {
 	f.batchCalls++
 	f.requests = append(f.requests, docIDs...)
+	f.batchSizes = append(f.batchSizes, options.GroupedLookupBatchSize)
 	result := make(map[string]*models.FullLog, len(docIDs))
 	for _, docID := range docIDs {
 		result[docID] = &models.FullLog{
@@ -262,6 +270,9 @@ func baseTestConfig() config.Config {
 			DefaultWindow:         10 * time.Minute,
 			DefaultMaxGap:         time.Minute,
 			IncidentInactivityTTL: 30 * time.Minute,
+		},
+		Fetcher: config.FetcherConfig{
+			GroupedLookupBatchSize: 250,
 		},
 	}
 }
@@ -1073,6 +1084,137 @@ func TestProcessorUsesCheckpointLookbackForIncrementalWork(t *testing.T) {
 
 	if fetcher.calls != 5 {
 		t.Fatalf("expected incremental fetches to total 5, got %d", fetcher.calls)
+	}
+}
+
+func TestProcessorCapsIncrementalWorkAndSavesCheckpointDocID(t *testing.T) {
+	base := time.Now().UTC()
+	logs := []models.SignalLog{
+		{Signal: "signal-a", LogLevel: "warning", DocID: "doc-1", TimeStamp: base},
+		{Signal: "signal-b", LogLevel: "error", DocID: "doc-2", TimeStamp: base},
+		{Signal: "signal-c", LogLevel: "error", DocID: "doc-3", TimeStamp: base},
+		{Signal: "signal-d", LogLevel: "critical", DocID: "doc-4", TimeStamp: base},
+	}
+	store := &testStore{
+		organizations: []string{"org-1"},
+		loadCalls:     make(map[string]int),
+		logBatches: map[string][][]models.SignalLog{
+			"org-1": {logs},
+		},
+	}
+
+	cfg := baseTestConfig()
+	cfg.Fetcher.GroupedLookupBatchSize = 1
+	cfg.Autoscaling.Enabled = true
+	cfg.Autoscaling.InputBasis = "incremental_logs"
+	cfg.Autoscaling.InputLowWatermark = 1000
+	cfg.Autoscaling.InputHighWatermark = 100000
+	cfg.Autoscaling.ScaleDownCooldownCycles = 3
+	cfg.Autoscaling.Scheduler.MinInterval = 10 * time.Second
+	cfg.Autoscaling.Scheduler.MaxInterval = 60 * time.Second
+	cfg.Autoscaling.Scheduler.TimeoutRatio = 0.9
+	cfg.Autoscaling.Fetcher.MinGroupedLookupBatchSize = 1000
+	cfg.Autoscaling.Fetcher.MaxGroupedLookupBatchSize = 10000
+	cfg.Autoscaling.Fetcher.MaxBatchesPerCycle = 2
+
+	fetcher := &batchTestFetcher{}
+	var correlatedDocIDs []string
+	engine := CorrelatorFunc(func(_ context.Context, orgID string, fullLogs []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+		correlatedDocIDs = correlatedDocIDs[:0]
+		for _, log := range fullLogs {
+			correlatedDocIDs = append(correlatedDocIDs, log.DocID)
+		}
+		return []models.CorrelationResult{resultFromLogs(orgID, "rule-1", fullLogs)}, nil
+	})
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     fetcher,
+		Engine:      engine,
+		Rules: &testRules{rules: []models.Rule{
+			{ID: "rule-1", OrganizationID: "org-1", Window: "10m", MaxGapBetweenSteps: "5m"},
+		}},
+		Writer:     &testWriter{},
+		Autoscaler: autoscaling.NewController(cfg.Autoscaling, autoscaling.SchedulerSettings{Interval: 5 * time.Second, RunTimeout: 5 * time.Second}, cfg.Fetcher.GroupedLookupBatchSize),
+		Logger:     slog.Default(),
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("cycle failed: %v", err)
+	}
+
+	if got := strings.Join(correlatedDocIDs, ","); got != "doc-1,doc-2" {
+		t.Fatalf("expected capped incremental slice to correlate doc-1/doc-2, got %s", got)
+	}
+	checkpoint := store.checkpoints["org-1"]
+	if checkpoint.CheckpointDocID != "doc-2" {
+		t.Fatalf("expected checkpoint doc id doc-2, got %q", checkpoint.CheckpointDocID)
+	}
+	if checkpoint.Checkpoint.IsZero() || !checkpoint.Checkpoint.Equal(base) {
+		t.Fatalf("expected checkpoint timestamp %s, got %s", base, checkpoint.Checkpoint)
+	}
+}
+
+func TestProcessorContinuesUnchangedPayloadWhenCheckpointCursorIsBehind(t *testing.T) {
+	base := time.Now().UTC()
+	logs := []models.SignalLog{
+		{Signal: "signal-a", LogLevel: "warning", DocID: "doc-1", TimeStamp: base},
+		{Signal: "signal-b", LogLevel: "error", DocID: "doc-2", TimeStamp: base},
+		{Signal: "signal-c", LogLevel: "error", DocID: "doc-3", TimeStamp: base},
+		{Signal: "signal-d", LogLevel: "critical", DocID: "doc-4", TimeStamp: base},
+	}
+	payload, err := models.MarshalSignalLogsPayload(logs)
+	if err != nil {
+		t.Fatalf("marshal payload failed: %v", err)
+	}
+
+	store := &testStore{
+		organizations: []string{"org-1"},
+		loadCalls:     make(map[string]int),
+		logBatches: map[string][][]models.SignalLog{
+			"org-1": {logs},
+		},
+		checkpoints: map[string]models.ProcessingCheckpoint{
+			"org-1": {
+				Checkpoint:             base,
+				CheckpointDocID:        "doc-2",
+				SignalPayloadSignature: signalPayloadSignature(payload),
+				RulesSignature:         ruleSetSignature([]models.Rule{{ID: "rule-1", OrganizationID: "org-1", Window: "10m", MaxGapBetweenSteps: "5m"}}),
+				SignalCount:            len(logs),
+			},
+		},
+	}
+
+	engineCalls := 0
+	engine := CorrelatorFunc(func(_ context.Context, orgID string, fullLogs []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+		engineCalls++
+		return []models.CorrelationResult{resultFromLogs(orgID, "rule-1", fullLogs)}, nil
+	})
+
+	processor := NewProcessor(Dependencies{
+		Config:      baseTestConfig(),
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &testFetcher{},
+		Engine:      engine,
+		Rules: &testRules{rules: []models.Rule{
+			{ID: "rule-1", OrganizationID: "org-1", Window: "10m", MaxGapBetweenSteps: "5m"},
+		}},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("cycle failed: %v", err)
+	}
+
+	if engineCalls != 1 {
+		t.Fatalf("expected unchanged payload with stale checkpoint cursor to continue processing, got %d engine calls", engineCalls)
+	}
+	if got := store.checkpoints["org-1"].CheckpointDocID; got != "doc-4" {
+		t.Fatalf("expected checkpoint to advance to doc-4, got %q", got)
 	}
 }
 

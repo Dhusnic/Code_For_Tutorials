@@ -40,6 +40,10 @@ type CheckpointStore interface {
 	Save(ctx context.Context, checkpoint models.ReaderCheckpoint) error
 }
 
+type ResultPublisher interface {
+	UpsertRecords(ctx context.Context, records []models.RCARecord) error
+}
+
 type Scorer interface {
 	Score(event models.CorrelationEvent, rule *models.Rule, topology *models.OrganizationTopology, nearbyLogs []models.RelatedLog) models.ScoreResult
 }
@@ -54,6 +58,7 @@ type Dependencies struct {
 	Rules                RulesLoader
 	Topology             TopologyRepository
 	Results              ResultStore
+	ResultPublisher      ResultPublisher
 	Checkpoints          CheckpointStore
 	Scorer               Scorer
 	Explainer            Explainer
@@ -68,6 +73,7 @@ type Processor struct {
 	rules                RulesLoader
 	topology             TopologyRepository
 	results              ResultStore
+	resultPublisher      ResultPublisher
 	checkpoints          CheckpointStore
 	scorer               Scorer
 	explainer            Explainer
@@ -107,6 +113,7 @@ func NewProcessor(deps Dependencies) *Processor {
 		rules:                deps.Rules,
 		topology:             deps.Topology,
 		results:              deps.Results,
+		resultPublisher:      deps.ResultPublisher,
 		checkpoints:          deps.Checkpoints,
 		scorer:               deps.Scorer,
 		explainer:            deps.Explainer,
@@ -142,6 +149,7 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 	checkpoint.SearchAfter = nil
 
 	recordsByIncident := storage.ByIncident(resultDoc)
+	recordsPendingPublish := make(map[string]models.RCARecord)
 	summary := CycleSummary{}
 	changed := false
 	upgraded, err := p.upgradeStaleRecords(ctx, recordsByIncident, rulesByID, topologyDoc, &summary)
@@ -150,6 +158,7 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 	}
 	if upgraded {
 		changed = true
+		queueRecordsForPublish(recordsPendingPublish, storage.FromIncidentMap(recordsByIncident).Items...)
 	}
 	nextCheckpoint := checkpoint
 
@@ -210,6 +219,7 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 				}
 				record := updateClosedRecord(existing, hasExisting, event, selectedTopologyID, p.now().UTC())
 				recordsByIncident[incidentID] = record
+				queueRecordsForPublish(recordsPendingPublish, record)
 				summary.ClosedUpdates++
 				summary.ResultWrites++
 				changed = true
@@ -294,6 +304,7 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 			}
 
 			recordsByIncident[incidentID] = record
+			queueRecordsForPublish(recordsPendingPublish, record)
 			summary.EventsScored++
 			summary.ResultWrites++
 			if score.Classification == scoring.ClassificationConfirmed {
@@ -310,6 +321,11 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 	if changed {
 		if err := p.results.Save(ctx, storage.FromIncidentMap(recordsByIncident)); err != nil {
 			return fmt.Errorf("save result store: %w", err)
+		}
+		if p.resultPublisher != nil && len(recordsPendingPublish) > 0 {
+			if err := p.resultPublisher.UpsertRecords(ctx, publishedRecords(recordsPendingPublish)); err != nil {
+				return fmt.Errorf("persist RCA results to MongoDB: %w", err)
+			}
 		}
 	}
 	nextCheckpoint.SearchAfter = nil
@@ -989,4 +1005,41 @@ func mergeEvidenceEntry(entry models.EvidenceLog, matched models.RelatedLog) mod
 		merged.HostIPs = append([]string(nil), matched.HostIPs...)
 	}
 	return merged
+}
+
+func queueRecordsForPublish(destination map[string]models.RCARecord, records ...models.RCARecord) {
+	for _, record := range records {
+		incidentID := strings.TrimSpace(record.IncidentID)
+		if incidentID == "" {
+			continue
+		}
+		destination[resultPublishKey(record)] = record
+	}
+}
+
+func publishedRecords(recordsByKey map[string]models.RCARecord) []models.RCARecord {
+	if len(recordsByKey) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(recordsByKey))
+	for key := range recordsByKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	records := make([]models.RCARecord, 0, len(keys))
+	for _, key := range keys {
+		records = append(records, recordsByKey[key])
+	}
+	return records
+}
+
+func resultPublishKey(record models.RCARecord) string {
+	incidentID := strings.TrimSpace(record.IncidentID)
+	resultSignature := strings.TrimSpace(record.ResultSignature)
+	if resultSignature == "" {
+		return incidentID
+	}
+	return incidentID + "|" + resultSignature
 }

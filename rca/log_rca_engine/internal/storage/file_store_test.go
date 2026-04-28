@@ -52,6 +52,40 @@ func TestFileStoreSaveAndLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestFileStoreKeepsClosedRecords(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "results.json")
+	store := NewFileStore(path, nil)
+
+	document := models.RCAOutputDocument{
+		Items: []models.RCARecord{
+			{IncidentID: "incident-open", Status: "open"},
+			{IncidentID: "incident-updated", Status: "updated"},
+			{IncidentID: "incident-closed", Status: "closed"},
+		},
+	}
+
+	if err := store.Save(context.Background(), document); err != nil {
+		t.Fatalf("save returned error: %v", err)
+	}
+
+	loaded, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load returned error: %v", err)
+	}
+	if len(loaded.Items) != 3 {
+		t.Fatalf("expected all lifecycle items, got %#v", loaded.Items)
+	}
+	foundClosed := false
+	for _, item := range loaded.Items {
+		if item.Status == "closed" {
+			foundClosed = true
+		}
+	}
+	if !foundClosed {
+		t.Fatalf("expected closed record to stay in result store: %#v", loaded.Items)
+	}
+}
+
 func TestFileStoreLoadRepairsEmptyFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "results.json")
 	if err := os.WriteFile(path, []byte{}, 0o644); err != nil {

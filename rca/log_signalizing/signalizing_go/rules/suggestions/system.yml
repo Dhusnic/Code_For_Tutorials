@@ -1,0 +1,301 @@
+service: system
+rules:
+    - id: SYSTEM_AUTO_SELINUX_IS_PREVENTING_USR_1937826F
+      signal_key: system_auto_selinux_is_preventing_usr_1937
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: selinux is preventing usr'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: selinux is preventing usr
+    - id: SYSTEM_AUTO_DIALING_DIAL_TCP_CONNECT_621F3048
+      signal_key: system_auto_dialing_dial_tcp_connect_621f
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: dialing dial tcp connect'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: dialing dial tcp connect
+    - id: SYSTEM_AUTO_TRANSIENT_STATUSCODE_UNAVAILABLE_ENCOUNTERED_4CBBC277
+      signal_key: system_auto_transient_statuscode_unavailable_encountered_4cbb
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: transient statuscode unavailable encountered'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: transient statuscode unavailable encountered
+    - id: SYSTEM_AUTO_NO_AVAILABLE_CONNECTIONS_8E8066D7
+      signal_key: system_auto_no_available_connections_8e80
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: no available connections'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: no available connections
+    - id: SYSTEM_AUTO_ELASTICSEARCH_UNREACHABLE_HTTP_LICENSE_1E665357
+      signal_key: system_auto_elasticsearch_unreachable_http_license_1e66
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: elasticsearch unreachable http license'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: elasticsearch unreachable http license
+    - id: SYSTEM_AUTO_28T12_LOGSTASH_OUTPUTS_ELASTICSEARCH_5D9F4F16
+      signal_key: system_auto_28t12_logstash_outputs_elasticsearch_5d9f
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: 28t12 logstash outputs elasticsearch'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: 28t12 logstash outputs elasticsearch
+    - id: SYSTEM_AUTO_28T13_LOGSTASH_OUTPUTS_ELASTICSEARCH_7F6C1B82
+      signal_key: system_auto_28t13_logstash_outputs_elasticsearch_7f6c
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: 28t13 logstash outputs elasticsearch'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: 28t13 logstash outputs elasticsearch
+    - id: SYSTEM_AUTO_28T15_DEBUG_PLUGINS_ALERTING_E410C4C5
+      signal_key: system_auto_28t15_debug_plugins_alerting_e410
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: 28t15 debug plugins alerting'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: 28t15 debug plugins alerting
+    - id: SYSTEM_AUTO_FETCHING_DATA_METRICSET_BEAT_09024E68
+      signal_key: system_auto_fetching_data_metricset_beat_0902
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: fetching data metricset beat'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: fetching data metricset beat
+    - id: SYSTEM_AUTO_SELINUX_IS_PREVENTING_SYSTEMD_DA2A8860
+      signal_key: system_auto_selinux_is_preventing_systemd_da2a
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: selinux is preventing systemd'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: selinux is preventing systemd
+    - id: SYSTEM_AUTO_MESSAGES_EXIT_NORMAL_DF56EA6C
+      signal_key: system_auto_messages_exit_normal_df56
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: messages exit normal'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: messages exit normal
+    - id: SYSTEM_AUTO_IN_FUNCTION_APPLICATION_MASTER_3339C8D2
+      signal_key: system_auto_in_function_application_master_3339
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: in function application master'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: in function application master
+    - id: SYSTEM_AUTO_MESSAGE_QUEUE_LEN_0C5BA5B0
+      signal_key: system_auto_message_queue_len_0c5b
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: message queue len'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: message queue len
+    - id: SYSTEM_AUTO_ANCESTORS_APPLICATION_CONTROLLER_6A871612
+      signal_key: system_auto_ancestors_application_controller_6a87
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: ancestors application controller'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: ancestors application controller
+    - id: SYSTEM_AUTO_INITIAL_CALL_APPLICATION_MASTER_3002EBC5
+      signal_key: system_auto_initial_call_application_master_3002
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: initial call application master'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: initial call application master
+    - id: SYSTEM_AUTO_VAR_LOG_RABBITMQ_RABBIT_ED8F600E
+      signal_key: system_auto_var_log_rabbitmq_rabbit_ed8f
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: var log rabbitmq rabbit'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: var log rabbitmq rabbit
+    - id: SYSTEM_AUTO_REGISTERED_NAME_8BE7E119
+      signal_key: system_auto_registered_name_8be7
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: registered name'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: registered name
+    - id: SYSTEM_AUTO_EXCEPTION_EXIT_CANNOT_LOG_0E61EA05
+      signal_key: system_auto_exception_exit_cannot_log_0e61
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: exception exit cannot log'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: exception exit cannot log
+    - id: SYSTEM_AUTO_STACK_SIZE_B85F9987
+      signal_key: system_auto_stack_size_b85f
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: stack size'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: stack size
+    - id: SYSTEM_AUTO_TRAP_EXIT_TRUE_8B0F7DDD
+      signal_key: system_auto_trap_exit_true_8b0f
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: trap exit true'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: trap exit true
+    - id: SYSTEM_AUTO_STATUS_RUNNING_B98C7EC3
+      signal_key: system_auto_status_running_b98c
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: status running'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: status running
+    - id: SYSTEM_AUTO_RABBIT_START_NORMAL_E5013489
+      signal_key: system_auto_rabbit_start_normal_e501
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: rabbit start normal'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: rabbit start normal
+    - id: SYSTEM_AUTO_HEAP_SIZE_E918E3D2
+      signal_key: system_auto_heap_size_e918
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: heap size'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: heap size

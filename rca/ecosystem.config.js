@@ -1,4 +1,4 @@
-const signalizingInstances = Number(process.env.SIGNALIZING_INSTANCES || 4);
+const signalizingInstances = Number(process.env.SIGNALIZING_INSTANCES || 1);
 const signalizingModulePartitions = signalizingInstances;
 
 const directStreamApps = [
@@ -20,6 +20,24 @@ const directStreamApps = [
     env: {
       PM2_APP_NAME: 'signalizing-engine',
       RCA_WORKER_COUNT: String(signalizingModulePartitions)
+    }
+  },
+  {
+    name: 'log-config-syncer',
+    cwd: './log_rca_engine',
+    script: './bin/log-config-syncer.exe',
+    args: ['--config', './config/config.yml', '--interval', '30s'],
+    instances: 1,
+    exec_mode: 'fork',
+    exec_interpreter: 'none',
+    autorestart: true,
+    max_restarts: 10,
+    restart_delay: 5000,
+    combine_logs: true,
+    out_file: './logs/log-config-syncer.out.log',
+    error_file: './logs/log-config-syncer.err.log',
+    env: {
+      PM2_APP_NAME: 'log-config-syncer'
     }
   },
   {

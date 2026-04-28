@@ -65,3 +65,16 @@ rules:
         field: message
         op: contains
         value: apr localhost sshd received
+    - id: AUTH_AUTO_APR_MY_SERVER_NAME_65130A29
+      signal_key: auth_auto_apr_my_server_name_6513
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: apr my server name'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - auth
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: apr my server name

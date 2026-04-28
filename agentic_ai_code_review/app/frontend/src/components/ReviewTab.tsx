@@ -30,9 +30,9 @@ export default function ReviewTab() {
     try {
       const payload =
         action === "review"
-          ? await reviewDiffs(config, true)
+          ? await reviewDiffs(config, false)
           : action === "full"
-            ? await runFullReview(config, true)
+            ? await runFullReview(config, false)
             : await runStaticChecks(
                 {
                   repo_path: config.repo_path,
@@ -44,7 +44,7 @@ export default function ReviewTab() {
                   azure_pat: config.azure_pat,
                   is_local: config.is_local
                 },
-                true
+                false
               );
       setOutput(JSON.stringify(payload, null, 2));
     } catch (error) {
@@ -62,7 +62,7 @@ export default function ReviewTab() {
     <section className="panel">
       <div className="panel-head">
         <h2>Code Review</h2>
-        <p>Run review jobs, static checks, and full parity workflows.</p>
+        <p>Local diff review, guarded patch checks, and repository diagnostics.</p>
       </div>
 
       <div className="form-grid">
@@ -104,7 +104,7 @@ export default function ReviewTab() {
             type="password"
             value={config.azure_pat}
             onChange={(e) => update("azure_pat", e.target.value)}
-            placeholder="Stored securely in desktop mode"
+            placeholder="Optional"
           />
         </label>
       </div>

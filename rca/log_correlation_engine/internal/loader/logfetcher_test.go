@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"log_correlation_engine/internal/config"
+	"log_correlation_engine/internal/fetch"
 )
 
 func TestElasticsearchLogFetcherFetchLog(t *testing.T) {
@@ -205,5 +207,64 @@ func TestElasticsearchLogFetcherFetchLogsBatch(t *testing.T) {
 	}
 	if logs["doc-2"] == nil || logs["doc-2"].LogLevel != "error" {
 		t.Fatalf("unexpected doc-2 payload: %#v", logs["doc-2"])
+	}
+}
+
+func TestElasticsearchLogFetcherFetchLogsWithOptionsOverridesBatchSize(t *testing.T) {
+	t.Parallel()
+
+	var searchRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Elastic-Product", "Elasticsearch")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"version":{"number":"8.11.0"}}`))
+		case strings.HasSuffix(r.URL.Path, "/_search"):
+			searchRequests.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"hits": {
+					"hits": [
+						{"_id": "doc-1", "_source": {"@timestamp": "2026-04-08T12:00:00Z", "log": {"level": "warning"}}},
+						{"_id": "doc-2", "_source": {"@timestamp": "2026-04-08T12:01:00Z", "log": {"level": "error"}}},
+						{"_id": "doc-3", "_source": {"@timestamp": "2026-04-08T12:02:00Z", "log": {"level": "critical"}}}
+					]
+				}
+			}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	fetcher, err := NewElasticsearchLogFetcher(
+		config.ElasticsearchConfig{
+			Addresses:      []string{server.URL},
+			Index:          "source-*",
+			RequestTimeout: time.Second,
+		},
+		"@timestamp",
+		"log.level",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("failed to create fetcher: %v", err)
+	}
+	fetcher.SetGroupedLookupBatchSize(10)
+
+	logs, err := fetcher.FetchLogsWithOptions(
+		context.Background(),
+		[]string{"doc-1", "doc-2", "doc-3"},
+		fetch.BatchFetchOptions{GroupedLookupBatchSize: 1},
+	)
+	if err != nil {
+		t.Fatalf("fetch logs returned error: %v", err)
+	}
+	if len(logs) != 3 {
+		t.Fatalf("expected 3 fetched logs, got %d", len(logs))
+	}
+	if searchRequests.Load() != 3 {
+		t.Fatalf("expected batch size override to create 3 search requests, got %d", searchRequests.Load())
 	}
 }

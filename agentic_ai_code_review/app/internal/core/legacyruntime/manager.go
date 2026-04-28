@@ -222,29 +222,15 @@ func (m *Manager) resolveRepoRoot() (string, error) {
 
 	execPath, execErr := os.Executable()
 	if execErr == nil {
-		execDir := filepath.Dir(execPath)
-		candidates := []string{
-			execDir,
-			filepath.Dir(execDir),
-			filepath.Dir(filepath.Dir(execDir)),
-		}
-		for _, candidate := range candidates {
-			if m.hasScript(candidate) {
-				return candidate, nil
-			}
+		if repoRoot, ok := m.findScriptRootFrom(filepath.Dir(execPath)); ok {
+			return repoRoot, nil
 		}
 	}
 
 	cwd, cwdErr := os.Getwd()
 	if cwdErr == nil {
-		candidates := []string{
-			cwd,
-			filepath.Dir(cwd),
-		}
-		for _, candidate := range candidates {
-			if m.hasScript(candidate) {
-				return candidate, nil
-			}
+		if repoRoot, ok := m.findScriptRootFrom(cwd); ok {
+			return repoRoot, nil
 		}
 	}
 
@@ -252,6 +238,27 @@ func (m *Manager) resolveRepoRoot() (string, error) {
 		"unable to resolve repository root for legacy API script '%s'; set AGENTIC_REPO_ROOT to the repo path",
 		m.scriptPath,
 	)
+}
+
+func (m *Manager) findScriptRootFrom(start string) (string, bool) {
+	current := strings.TrimSpace(start)
+	if current == "" {
+		return "", false
+	}
+	if abs, err := filepath.Abs(current); err == nil {
+		current = abs
+	}
+
+	for {
+		if m.hasScript(current) {
+			return current, true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", false
+		}
+		current = parent
+	}
 }
 
 func (m *Manager) hasScript(root string) bool {

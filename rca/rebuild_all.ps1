@@ -150,6 +150,12 @@ $allTargets = @(
         Package    = ".\cmd"
     },
     @{
+        Name       = "log-config-syncer"
+        ProjectDir = Join-Path $repoRoot "log_rca_engine"
+        OutputPath = Join-Path $repoRoot "log_rca_engine\bin\log-config-syncer.exe"
+        Package    = ".\cmd\log-config-syncer"
+    },
+    @{
         Name       = "signalizing-engine"
         ProjectDir = Join-Path $repoRoot "log_signalizing\signalizing_go"
         OutputPath = Join-Path $repoRoot "log_signalizing\signalizing_go\bin\signalizing-engine.exe"
@@ -171,7 +177,7 @@ $allTargets = @(
 
 switch ($Profile) {
     "direct-stream" {
-        $targets = $allTargets | Where-Object { $_.Name -in @("correlation-engine", "log-rca-engine", "signalizing-engine", "validate-rules") }
+        $targets = $allTargets | Where-Object { $_.Name -in @("correlation-engine", "log-rca-engine", "log-config-syncer", "signalizing-engine", "validate-rules") }
     }
     "compatibility" {
         $targets = $allTargets | Where-Object { $_.Name -eq "signaled-logs-collector" }

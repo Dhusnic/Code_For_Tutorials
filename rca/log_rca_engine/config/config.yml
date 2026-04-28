@@ -38,6 +38,29 @@ storage:
   results_file: ../data/results/rca_results.json
   checkpoint_file: ../data/checkpoints/reader_checkpoint.json
 
+mongo_sync:
+  enabled: true
+  uri: "mongodb://infraondns:InfraonMongodb321@10.0.4.72:27017/dhusnic_test_db?retryWrites=false&authSource=infraon_default_db&authMechanism=SCRAM-SHA-1"
+  database: dhusnic_test_db
+  rules_collection: correlation_rules
+  topology_collection: topology_data
+  results_collection: rca_results
+  state_collection: rca_config_state
+  state_name: prod_rules_topology
+  snapshot_collection: rca_config_snapshots
+  snapshot_name: prod_rules_topology
+  use_snapshot: true
+  write_snapshot: true
+  redis_notify:
+    enabled: false
+    address: 10.0.5.97:6379
+    username: ""
+    password: ""
+    db: 0
+    channel: rca_config_changed
+    reconnect_delay: 5s
+  timeout: 5s
+
 scoring:
   confidence_threshold: 4.0
   probable_cause_min_threshold: 2.0

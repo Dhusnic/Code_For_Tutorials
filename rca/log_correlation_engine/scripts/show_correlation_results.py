@@ -60,13 +60,39 @@ def format_percentage(value: float) -> str:
     return f"{value:.4f} ({value * 100:.2f}%)"
 
 
+def format_selector(selector: dict[str, Any]) -> str:
+    signal_key = str(selector.get("signal_key", "")).strip()
+    if signal_key:
+        return signal_key
+
+    signal_keys = [str(item).strip() for item in selector.get("signal_keys", []) if str(item).strip()]
+    if signal_keys:
+        return " | ".join(signal_keys)
+
+    any_of = selector.get("any_of", [])
+    if isinstance(any_of, list) and any_of:
+        nested = [format_selector(item) for item in any_of if isinstance(item, dict)]
+        nested = [item for item in nested if item and item != "unknown"]
+        if nested:
+            return "ANY(" + "; ".join(nested) + ")"
+
+    all_of = selector.get("all_of", [])
+    if isinstance(all_of, list) and all_of:
+        nested = [format_selector(item) for item in all_of if isinstance(item, dict)]
+        nested = [item for item in nested if item and item != "unknown"]
+        if nested:
+            return "ALL(" + "; ".join(nested) + ")"
+
+    return "unknown"
+
+
 def format_sequence(rule: dict[str, Any] | None) -> str:
     if not rule:
         return "unknown"
     parts = []
     for step in rule.get("sequence", []):
         count = max(int(step.get("min_count", 1) or 1), 1)
-        parts.append(f"{step['signal_key']} x{count}")
+        parts.append(f"{format_selector(step)} x{count}")
     return " -> ".join(parts) if parts else "unknown"
 
 

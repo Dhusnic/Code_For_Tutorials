@@ -19,6 +19,7 @@ func TestStoreSaveAndLoadCheckpoint(t *testing.T) {
 	want := time.Date(2026, 4, 8, 12, 30, 0, 0, time.UTC)
 	state := models.ProcessingCheckpoint{
 		Checkpoint:             want,
+		CheckpointDocID:        "doc-4",
 		SignalPayloadSignature: "abc123",
 		SignalCount:            4,
 		StreamID:               "1678901234567-0",
@@ -38,6 +39,9 @@ func TestStoreSaveAndLoadCheckpoint(t *testing.T) {
 	if got.SignalPayloadSignature != state.SignalPayloadSignature {
 		t.Fatalf("expected signature %q, got %q", state.SignalPayloadSignature, got.SignalPayloadSignature)
 	}
+	if got.CheckpointDocID != state.CheckpointDocID {
+		t.Fatalf("expected checkpoint doc id %q, got %q", state.CheckpointDocID, got.CheckpointDocID)
+	}
 	if got.SignalCount != state.SignalCount {
 		t.Fatalf("expected signal count %d, got %d", state.SignalCount, got.SignalCount)
 	}
@@ -55,6 +59,7 @@ func TestStoreWritesJSONFileWithCheckpointKey(t *testing.T) {
 	checkpoint := time.Date(2026, 4, 8, 12, 31, 0, 0, time.UTC)
 	state := models.ProcessingCheckpoint{
 		Checkpoint:             checkpoint,
+		CheckpointDocID:        "doc-7",
 		SignalPayloadSignature: "deadbeef",
 		SignalCount:            7,
 		StreamID:               "42-1",
@@ -90,6 +95,9 @@ func TestStoreWritesJSONFileWithCheckpointKey(t *testing.T) {
 	}
 	if stored.Checkpoint != checkpoint.Format(time.RFC3339Nano) {
 		t.Fatalf("unexpected checkpoint value %q", stored.Checkpoint)
+	}
+	if stored.CheckpointDocID != state.CheckpointDocID {
+		t.Fatalf("unexpected stored checkpoint doc id %q", stored.CheckpointDocID)
 	}
 	if stored.SignalPayloadSignature != state.SignalPayloadSignature {
 		t.Fatalf("unexpected stored signature %q", stored.SignalPayloadSignature)

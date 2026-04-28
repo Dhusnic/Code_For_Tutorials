@@ -510,3 +510,39 @@ rules:
         - field: system.syslog.message
           op: regex
           value: '(Could not get lock /var/lib/dpkg/lock|Another app is currently holding the yum lock|Failed to obtain the dpkg frontend lock|zypp.*System management is locked)'
+
+  - id: SYSTEMD_UNIT_DEACTIVATED
+    signal_key: systemd_unit_deactivated
+    level: info
+    description: systemd service was deactivated successfully.
+    tags: [systemd, service, lifecycle]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(^|.* )[^ ]+\.service: Deactivated successfully\.$'
+        - field: system.syslog.message
+          op: regex
+          value: '(^|.* )[^ ]+\.service: Deactivated successfully\.$'
+
+  - id: SYSTEMD_INSTANCEGUNICORN_DEACTIVATED
+    signal_key: systemd_instancegunicorn_deactivated
+    level: warning
+    description: instancegunicorn service was deactivated successfully.
+    tags: [systemd, service, lifecycle, instancegunicorn]
+    condition:
+      or:
+        - and:
+            - field: message
+              op: contains
+              value: 'instancegunicorn.service'
+            - field: message
+              op: contains
+              value: 'Deactivated successfully.'
+        - and:
+            - field: system.syslog.message
+              op: contains
+              value: 'instancegunicorn.service'
+            - field: system.syslog.message
+              op: contains
+              value: 'Deactivated successfully.'

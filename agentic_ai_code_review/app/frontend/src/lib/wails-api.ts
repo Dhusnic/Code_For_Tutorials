@@ -21,118 +21,38 @@ declare global {
   }
 }
 
-const LEGACY_API_BASE = "http://127.0.0.1:8000";
-
-function appBinding(): WailsApp | null {
-  return window.go?.desktop?.App ?? null;
-}
-
-async function post(path: string, payload: unknown): Promise<JsonRecord> {
-  const response = await fetch(`${LEGACY_API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const body = await response.json();
-  if (!response.ok) {
-    throw new Error(String((body as JsonRecord).detail || "Request failed"));
+function appBinding(): WailsApp {
+  const binding = window.go?.desktop?.App;
+  if (!binding) {
+    throw new Error("Desktop runtime binding is unavailable. Start the app with Wails.");
   }
-  return body as JsonRecord;
-}
-
-async function get(path: string): Promise<JsonRecord> {
-  const response = await fetch(`${LEGACY_API_BASE}${path}`, { method: "GET" });
-  const body = await response.json();
-  if (!response.ok) {
-    throw new Error(String((body as JsonRecord).detail || "Request failed"));
-  }
-  return body as JsonRecord;
+  return binding;
 }
 
 export async function runFullReview(payload: ReviewConfig, asyncJob: boolean): Promise<JsonRecord> {
-  const binding = appBinding();
-  if (binding) {
-    return binding.RunFullReview(payload, asyncJob);
-  }
-  return post(`/api/run-full-review?async_job=${asyncJob ? "true" : "false"}`, payload);
+  return appBinding().RunFullReview(payload, asyncJob);
 }
 
 export async function reviewDiffs(payload: ReviewConfig, asyncJob: boolean): Promise<JsonRecord> {
-  const binding = appBinding();
-  if (binding) {
-    return binding.ReviewDiffs(payload, asyncJob);
-  }
-  return post(`/api/review-diffs?async_job=${asyncJob ? "true" : "false"}`, payload);
+  return appBinding().ReviewDiffs(payload, asyncJob);
 }
 
 export async function runStaticChecks(payload: JsonRecord, asyncJob: boolean): Promise<JsonRecord> {
-  const binding = appBinding();
-  if (binding) {
-    return binding.RunStaticChecks(payload, asyncJob);
-  }
-  return post(`/api/static-checks?async_job=${asyncJob ? "true" : "false"}`, payload);
+  return appBinding().RunStaticChecks(payload, asyncJob);
 }
 
 export async function raiseNewPR(payload: JsonRecord, asyncJob: boolean): Promise<JsonRecord> {
-  const binding = appBinding();
-  if (binding) {
-    return binding.RaiseNewPR(payload, asyncJob);
-  }
-  return post(`/api/pr-workflow/raise-new-pr?async_job=${asyncJob ? "true" : "false"}`, payload);
+  return appBinding().RaiseNewPR(payload, asyncJob);
 }
 
 export async function getSettings(): Promise<JsonRecord> {
-  const binding = appBinding();
-  if (binding) {
-    return binding.GetSettings();
-  }
-  return {
-    path: "legacy-browser-fallback",
-    config: {
-      service_mode: "legacy",
-      legacy_api_base_url: LEGACY_API_BASE,
-      request_timeout_seconds: 180,
-      log_level: "info",
-      auto_start_legacy_api: true,
-      auto_install_legacy_deps: true,
-      legacy_api_python_bin: "python",
-      legacy_api_script_path: "web/main.py",
-      legacy_startup_timeout_seconds: 60
-    }
-  };
+  return appBinding().GetSettings();
 }
 
 export async function saveSettings(payload: JsonRecord): Promise<JsonRecord> {
-  const binding = appBinding();
-  if (binding) {
-    return binding.SaveSettings(payload);
-  }
-  return payload;
+  return appBinding().SaveSettings(payload);
 }
 
 export async function health(): Promise<JsonRecord> {
-  const binding = appBinding();
-  if (binding) {
-    return binding.Health();
-  }
-  return get("/api/health");
-}
-
-export async function getLegacyBaseUrl(): Promise<string> {
-  try {
-    const settings = await getSettings();
-    const config = (settings.config as JsonRecord) || {};
-    const raw = String(config.legacy_api_base_url || "").trim();
-    return raw || LEGACY_API_BASE;
-  } catch {
-    return LEGACY_API_BASE;
-  }
-}
-
-export async function ensureDesktopBackendReady(): Promise<void> {
-  const binding = appBinding();
-  if (!binding || typeof binding.GetUsageMetrics !== "function") {
-    return;
-  }
-  await binding.GetUsageMetrics();
+  return appBinding().Health();
 }

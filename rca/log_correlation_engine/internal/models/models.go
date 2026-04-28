@@ -216,6 +216,7 @@ type ProcessingMetrics struct {
 
 type ProcessingCheckpoint struct {
 	Checkpoint             time.Time
+	CheckpointDocID        string
 	SignalPayloadSignature string
 	SignalCount            int
 	StreamID               string

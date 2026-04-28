@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"log_correlation_engine/internal/config"
+	"log_correlation_engine/internal/fetch"
 	"log_correlation_engine/internal/models"
 
 	esv8 "github.com/elastic/go-elasticsearch/v8"
@@ -26,6 +27,10 @@ type BatchLogFetcher interface {
 	FetchLogs(ctx context.Context, docIDs []string) (map[string]*models.FullLog, error)
 }
 
+type BatchLogFetcherWithOptions interface {
+	FetchLogsWithOptions(ctx context.Context, docIDs []string, options fetch.BatchFetchOptions) (map[string]*models.FullLog, error)
+}
+
 type MockLogFetcher struct {
 	mu     sync.RWMutex
 	cache  map[string]*models.FullLog
@@ -37,6 +42,7 @@ type ElasticsearchLogFetcher struct {
 	client         *esv8.Client
 	index          string
 	requestTimeout time.Duration
+	batchSize      int
 	timestampField string
 	logLevelField  string
 	logger         *slog.Logger
@@ -50,8 +56,6 @@ type searchResponse struct {
 		} `json:"hits"`
 	} `json:"hits"`
 }
-
-const elasticsearchGroupedLookupBatchSize = 250
 
 func NewMockLogFetcher(logger *slog.Logger) *MockLogFetcher {
 	return &MockLogFetcher{
@@ -88,6 +92,7 @@ func NewElasticsearchLogFetcher(
 		client:         client,
 		index:          cfg.Index,
 		requestTimeout: cfg.RequestTimeout,
+		batchSize:      250,
 		timestampField: strings.TrimSpace(timestampField),
 		logLevelField:  strings.TrimSpace(logLevelField),
 		logger:         logger,
@@ -157,6 +162,10 @@ func (m *MockLogFetcher) FetchLog(ctx context.Context, docID string) (*models.Fu
 }
 
 func (m *MockLogFetcher) FetchLogs(ctx context.Context, docIDs []string) (map[string]*models.FullLog, error) {
+	return m.FetchLogsWithOptions(ctx, docIDs, fetch.BatchFetchOptions{})
+}
+
+func (m *MockLogFetcher) FetchLogsWithOptions(ctx context.Context, docIDs []string, _ fetch.BatchFetchOptions) (map[string]*models.FullLog, error) {
 	result := make(map[string]*models.FullLog, len(docIDs))
 	for _, docID := range uniqueDocIDs(docIDs) {
 		logEntry, err := m.FetchLog(ctx, docID)
@@ -214,14 +223,22 @@ func (f *ElasticsearchLogFetcher) FetchLog(ctx context.Context, docID string) (*
 }
 
 func (f *ElasticsearchLogFetcher) FetchLogs(ctx context.Context, docIDs []string) (map[string]*models.FullLog, error) {
+	return f.FetchLogsWithOptions(ctx, docIDs, fetch.BatchFetchOptions{})
+}
+
+func (f *ElasticsearchLogFetcher) FetchLogsWithOptions(ctx context.Context, docIDs []string, options fetch.BatchFetchOptions) (map[string]*models.FullLog, error) {
 	uniqueIDs := uniqueDocIDs(docIDs)
 	result := make(map[string]*models.FullLog, len(uniqueIDs))
 	if len(uniqueIDs) == 0 {
 		return result, nil
 	}
 
-	for start := 0; start < len(uniqueIDs); start += elasticsearchGroupedLookupBatchSize {
-		end := start + elasticsearchGroupedLookupBatchSize
+	batchSize := f.groupedLookupBatchSize()
+	if options.GroupedLookupBatchSize > 0 {
+		batchSize = options.GroupedLookupBatchSize
+	}
+	for start := 0; start < len(uniqueIDs); start += batchSize {
+		end := start + batchSize
 		if end > len(uniqueIDs) {
 			end = len(uniqueIDs)
 		}
@@ -238,6 +255,19 @@ func (f *ElasticsearchLogFetcher) FetchLogs(ctx context.Context, docIDs []string
 	}
 
 	return result, nil
+}
+
+func (f *ElasticsearchLogFetcher) SetGroupedLookupBatchSize(size int) {
+	if size > 0 {
+		f.batchSize = size
+	}
+}
+
+func (f *ElasticsearchLogFetcher) groupedLookupBatchSize() int {
+	if f.batchSize > 0 {
+		return f.batchSize
+	}
+	return 250
 }
 
 func (m *MockLogFetcher) AddMockLog(logEntry *models.FullLog) {

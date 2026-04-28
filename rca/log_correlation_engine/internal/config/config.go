@@ -22,6 +22,28 @@ type SchedulerConfig struct {
 	OrganizationWorkers int           `yaml:"organization_workers"`
 }
 
+type AutoscalingSchedulerConfig struct {
+	MinInterval  time.Duration `yaml:"min_interval"`
+	MaxInterval  time.Duration `yaml:"max_interval"`
+	TimeoutRatio float64       `yaml:"timeout_ratio"`
+}
+
+type AutoscalingFetcherConfig struct {
+	MinGroupedLookupBatchSize int `yaml:"min_grouped_lookup_batch_size"`
+	MaxGroupedLookupBatchSize int `yaml:"max_grouped_lookup_batch_size"`
+	MaxBatchesPerCycle        int `yaml:"max_batches_per_cycle"`
+}
+
+type AutoscalingConfig struct {
+	Enabled                 bool                       `yaml:"enabled"`
+	InputBasis              string                     `yaml:"input_basis"`
+	InputLowWatermark       int                        `yaml:"input_low_watermark"`
+	InputHighWatermark      int                        `yaml:"input_high_watermark"`
+	ScaleDownCooldownCycles int                        `yaml:"scale_down_cooldown_cycles"`
+	Scheduler               AutoscalingSchedulerConfig `yaml:"scheduler"`
+	Fetcher                 AutoscalingFetcherConfig   `yaml:"fetcher"`
+}
+
 type RedisConfig struct {
 	Address                         string        `yaml:"address"`
 	Username                        string        `yaml:"username"`
@@ -63,25 +85,49 @@ type EngineConfig struct {
 	CheckpointDirectory   string        `yaml:"checkpoint_directory"`
 }
 
+type MongoSyncConfig struct {
+	Enabled            bool              `yaml:"enabled"`
+	URI                string            `yaml:"uri"`
+	Database           string            `yaml:"database"`
+	RulesCollection    string            `yaml:"rules_collection"`
+	StateCollection    string            `yaml:"state_collection"`
+	StateName          string            `yaml:"state_name"`
+	SnapshotCollection string            `yaml:"snapshot_collection"`
+	SnapshotName       string            `yaml:"snapshot_name"`
+	UseSnapshot        bool              `yaml:"use_snapshot"`
+	WriteSnapshot      bool              `yaml:"write_snapshot"`
+	RedisNotify        RedisNotifyConfig `yaml:"redis_notify"`
+	Timeout            time.Duration     `yaml:"timeout"`
+}
+
+type RedisNotifyConfig struct {
+	Enabled        bool          `yaml:"enabled"`
+	Channel        string        `yaml:"channel"`
+	ReconnectDelay time.Duration `yaml:"reconnect_delay"`
+}
+
 type FetcherConfig struct {
-	Mode           string        `yaml:"mode"`
-	Addresses      []string      `yaml:"addresses"`
-	Username       string        `yaml:"username"`
-	Password       string        `yaml:"password"`
-	APIKey         string        `yaml:"api_key"`
-	Index          string        `yaml:"index"`
-	RequestTimeout time.Duration `yaml:"request_timeout"`
-	TimestampField string        `yaml:"timestamp_field"`
-	LogLevelField  string        `yaml:"log_level_field"`
+	Mode                   string        `yaml:"mode"`
+	Addresses              []string      `yaml:"addresses"`
+	Username               string        `yaml:"username"`
+	Password               string        `yaml:"password"`
+	APIKey                 string        `yaml:"api_key"`
+	Index                  string        `yaml:"index"`
+	RequestTimeout         time.Duration `yaml:"request_timeout"`
+	GroupedLookupBatchSize int           `yaml:"grouped_lookup_batch_size"`
+	TimestampField         string        `yaml:"timestamp_field"`
+	LogLevelField          string        `yaml:"log_level_field"`
 }
 
 type Config struct {
 	ServiceName   string              `yaml:"service_name"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	Scheduler     SchedulerConfig     `yaml:"scheduler"`
+	Autoscaling   AutoscalingConfig   `yaml:"autoscaling"`
 	Redis         RedisConfig         `yaml:"redis"`
 	Elasticsearch ElasticsearchConfig `yaml:"elasticsearch"`
 	Engine        EngineConfig        `yaml:"engine"`
+	MongoSync     MongoSyncConfig     `yaml:"mongo_sync"`
 	Fetcher       FetcherConfig       `yaml:"fetcher"`
 }
 
@@ -116,6 +162,23 @@ func defaultConfig() Config {
 			RunTimeout:          50 * time.Second,
 			OrganizationWorkers: 4,
 		},
+		Autoscaling: AutoscalingConfig{
+			Enabled:                 false,
+			InputBasis:              "incremental_logs",
+			InputLowWatermark:       1000,
+			InputHighWatermark:      100000,
+			ScaleDownCooldownCycles: 3,
+			Scheduler: AutoscalingSchedulerConfig{
+				MinInterval:  10 * time.Second,
+				MaxInterval:  60 * time.Second,
+				TimeoutRatio: 0.9,
+			},
+			Fetcher: AutoscalingFetcherConfig{
+				MinGroupedLookupBatchSize: 1000,
+				MaxGroupedLookupBatchSize: 10000,
+				MaxBatchesPerCycle:        10,
+			},
+		},
 		Redis: RedisConfig{
 			DB:                              0,
 			DialTimeout:                     5 * time.Second,
@@ -148,11 +211,26 @@ func defaultConfig() Config {
 			IncidentInactivityTTL: 30 * time.Minute,
 			CheckpointDirectory:   filepath.Join("data", "checkpoints"),
 		},
+		MongoSync: MongoSyncConfig{
+			Database:           "dhusnic_test_db",
+			RulesCollection:    "correlation_rules",
+			StateCollection:    "rca_config_state",
+			StateName:          "prod_rules_topology",
+			SnapshotCollection: "rca_config_snapshots",
+			SnapshotName:       "prod_rules_topology",
+			UseSnapshot:        true,
+			RedisNotify: RedisNotifyConfig{
+				Channel:        "rca_config_changed",
+				ReconnectDelay: 5 * time.Second,
+			},
+			Timeout: 5 * time.Second,
+		},
 		Fetcher: FetcherConfig{
-			Mode:           "mock",
-			RequestTimeout: 15 * time.Second,
-			TimestampField: "@timestamp",
-			LogLevelField:  "log.level",
+			Mode:                   "mock",
+			RequestTimeout:         15 * time.Second,
+			GroupedLookupBatchSize: 250,
+			TimestampField:         "@timestamp",
+			LogLevelField:          "log.level",
 		},
 	}
 }
@@ -161,6 +239,7 @@ func (c *Config) normalize() {
 	c.ServiceName = strings.TrimSpace(c.ServiceName)
 	c.Logging.Level = strings.TrimSpace(c.Logging.Level)
 	c.Logging.Format = strings.ToLower(strings.TrimSpace(c.Logging.Format))
+	c.Autoscaling.InputBasis = strings.ToLower(strings.TrimSpace(c.Autoscaling.InputBasis))
 
 	c.Redis.Address = strings.TrimSpace(c.Redis.Address)
 	c.Redis.Username = strings.TrimSpace(c.Redis.Username)
@@ -181,6 +260,14 @@ func (c *Config) normalize() {
 
 	c.Engine.RulesFile = strings.TrimSpace(c.Engine.RulesFile)
 	c.Engine.CheckpointDirectory = strings.TrimSpace(c.Engine.CheckpointDirectory)
+	c.MongoSync.URI = strings.TrimSpace(c.MongoSync.URI)
+	c.MongoSync.Database = strings.TrimSpace(c.MongoSync.Database)
+	c.MongoSync.RulesCollection = strings.TrimSpace(c.MongoSync.RulesCollection)
+	c.MongoSync.StateCollection = strings.TrimSpace(c.MongoSync.StateCollection)
+	c.MongoSync.StateName = strings.TrimSpace(c.MongoSync.StateName)
+	c.MongoSync.SnapshotCollection = strings.TrimSpace(c.MongoSync.SnapshotCollection)
+	c.MongoSync.SnapshotName = strings.TrimSpace(c.MongoSync.SnapshotName)
+	c.MongoSync.RedisNotify.Channel = strings.TrimSpace(c.MongoSync.RedisNotify.Channel)
 	c.Fetcher.Mode = strings.ToLower(strings.TrimSpace(c.Fetcher.Mode))
 	c.Fetcher.Username = strings.TrimSpace(c.Fetcher.Username)
 	c.Fetcher.Password = strings.TrimSpace(c.Fetcher.Password)
@@ -195,6 +282,36 @@ func (c *Config) normalize() {
 	if c.Fetcher.Mode == "" {
 		c.Fetcher.Mode = "mock"
 	}
+	if c.Autoscaling.InputBasis == "" {
+		c.Autoscaling.InputBasis = "incremental_logs"
+	}
+	if c.Autoscaling.InputLowWatermark <= 0 {
+		c.Autoscaling.InputLowWatermark = 1000
+	}
+	if c.Autoscaling.InputHighWatermark <= 0 {
+		c.Autoscaling.InputHighWatermark = 100000
+	}
+	if c.Autoscaling.ScaleDownCooldownCycles <= 0 {
+		c.Autoscaling.ScaleDownCooldownCycles = 3
+	}
+	if c.Autoscaling.Scheduler.MinInterval <= 0 {
+		c.Autoscaling.Scheduler.MinInterval = 10 * time.Second
+	}
+	if c.Autoscaling.Scheduler.MaxInterval <= 0 {
+		c.Autoscaling.Scheduler.MaxInterval = 60 * time.Second
+	}
+	if c.Autoscaling.Scheduler.TimeoutRatio <= 0 {
+		c.Autoscaling.Scheduler.TimeoutRatio = 0.9
+	}
+	if c.Autoscaling.Fetcher.MinGroupedLookupBatchSize <= 0 {
+		c.Autoscaling.Fetcher.MinGroupedLookupBatchSize = 1000
+	}
+	if c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize <= 0 {
+		c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize = 10000
+	}
+	if c.Autoscaling.Fetcher.MaxBatchesPerCycle <= 0 {
+		c.Autoscaling.Fetcher.MaxBatchesPerCycle = 10
+	}
 	if c.Fetcher.TimestampField == "" {
 		c.Fetcher.TimestampField = "@timestamp"
 	}
@@ -203,6 +320,9 @@ func (c *Config) normalize() {
 	}
 	if c.Fetcher.RequestTimeout < 0 {
 		c.Fetcher.RequestTimeout = 0
+	}
+	if c.Fetcher.GroupedLookupBatchSize <= 0 {
+		c.Fetcher.GroupedLookupBatchSize = 250
 	}
 }
 
@@ -224,6 +344,39 @@ func (c Config) Validate() error {
 	}
 	if c.Scheduler.RunTimeout > c.Scheduler.Interval {
 		return errors.New("scheduler.run_timeout must be less than or equal to scheduler.interval")
+	}
+	if c.Autoscaling.InputBasis != "incremental_logs" {
+		return errors.New("autoscaling.input_basis must be incremental_logs")
+	}
+	if c.Autoscaling.InputLowWatermark > c.Autoscaling.InputHighWatermark {
+		return errors.New("autoscaling.input_low_watermark must be less than or equal to autoscaling.input_high_watermark")
+	}
+	if c.Autoscaling.ScaleDownCooldownCycles <= 0 {
+		return errors.New("autoscaling.scale_down_cooldown_cycles must be greater than zero")
+	}
+	if c.Autoscaling.Scheduler.MinInterval < 10*time.Second {
+		return errors.New("autoscaling.scheduler.min_interval must be greater than or equal to 10s")
+	}
+	if c.Autoscaling.Scheduler.MaxInterval > 60*time.Second {
+		return errors.New("autoscaling.scheduler.max_interval must be less than or equal to 60s")
+	}
+	if c.Autoscaling.Scheduler.MinInterval > c.Autoscaling.Scheduler.MaxInterval {
+		return errors.New("autoscaling.scheduler.min_interval must be less than or equal to autoscaling.scheduler.max_interval")
+	}
+	if c.Autoscaling.Scheduler.TimeoutRatio <= 0 || c.Autoscaling.Scheduler.TimeoutRatio >= 1 {
+		return errors.New("autoscaling.scheduler.timeout_ratio must be greater than zero and less than one")
+	}
+	if c.Autoscaling.Fetcher.MinGroupedLookupBatchSize < 1000 || c.Autoscaling.Fetcher.MinGroupedLookupBatchSize > 10000 {
+		return errors.New("autoscaling.fetcher.min_grouped_lookup_batch_size must be between 1000 and 10000")
+	}
+	if c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize < 1000 || c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize > 10000 {
+		return errors.New("autoscaling.fetcher.max_grouped_lookup_batch_size must be between 1000 and 10000")
+	}
+	if c.Autoscaling.Fetcher.MinGroupedLookupBatchSize > c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize {
+		return errors.New("autoscaling.fetcher.min_grouped_lookup_batch_size must be less than or equal to autoscaling.fetcher.max_grouped_lookup_batch_size")
+	}
+	if c.Autoscaling.Fetcher.MaxBatchesPerCycle <= 0 {
+		return errors.New("autoscaling.fetcher.max_batches_per_cycle must be greater than zero")
 	}
 	if c.Redis.Address == "" {
 		return errors.New("redis.address must not be empty")
@@ -296,11 +449,50 @@ func (c Config) Validate() error {
 	if c.Engine.CheckpointDirectory == "" {
 		return errors.New("engine.checkpoint_directory must not be empty")
 	}
+	if c.MongoSync.Enabled {
+		if c.MongoSync.URI == "" {
+			return errors.New("mongo_sync.uri must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.Database == "" {
+			return errors.New("mongo_sync.database must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.RulesCollection == "" {
+			return errors.New("mongo_sync.rules_collection must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.StateCollection == "" {
+			return errors.New("mongo_sync.state_collection must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.StateName == "" {
+			return errors.New("mongo_sync.state_name must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.UseSnapshot || c.MongoSync.WriteSnapshot {
+			if c.MongoSync.SnapshotCollection == "" {
+				return errors.New("mongo_sync.snapshot_collection must not be empty when snapshot sync is enabled")
+			}
+			if c.MongoSync.SnapshotName == "" {
+				return errors.New("mongo_sync.snapshot_name must not be empty when snapshot sync is enabled")
+			}
+		}
+		if c.MongoSync.RedisNotify.Enabled {
+			if c.MongoSync.RedisNotify.Channel == "" {
+				return errors.New("mongo_sync.redis_notify.channel must not be empty when redis notify is enabled")
+			}
+			if c.MongoSync.RedisNotify.ReconnectDelay <= 0 {
+				return errors.New("mongo_sync.redis_notify.reconnect_delay must be greater than zero when redis notify is enabled")
+			}
+		}
+		if c.MongoSync.Timeout <= 0 {
+			return errors.New("mongo_sync.timeout must be greater than zero when mongo_sync.enabled is true")
+		}
+	}
 	switch c.Fetcher.Mode {
 	case "mock":
 	case "elasticsearch":
 		if c.Fetcher.Index == "" {
 			return errors.New("fetcher.index must not be empty when fetcher.mode is elasticsearch")
+		}
+		if c.Fetcher.GroupedLookupBatchSize <= 0 {
+			return errors.New("fetcher.grouped_lookup_batch_size must be greater than zero when fetcher.mode is elasticsearch")
 		}
 		if c.Fetcher.TimestampField == "" {
 			return errors.New("fetcher.timestamp_field must not be empty when fetcher.mode is elasticsearch")

@@ -161,6 +161,70 @@ func TestSlidingWindowMatchSupportsSignalKeyAlternatives(t *testing.T) {
 	}
 }
 
+func TestCorrelateMatchesInstanceGunicornDeactivatedToNginxConnectTimeout(t *testing.T) {
+	engine := newTestEngine(t)
+	now := time.Now().UTC()
+
+	commonMetadata := map[string]any{
+		"event.organization": "135098068173316952064",
+		"host.identity":      "host-1",
+		"host.name":          "sim-instancegunicorn-host",
+		"service.name":       "instancegunicorn",
+	}
+
+	logs := []models.FullLog{
+		{
+			DocID:     "gunicorn-stop",
+			Timestamp: now,
+			Signal:    "systemd_instancegunicorn_deactivated",
+			LogLevel:  "warning",
+			Metadata:  commonMetadata,
+		},
+		{
+			DocID:     "nginx-timeout",
+			Timestamp: now.Add(45 * time.Second),
+			Signal:    "nginx_upstream_timeout_connect",
+			LogLevel:  "critical",
+			Metadata:  commonMetadata,
+		},
+	}
+
+	results, err := engine.Correlate(context.Background(), "135098068173316952064", logs, []models.Rule{
+		{
+			ID:                 "CORR_PROD_INSTANCEGUNICORN_DEACTIVATED_TO_NGINX_CONNECT_TIMEOUT",
+			OrganizationID:     "135098068173316952064",
+			RuleType:           "ordered_signal_sequence",
+			Window:             "10m",
+			MaxGapBetweenSteps: "5m",
+			GroupBy:            []string{"event.organization", "host.identity"},
+			Priority:           1,
+			Sequence: []models.SequenceStep{
+				{SignalKey: "systemd_instancegunicorn_deactivated", MinCount: 1, Within: "5m"},
+				{SignalKey: "nginx_upstream_timeout_connect", MinCount: 1, Within: "3m"},
+			},
+			Deduplication: models.Deduplication{
+				Key:    []string{"signal_key", "host.name", "service.name"},
+				Window: "0s",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("correlate returned error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 correlation result, got %d", len(results))
+	}
+	if results[0].RuleID != "CORR_PROD_INSTANCEGUNICORN_DEACTIVATED_TO_NGINX_CONNECT_TIMEOUT" {
+		t.Fatalf("expected new rule id, got %s", results[0].RuleID)
+	}
+	if len(results[0].LogID) != 2 {
+		t.Fatalf("expected 2 matched logs, got %d", len(results[0].LogID))
+	}
+	if results[0].RuleCompletion < 1 {
+		t.Fatalf("expected full rule completion, got %f", results[0].RuleCompletion)
+	}
+}
+
 func TestSlidingWindowMatchSupportsAnyOfBlocks(t *testing.T) {
 	engine := newTestEngine(t)
 	now := time.Now().UTC()

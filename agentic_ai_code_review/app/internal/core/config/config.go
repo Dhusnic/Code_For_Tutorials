@@ -30,15 +30,15 @@ type Settings struct {
 
 func Default() Settings {
 	return Settings{
-		ServiceMode:                 ServiceModeLegacy,
+		ServiceMode:                 ServiceModeNative,
 		LegacyAPIBaseURL:            "http://127.0.0.1:8000",
 		RequestTimeoutSeconds:       180,
 		LogLevel:                    "info",
-		AutoStartLegacyAPI:          true,
+		AutoStartLegacyAPI:          false,
 		LegacyAPIPythonBin:          "python",
 		LegacyAPIScriptPath:         "web/main.py",
 		LegacyStartupTimeoutSeconds: 60,
-		AutoInstallLegacyDeps:       true,
+		AutoInstallLegacyDeps:       false,
 	}
 }
 
@@ -138,11 +138,9 @@ func normalize(settings *Settings) {
 		return
 	}
 	settings.ServiceMode = strings.ToLower(strings.TrimSpace(settings.ServiceMode))
-	switch settings.ServiceMode {
-	case ServiceModeLegacy, ServiceModeHybrid, ServiceModeNative:
-	default:
-		settings.ServiceMode = ServiceModeLegacy
-	}
+	settings.ServiceMode = ServiceModeNative
+	settings.AutoStartLegacyAPI = false
+	settings.AutoInstallLegacyDeps = false
 	if strings.TrimSpace(settings.LegacyAPIBaseURL) == "" {
 		settings.LegacyAPIBaseURL = Default().LegacyAPIBaseURL
 	}

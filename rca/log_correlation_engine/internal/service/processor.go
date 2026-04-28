@@ -14,7 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"log_correlation_engine/internal/autoscaling"
 	"log_correlation_engine/internal/config"
+	"log_correlation_engine/internal/fetch"
 	"log_correlation_engine/internal/models"
 	"log_correlation_engine/internal/utils"
 )
@@ -46,6 +48,10 @@ type BatchLogFetcher interface {
 	FetchLogs(ctx context.Context, docIDs []string) (map[string]*models.FullLog, error)
 }
 
+type BatchLogFetcherWithOptions interface {
+	FetchLogsWithOptions(ctx context.Context, docIDs []string, options fetch.BatchFetchOptions) (map[string]*models.FullLog, error)
+}
+
 type Correlator interface {
 	Correlate(ctx context.Context, orgID string, logs []models.FullLog, rules []models.Rule) ([]models.CorrelationResult, error)
 }
@@ -66,6 +72,7 @@ type Dependencies struct {
 	Engine      Correlator
 	Rules       RuleProvider
 	Writer      ResultWriter
+	Autoscaler  *autoscaling.Controller
 	Logger      *slog.Logger
 }
 
@@ -77,6 +84,7 @@ type Processor struct {
 	engine      Correlator
 	rules       RuleProvider
 	writer      ResultWriter
+	autoscaler  *autoscaling.Controller
 	logger      *slog.Logger
 	now         func() time.Time
 }
@@ -122,6 +130,20 @@ type enrichmentCache struct {
 	missing  map[string]struct{}
 }
 
+type signalCursor struct {
+	Timestamp time.Time
+	DocID     string
+}
+
+type incrementalSelection struct {
+	WorkingLogs   []models.SignalLog
+	NewLogs       []models.SignalLog
+	RawNewCount   int
+	MaxCursor     signalCursor
+	LastProcessed signalCursor
+	Capped        bool
+}
+
 type ruleExecutionBuckets struct {
 	incrementalLive   []models.Rule
 	incrementalShadow []models.Rule
@@ -159,6 +181,7 @@ func NewProcessor(deps Dependencies) *Processor {
 		engine:      deps.Engine,
 		rules:       deps.Rules,
 		writer:      deps.Writer,
+		autoscaler:  deps.Autoscaler,
 		logger:      log.With("component", "processor"),
 		now:         time.Now,
 	}
@@ -284,6 +307,17 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 		"incident_state_failures", summary.IncidentStateFailures,
 		"checkpoint_failures", summary.CheckpointFailures,
 	)
+
+	if p.autoscaler != nil && p.autoscaler.Enabled() {
+		p.autoscaler.ObserveCycle(summary.IncrementalSignalLogs)
+		settings := p.autoscaler.CurrentSchedulerSettings()
+		p.logger.Info(
+			"autoscaling cycle updated",
+			"incremental_signal_logs", summary.IncrementalSignalLogs,
+			"next_scheduler_interval", settings.Interval.String(),
+			"next_scheduler_run_timeout", settings.RunTimeout.String(),
+		)
+	}
 
 	if firstErr != nil {
 		return firstErr
@@ -437,30 +471,17 @@ func (p *Processor) processOrganization(ctx context.Context, organization string
 	signature := signalPayloadSignature(payload)
 	orgRules := filterRulesByOrg(rules, organization)
 	rulesSignature := ruleSetSignature(orgRules)
-	changed, previousCount, rulesChanged := shouldProcessOrganization(signature, rulesSignature, checkpointState)
+	changed, _, rulesChanged := shouldProcessOrganization(signature, rulesSignature, checkpointState)
 	now := p.now().UTC()
 	checkpointInFuture := !checkpointState.Checkpoint.IsZero() && checkpointState.Checkpoint.After(now.Add(time.Minute))
 	if checkpointInFuture {
 		changed = true
 	}
 
-	if !changed && len(activeIncidents) == 0 {
-		summary := CycleSummary{
-			OrganizationsWithLogs: boolToInt(previousCount > 0),
-			OrganizationsSkipped:  1,
-			SignalLogsRead:        previousCount,
-		}
-		p.logger.Debug(
-			"organization skipped because signal payload is unchanged and no incidents are active",
-			"organization", organization,
-			"signal_logs", previousCount,
-		)
-		return summary, nil
-	}
-
-	saveCheckpointState := func(summary *CycleSummary, timestamp time.Time, signalCount int) error {
+	saveCheckpointState := func(summary *CycleSummary, cursor signalCursor, signalCount int) error {
 		state := models.ProcessingCheckpoint{
-			Checkpoint:             timestamp.UTC(),
+			Checkpoint:             cursor.Timestamp.UTC(),
+			CheckpointDocID:        strings.TrimSpace(cursor.DocID),
 			SignalPayloadSignature: signature,
 			RulesSignature:         rulesSignature,
 			SignalCount:            signalCount,
@@ -478,23 +499,7 @@ func (p *Processor) processOrganization(ctx context.Context, organization string
 		if err != nil {
 			return summary, err
 		}
-		if err := saveCheckpointState(&summary, checkpointState.Checkpoint, 0); err != nil {
-			return summary, err
-		}
-		return summary, nil
-	}
-
-	if !changed {
-		summary := CycleSummary{
-			OrganizationsWithLogs: boolToInt(previousCount > 0),
-			OrganizationsSkipped:  1,
-			SignalLogsRead:        previousCount,
-		}
-		err := p.closeInactiveIncidents(ctx, organization, activeByID, map[string]struct{}{}, now, &summary)
-		if err != nil {
-			return summary, err
-		}
-		if err := saveCheckpointState(&summary, checkpointState.Checkpoint, previousCount); err != nil {
+		if err := saveCheckpointState(&summary, checkpointToCursor(checkpointState), 0); err != nil {
 			return summary, err
 		}
 		return summary, nil
@@ -504,9 +509,7 @@ func (p *Processor) processOrganization(ctx context.Context, organization string
 	if err != nil {
 		return CycleSummary{}, fmt.Errorf("decode signal payload for organization %s: %w", organization, err)
 	}
-	sort.Slice(signalLogs, func(i, j int) bool {
-		return signalLogs[i].TimeStamp.Before(signalLogs[j].TimeStamp)
-	})
+	sortSignalLogs(signalLogs)
 
 	summary := CycleSummary{
 		OrganizationsWithLogs: boolToInt(len(signalLogs) > 0),
@@ -517,9 +520,24 @@ func (p *Processor) processOrganization(ctx context.Context, organization string
 		if err != nil {
 			return summary, err
 		}
-		if err := saveCheckpointState(&summary, checkpointState.Checkpoint, 0); err != nil {
+		if err := saveCheckpointState(&summary, checkpointToCursor(checkpointState), 0); err != nil {
 			return summary, err
 		}
+		return summary, nil
+	}
+
+	checkpointCursor := checkpointToCursor(checkpointState)
+	maxCursor := signalLogToCursor(signalLogs[len(signalLogs)-1])
+	checkpointCaughtUp := compareCheckpointToSignalCursor(checkpointState, maxCursor) >= 0
+	if !changed && len(activeIncidents) == 0 && checkpointCaughtUp {
+		summary.OrganizationsSkipped = 1
+		p.logger.Debug(
+			"organization skipped because signal payload is unchanged, checkpoint is caught up, and no incidents are active",
+			"organization", organization,
+			"signal_logs", len(signalLogs),
+			"checkpoint", checkpointCursor.Timestamp.Format(time.RFC3339Nano),
+			"checkpoint_doc_id", checkpointCursor.DocID,
+		)
 		return summary, nil
 	}
 
@@ -530,21 +548,42 @@ func (p *Processor) processOrganization(ctx context.Context, organization string
 	if candidate := p.lookbackWindow(ruleBuckets.incrementalShadow); candidate > lookback {
 		lookback = candidate
 	}
-	workingSignalLogs, newSignalLogs, maxTimestamp := selectIncrementalSignalLogs(signalLogs, checkpointState.Checkpoint, lookback)
-	checkpointAheadOfSignals := !checkpointState.Checkpoint.IsZero() && !maxTimestamp.IsZero() && checkpointState.Checkpoint.After(maxTimestamp)
-	if len(newSignalLogs) == 0 && len(signalLogs) > 0 && (rulesChanged || checkpointAheadOfSignals) {
-		workingSignalLogs = append([]models.SignalLog(nil), signalLogs...)
-		newSignalLogs = append([]models.SignalLog(nil), signalLogs...)
-		maxTimestamp = latestSignalTimestamp(signalLogs)
-	}
-	summary.IncrementalSignalLogs = len(newSignalLogs)
 
-	if len(newSignalLogs) == 0 {
+	rawNewLogs := selectNewSignalLogs(signalLogs, checkpointState)
+	checkpointAheadOfSignals := isCheckpointAheadOfSignals(checkpointState, maxCursor)
+	orgSettings := p.resolveOrganizationSettings(organization, len(rawNewLogs))
+	capBypassed := false
+	if orgSettings.MaxNewLogsPerCycle > 0 && len(rawNewLogs) > orgSettings.MaxNewLogsPerCycle &&
+		(len(ruleBuckets.fullPayloadLive) > 0 || len(ruleBuckets.fullPayloadShadow) > 0) {
+		capBypassed = true
+		orgSettings.MaxNewLogsPerCycle = 0
+		p.logger.Warn(
+			"autoscaling cap bypassed because full-payload rules require complete organization replay",
+			"organization", organization,
+			"raw_incremental_signal_logs", len(rawNewLogs),
+			"full_payload_rules", len(ruleBuckets.fullPayloadLive)+len(ruleBuckets.fullPayloadShadow),
+		)
+	}
+
+	selection := selectIncrementalSignalLogs(signalLogs, checkpointState, lookback, orgSettings.MaxNewLogsPerCycle)
+	if len(rawNewLogs) == 0 && len(signalLogs) > 0 && (rulesChanged || checkpointAheadOfSignals) {
+		selection = incrementalSelection{
+			WorkingLogs:   append([]models.SignalLog(nil), signalLogs...),
+			NewLogs:       append([]models.SignalLog(nil), signalLogs...),
+			RawNewCount:   len(signalLogs),
+			MaxCursor:     maxCursor,
+			LastProcessed: maxCursor,
+		}
+	}
+	summary.IncrementalSignalLogs = selection.RawNewCount
+	p.logOrganizationAutoscaling(organization, summary.IncrementalSignalLogs, orgSettings, selection.Capped)
+
+	if len(selection.NewLogs) == 0 {
 		err := p.closeInactiveIncidents(ctx, organization, activeByID, map[string]struct{}{}, now, &summary)
 		if err != nil {
 			return summary, err
 		}
-		if err := saveCheckpointState(&summary, maxCheckpointTimestamp(checkpointState.Checkpoint, maxTimestamp), len(signalLogs)); err != nil {
+		if err := saveCheckpointState(&summary, maxSignalCursor(checkpointCursor, selection.MaxCursor), len(signalLogs)); err != nil {
 			return summary, err
 		}
 		return summary, nil
@@ -554,9 +593,12 @@ func (p *Processor) processOrganization(ctx context.Context, organization string
 	liveResults := make([]models.CorrelationResult, 0)
 	shadowResults := make([]models.CorrelationResult, 0)
 	var recoveryLogs []models.FullLog
+	fetchOptions := fetch.BatchFetchOptions{
+		GroupedLookupBatchSize: orgSettings.GroupedLookupBatchSize,
+	}
 
 	if len(ruleBuckets.fullPayloadLive) > 0 || len(ruleBuckets.fullPayloadShadow) > 0 {
-		fullWorkingLogs, newFullLogs, fetchErrors, err := p.enrichSignalLogs(ctx, signalLogs, newSignalLogs, cache)
+		fullWorkingLogs, newFullLogs, fetchErrors, err := p.enrichSignalLogs(ctx, signalLogs, selection.NewLogs, cache, fetchOptions)
 		if err != nil {
 			return summary, fmt.Errorf("enrich full-payload signal logs for organization %s: %w", organization, err)
 		}
@@ -581,7 +623,7 @@ func (p *Processor) processOrganization(ctx context.Context, organization string
 	}
 
 	if len(ruleBuckets.incrementalLive) > 0 || len(ruleBuckets.incrementalShadow) > 0 {
-		workingFullLogs, newFullLogs, fetchErrors, err := p.enrichSignalLogs(ctx, workingSignalLogs, newSignalLogs, cache)
+		workingFullLogs, newFullLogs, fetchErrors, err := p.enrichSignalLogs(ctx, selection.WorkingLogs, selection.NewLogs, cache, fetchOptions)
 		if err != nil {
 			return summary, fmt.Errorf("enrich incremental signal logs for organization %s: %w", organization, err)
 		}
@@ -659,12 +701,25 @@ func (p *Processor) processOrganization(ctx context.Context, organization string
 		return summary, writeErr
 	}
 
-	inactivityErr := p.closeInactiveIncidents(ctx, organization, activeByID, matchedIncidentIDs, now, &summary)
-	if inactivityErr != nil {
-		return summary, inactivityErr
+	if !selection.Capped {
+		inactivityErr := p.closeInactiveIncidents(ctx, organization, activeByID, matchedIncidentIDs, now, &summary)
+		if inactivityErr != nil {
+			return summary, inactivityErr
+		}
+	} else {
+		p.logger.Debug(
+			"skipping inactivity-based incident closure because incremental backlog is being drained in capped slices",
+			"organization", organization,
+			"raw_incremental_signal_logs", selection.RawNewCount,
+			"processed_incremental_signal_logs", len(selection.NewLogs),
+		)
 	}
 
-	if err := saveCheckpointState(&summary, maxCheckpointTimestamp(checkpointState.Checkpoint, maxTimestamp), len(signalLogs)); err != nil {
+	checkpointToSave := maxSignalCursor(checkpointCursor, selection.MaxCursor)
+	if selection.Capped {
+		checkpointToSave = maxSignalCursor(checkpointCursor, selection.LastProcessed)
+	}
+	if err := saveCheckpointState(&summary, checkpointToSave, len(signalLogs)); err != nil {
 		return summary, err
 	}
 
@@ -672,7 +727,12 @@ func (p *Processor) processOrganization(ctx context.Context, organization string
 		"organization processed",
 		"organization", organization,
 		"signal_logs", len(signalLogs),
-		"incremental_signal_logs", len(newSignalLogs),
+		"incremental_signal_logs", selection.RawNewCount,
+		"processed_incremental_signal_logs", len(selection.NewLogs),
+		"effective_grouped_lookup_batch_size", orgSettings.GroupedLookupBatchSize,
+		"effective_max_new_logs_per_cycle", orgSettings.MaxNewLogsPerCycle,
+		"incremental_backlog_capped", selection.Capped,
+		"incremental_cap_bypassed_for_full_payload", capBypassed,
 		"incremental_rules", len(ruleBuckets.incrementalLive)+len(ruleBuckets.incrementalShadow),
 		"full_payload_rules", len(ruleBuckets.fullPayloadLive)+len(ruleBuckets.fullPayloadShadow),
 		"enriched_logs", summary.EnrichedLogs,
@@ -1011,6 +1071,7 @@ func (p *Processor) enrichSignalLogs(
 	workingSignalLogs []models.SignalLog,
 	newSignalLogs []models.SignalLog,
 	cache *enrichmentCache,
+	options fetch.BatchFetchOptions,
 ) ([]models.FullLog, []models.FullLog, int, error) {
 	if cache == nil {
 		cache = newEnrichmentCache()
@@ -1024,7 +1085,37 @@ func (p *Processor) enrichSignalLogs(
 	}
 
 	fetchErrors := 0
-	if batchFetcher, ok := p.fetcher.(BatchLogFetcher); ok {
+	switch batchFetcher := p.fetcher.(type) {
+	case BatchLogFetcherWithOptions:
+		neededDocIDs := missingCacheDocIDs(workingSignalLogs, cache)
+		if len(neededDocIDs) > 0 {
+			fetchedLogs, err := batchFetcher.FetchLogsWithOptions(ctx, neededDocIDs, options)
+			if err != nil {
+				return nil, nil, fetchErrors, err
+			}
+			for docID, fetched := range fetchedLogs {
+				if fetched == nil {
+					continue
+				}
+				cache.fullLogs[docID] = cloneFullLog(*fetched)
+			}
+			for _, docID := range neededDocIDs {
+				if _, ok := cache.fullLogs[docID]; ok {
+					continue
+				}
+				if _, alreadyMissing := cache.missing[docID]; alreadyMissing {
+					continue
+				}
+				cache.missing[docID] = struct{}{}
+				fetchErrors++
+				p.logger.Warn(
+					"failed to fetch full log",
+					"doc_id", docID,
+					"error", "document not found in batch lookup",
+				)
+			}
+		}
+	case BatchLogFetcher:
 		neededDocIDs := missingCacheDocIDs(workingSignalLogs, cache)
 		if len(neededDocIDs) > 0 {
 			fetchedLogs, err := batchFetcher.FetchLogs(ctx, neededDocIDs)
@@ -1134,55 +1225,229 @@ func (p *Processor) lookbackWindow(rules []models.Rule) time.Duration {
 
 func selectIncrementalSignalLogs(
 	signalLogs []models.SignalLog,
-	checkpoint time.Time,
+	checkpoint models.ProcessingCheckpoint,
 	lookback time.Duration,
-) ([]models.SignalLog, []models.SignalLog, time.Time) {
+	maxNewLogsPerCycle int,
+) incrementalSelection {
 	if len(signalLogs) == 0 {
-		return nil, nil, time.Time{}
+		return incrementalSelection{}
 	}
 
-	maxTimestamp := signalLogs[len(signalLogs)-1].TimeStamp.UTC()
-	if checkpoint.IsZero() {
-		return append([]models.SignalLog(nil), signalLogs...), append([]models.SignalLog(nil), signalLogs...), maxTimestamp
+	maxCursor := signalLogToCursor(signalLogs[len(signalLogs)-1])
+	newLogs := selectNewSignalLogs(signalLogs, checkpoint)
+	if len(newLogs) == 0 {
+		return incrementalSelection{MaxCursor: maxCursor}
 	}
 
-	lookbackStart := checkpoint.Add(-lookback)
+	selectedNewLogs := append([]models.SignalLog(nil), newLogs...)
+	capped := false
+	if maxNewLogsPerCycle > 0 && len(selectedNewLogs) > maxNewLogsPerCycle {
+		selectedNewLogs = append([]models.SignalLog(nil), selectedNewLogs[:maxNewLogsPerCycle]...)
+		capped = true
+	}
+
 	working := make([]models.SignalLog, 0, len(signalLogs))
-	newLogs := make([]models.SignalLog, 0, len(signalLogs))
-	for _, signalLog := range signalLogs {
-		if !signalLog.TimeStamp.Before(lookbackStart) {
+	lastProcessed := signalLogToCursor(selectedNewLogs[len(selectedNewLogs)-1])
+	if capped {
+		lookbackStart := selectedNewLogs[0].TimeStamp.UTC().Add(-lookback)
+		for _, signalLog := range signalLogs {
+			if signalLog.TimeStamp.Before(lookbackStart) {
+				continue
+			}
+			if compareSignalCursor(signalLogToCursor(signalLog), lastProcessed) > 0 {
+				continue
+			}
 			working = append(working, signalLog)
 		}
-		if signalLog.TimeStamp.After(checkpoint) {
-			newLogs = append(newLogs, signalLog)
+	} else {
+		checkpointCursor := checkpointToCursor(checkpoint)
+		if checkpointCursor.IsZero() {
+			working = append([]models.SignalLog(nil), signalLogs...)
+		} else {
+			lookbackStart := checkpointCursor.Timestamp.Add(-lookback)
+			for _, signalLog := range signalLogs {
+				if !signalLog.TimeStamp.Before(lookbackStart) {
+					working = append(working, signalLog)
+				}
+			}
 		}
 	}
 
-	return working, newLogs, maxTimestamp
+	return incrementalSelection{
+		WorkingLogs:   working,
+		NewLogs:       selectedNewLogs,
+		RawNewCount:   len(newLogs),
+		MaxCursor:     maxCursor,
+		LastProcessed: lastProcessed,
+		Capped:        capped,
+	}
 }
 
-func selectNewSignalLogs(signalLogs []models.SignalLog, checkpoint time.Time) []models.SignalLog {
+func selectNewSignalLogs(signalLogs []models.SignalLog, checkpoint models.ProcessingCheckpoint) []models.SignalLog {
 	if len(signalLogs) == 0 {
 		return nil
 	}
-	if checkpoint.IsZero() {
+	if checkpoint.Checkpoint.IsZero() {
 		return append([]models.SignalLog(nil), signalLogs...)
 	}
 
 	newLogs := make([]models.SignalLog, 0, len(signalLogs))
 	for _, signalLog := range signalLogs {
-		if signalLog.TimeStamp.After(checkpoint) {
+		if isSignalLogAfterCheckpoint(signalLog, checkpoint) {
 			newLogs = append(newLogs, signalLog)
 		}
 	}
 	return newLogs
 }
 
-func latestSignalTimestamp(signalLogs []models.SignalLog) time.Time {
-	if len(signalLogs) == 0 {
-		return time.Time{}
+func sortSignalLogs(signalLogs []models.SignalLog) {
+	sort.Slice(signalLogs, func(i, j int) bool {
+		return compareSignalCursor(signalLogToCursor(signalLogs[i]), signalLogToCursor(signalLogs[j])) < 0
+	})
+}
+
+func isSignalLogAfterCheckpoint(signalLog models.SignalLog, checkpoint models.ProcessingCheckpoint) bool {
+	if checkpoint.Checkpoint.IsZero() {
+		return true
 	}
-	return signalLogs[len(signalLogs)-1].TimeStamp.UTC()
+	if signalLog.TimeStamp.After(checkpoint.Checkpoint) {
+		return true
+	}
+	if signalLog.TimeStamp.Before(checkpoint.Checkpoint) {
+		return false
+	}
+	checkpointDocID := strings.TrimSpace(checkpoint.CheckpointDocID)
+	if checkpointDocID == "" {
+		return false
+	}
+	return strings.TrimSpace(signalLog.DocID) > checkpointDocID
+}
+
+func checkpointToCursor(checkpoint models.ProcessingCheckpoint) signalCursor {
+	if checkpoint.Checkpoint.IsZero() {
+		return signalCursor{}
+	}
+	return signalCursor{
+		Timestamp: checkpoint.Checkpoint.UTC(),
+		DocID:     strings.TrimSpace(checkpoint.CheckpointDocID),
+	}
+}
+
+func compareCheckpointToSignalCursor(checkpoint models.ProcessingCheckpoint, cursor signalCursor) int {
+	if checkpoint.Checkpoint.IsZero() {
+		if cursor.IsZero() {
+			return 0
+		}
+		return -1
+	}
+	if checkpoint.Checkpoint.Before(cursor.Timestamp) {
+		return -1
+	}
+	if checkpoint.Checkpoint.After(cursor.Timestamp) {
+		return 1
+	}
+	checkpointDocID := strings.TrimSpace(checkpoint.CheckpointDocID)
+	if checkpointDocID == "" {
+		return 1
+	}
+	switch {
+	case checkpointDocID < strings.TrimSpace(cursor.DocID):
+		return -1
+	case checkpointDocID > strings.TrimSpace(cursor.DocID):
+		return 1
+	default:
+		return 0
+	}
+}
+
+func isCheckpointAheadOfSignals(checkpoint models.ProcessingCheckpoint, cursor signalCursor) bool {
+	if checkpoint.Checkpoint.IsZero() || cursor.IsZero() {
+		return false
+	}
+	if checkpoint.Checkpoint.After(cursor.Timestamp) {
+		return true
+	}
+	if checkpoint.Checkpoint.Before(cursor.Timestamp) {
+		return false
+	}
+	checkpointDocID := strings.TrimSpace(checkpoint.CheckpointDocID)
+	if checkpointDocID == "" {
+		return false
+	}
+	return checkpointDocID > strings.TrimSpace(cursor.DocID)
+}
+
+func signalLogToCursor(signalLog models.SignalLog) signalCursor {
+	return signalCursor{
+		Timestamp: signalLog.TimeStamp.UTC(),
+		DocID:     strings.TrimSpace(signalLog.DocID),
+	}
+}
+
+func (c signalCursor) IsZero() bool {
+	return c.Timestamp.IsZero()
+}
+
+func compareSignalCursor(left, right signalCursor) int {
+	leftTime := left.Timestamp.UTC()
+	rightTime := right.Timestamp.UTC()
+	if leftTime.Before(rightTime) {
+		return -1
+	}
+	if leftTime.After(rightTime) {
+		return 1
+	}
+	leftDocID := strings.TrimSpace(left.DocID)
+	rightDocID := strings.TrimSpace(right.DocID)
+	switch {
+	case leftDocID < rightDocID:
+		return -1
+	case leftDocID > rightDocID:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func maxSignalCursor(left, right signalCursor) signalCursor {
+	if compareSignalCursor(left, right) >= 0 {
+		return left
+	}
+	return right
+}
+
+func (p *Processor) resolveOrganizationSettings(organization string, incrementalCount int) autoscaling.OrganizationSettings {
+	if p.autoscaler != nil && p.autoscaler.Enabled() {
+		return p.autoscaler.ResolveOrganization(organization, incrementalCount)
+	}
+	return autoscaling.OrganizationSettings{
+		GroupedLookupBatchSize: maxInt(1, p.config.Fetcher.GroupedLookupBatchSize),
+	}
+}
+
+func (p *Processor) logOrganizationAutoscaling(
+	organization string,
+	incrementalCount int,
+	settings autoscaling.OrganizationSettings,
+	capped bool,
+) {
+	if p.logger == nil || p.autoscaler == nil || !p.autoscaler.Enabled() {
+		return
+	}
+
+	fields := []any{
+		"organization", organization,
+		"raw_incremental_signal_logs", incrementalCount,
+		"effective_grouped_lookup_batch_size", settings.GroupedLookupBatchSize,
+		"effective_max_new_logs_per_cycle", settings.MaxNewLogsPerCycle,
+		"incremental_backlog_capped", capped,
+	}
+	schedulerSettings := p.autoscaler.CurrentSchedulerSettings()
+	fields = append(fields,
+		"effective_scheduler_interval", schedulerSettings.Interval.String(),
+		"effective_scheduler_run_timeout", schedulerSettings.RunTimeout.String(),
+	)
+	p.logger.Info("organization autoscaling resolved", fields...)
 }
 
 func (p *Processor) incidentReopenWindow() time.Duration {
@@ -1685,6 +1950,13 @@ func boolToInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func uniqueSignalDocIDs(signalLogs []models.SignalLog) []string {

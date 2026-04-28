@@ -53,7 +53,7 @@ export default function SettingsTab() {
     <section className="panel">
       <div className="panel-head">
         <h2>Desktop Settings</h2>
-        <p>Control service mode and bridge target during migration.</p>
+        <p>Native runtime preferences and diagnostics.</p>
       </div>
 
       <div className="meta-banner">
@@ -64,59 +64,15 @@ export default function SettingsTab() {
       <div className="form-grid">
         <label>
           Service Mode
-          <select value={String(settings.service_mode || "legacy")} onChange={(e) => update("service_mode", e.target.value)}>
-            <option value="legacy">legacy</option>
-            <option value="hybrid">hybrid</option>
+          <select value={String(settings.service_mode || "native")} onChange={(e) => update("service_mode", e.target.value)}>
             <option value="native">native</option>
           </select>
         </label>
         <label>
-          Legacy API Base URL
+          Runtime
           <input
-            value={String(settings.legacy_api_base_url || "")}
-            onChange={(e) => update("legacy_api_base_url", e.target.value)}
-          />
-        </label>
-        <label>
-          Auto Start Legacy API
-          <select
-            value={String(settings.auto_start_legacy_api ?? true)}
-            onChange={(e) => update("auto_start_legacy_api", e.target.value === "true")}
-          >
-            <option value="true">true</option>
-            <option value="false">false</option>
-          </select>
-        </label>
-        <label>
-          Auto Install Legacy Deps
-          <select
-            value={String(settings.auto_install_legacy_deps ?? true)}
-            onChange={(e) => update("auto_install_legacy_deps", e.target.value === "true")}
-          >
-            <option value="true">true</option>
-            <option value="false">false</option>
-          </select>
-        </label>
-        <label>
-          Legacy API Python Bin
-          <input
-            value={String(settings.legacy_api_python_bin || "python")}
-            onChange={(e) => update("legacy_api_python_bin", e.target.value)}
-          />
-        </label>
-        <label>
-          Legacy API Script Path
-          <input
-            value={String(settings.legacy_api_script_path || "web/main.py")}
-            onChange={(e) => update("legacy_api_script_path", e.target.value)}
-          />
-        </label>
-        <label>
-          Legacy Startup Timeout Seconds
-          <input
-            type="number"
-            value={String(settings.legacy_startup_timeout_seconds || 60)}
-            onChange={(e) => update("legacy_startup_timeout_seconds", e.target.value)}
+            value={String(settings.runtime || "wails-native")}
+            readOnly
           />
         </label>
         <label>

@@ -50,6 +50,33 @@ type StorageConfig struct {
 	CheckpointFile string `yaml:"checkpoint_file"`
 }
 
+type MongoSyncConfig struct {
+	Enabled            bool              `yaml:"enabled"`
+	URI                string            `yaml:"uri"`
+	Database           string            `yaml:"database"`
+	RulesCollection    string            `yaml:"rules_collection"`
+	TopologyCollection string            `yaml:"topology_collection"`
+	ResultsCollection  string            `yaml:"results_collection"`
+	StateCollection    string            `yaml:"state_collection"`
+	StateName          string            `yaml:"state_name"`
+	SnapshotCollection string            `yaml:"snapshot_collection"`
+	SnapshotName       string            `yaml:"snapshot_name"`
+	UseSnapshot        bool              `yaml:"use_snapshot"`
+	WriteSnapshot      bool              `yaml:"write_snapshot"`
+	RedisNotify        RedisNotifyConfig `yaml:"redis_notify"`
+	Timeout            time.Duration     `yaml:"timeout"`
+}
+
+type RedisNotifyConfig struct {
+	Enabled        bool          `yaml:"enabled"`
+	Address        string        `yaml:"address"`
+	Username       string        `yaml:"username"`
+	Password       string        `yaml:"password"`
+	DB             int           `yaml:"db"`
+	Channel        string        `yaml:"channel"`
+	ReconnectDelay time.Duration `yaml:"reconnect_delay"`
+}
+
 type ScoringWeightsConfig struct {
 	SequenceMatch    float64 `yaml:"sequence_match"`
 	DependencyMatch  float64 `yaml:"dependency_match"`
@@ -84,6 +111,7 @@ type Config struct {
 	SignalCatalog SignalCatalogConfig `yaml:"signal_catalog"`
 	Topology      TopologyConfig      `yaml:"topology"`
 	Storage       StorageConfig       `yaml:"storage"`
+	MongoSync     MongoSyncConfig     `yaml:"mongo_sync"`
 	Scoring       ScoringConfig       `yaml:"scoring"`
 	OpenAI        OpenAIConfig        `yaml:"openai"`
 }
@@ -146,6 +174,22 @@ func defaultConfig() Config {
 			NeighborhoodLogLimit: 50,
 			MaxOutputTokens:      1200,
 		},
+		MongoSync: MongoSyncConfig{
+			Database:           "dhusnic_test_db",
+			RulesCollection:    "correlation_rules",
+			TopologyCollection: "topology_data",
+			ResultsCollection:  "rca_results",
+			StateCollection:    "rca_config_state",
+			StateName:          "prod_rules_topology",
+			SnapshotCollection: "rca_config_snapshots",
+			SnapshotName:       "prod_rules_topology",
+			UseSnapshot:        true,
+			RedisNotify: RedisNotifyConfig{
+				Channel:        "rca_config_changed",
+				ReconnectDelay: 5 * time.Second,
+			},
+			Timeout: 5 * time.Second,
+		},
 	}
 }
 
@@ -181,6 +225,18 @@ func (c *Config) normalize() {
 	c.Topology.File = strings.TrimSpace(c.Topology.File)
 	c.Storage.ResultsFile = strings.TrimSpace(c.Storage.ResultsFile)
 	c.Storage.CheckpointFile = strings.TrimSpace(c.Storage.CheckpointFile)
+	c.MongoSync.URI = strings.TrimSpace(c.MongoSync.URI)
+	c.MongoSync.Database = strings.TrimSpace(c.MongoSync.Database)
+	c.MongoSync.RulesCollection = strings.TrimSpace(c.MongoSync.RulesCollection)
+	c.MongoSync.TopologyCollection = strings.TrimSpace(c.MongoSync.TopologyCollection)
+	c.MongoSync.ResultsCollection = strings.TrimSpace(c.MongoSync.ResultsCollection)
+	c.MongoSync.StateCollection = strings.TrimSpace(c.MongoSync.StateCollection)
+	c.MongoSync.StateName = strings.TrimSpace(c.MongoSync.StateName)
+	c.MongoSync.SnapshotCollection = strings.TrimSpace(c.MongoSync.SnapshotCollection)
+	c.MongoSync.SnapshotName = strings.TrimSpace(c.MongoSync.SnapshotName)
+	c.MongoSync.RedisNotify.Address = strings.TrimSpace(c.MongoSync.RedisNotify.Address)
+	c.MongoSync.RedisNotify.Username = strings.TrimSpace(c.MongoSync.RedisNotify.Username)
+	c.MongoSync.RedisNotify.Channel = strings.TrimSpace(c.MongoSync.RedisNotify.Channel)
 	c.OpenAI.BaseURL = strings.TrimRight(strings.TrimSpace(c.OpenAI.BaseURL), "/")
 	c.OpenAI.APIKey = strings.TrimSpace(c.OpenAI.APIKey)
 	c.OpenAI.Model = strings.TrimSpace(c.OpenAI.Model)
@@ -247,6 +303,51 @@ func (c Config) Validate() error {
 	}
 	if c.Storage.CheckpointFile == "" {
 		return errors.New("storage.checkpoint_file must not be empty")
+	}
+	if c.MongoSync.Enabled {
+		if c.MongoSync.URI == "" {
+			return errors.New("mongo_sync.uri must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.Database == "" {
+			return errors.New("mongo_sync.database must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.RulesCollection == "" {
+			return errors.New("mongo_sync.rules_collection must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.TopologyCollection == "" {
+			return errors.New("mongo_sync.topology_collection must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.ResultsCollection == "" {
+			return errors.New("mongo_sync.results_collection must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.StateCollection == "" {
+			return errors.New("mongo_sync.state_collection must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.StateName == "" {
+			return errors.New("mongo_sync.state_name must not be empty when mongo_sync.enabled is true")
+		}
+		if c.MongoSync.UseSnapshot || c.MongoSync.WriteSnapshot {
+			if c.MongoSync.SnapshotCollection == "" {
+				return errors.New("mongo_sync.snapshot_collection must not be empty when snapshot sync is enabled")
+			}
+			if c.MongoSync.SnapshotName == "" {
+				return errors.New("mongo_sync.snapshot_name must not be empty when snapshot sync is enabled")
+			}
+		}
+		if c.MongoSync.RedisNotify.Enabled {
+			if c.MongoSync.RedisNotify.Address == "" {
+				return errors.New("mongo_sync.redis_notify.address must not be empty when redis notify is enabled")
+			}
+			if c.MongoSync.RedisNotify.Channel == "" {
+				return errors.New("mongo_sync.redis_notify.channel must not be empty when redis notify is enabled")
+			}
+			if c.MongoSync.RedisNotify.ReconnectDelay <= 0 {
+				return errors.New("mongo_sync.redis_notify.reconnect_delay must be greater than zero when redis notify is enabled")
+			}
+		}
+		if c.MongoSync.Timeout <= 0 {
+			return errors.New("mongo_sync.timeout must be greater than zero when mongo_sync.enabled is true")
+		}
 	}
 	if c.Scoring.ConfidenceThreshold <= 0 || c.Scoring.ConfidenceThreshold > 10 {
 		return errors.New("scoring.confidence_threshold must be between 0 and 10")

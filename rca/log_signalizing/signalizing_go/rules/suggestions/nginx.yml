@@ -143,3 +143,16 @@ rules:
         field: message
         op: contains
         value: open usr share nginx
+    - id: NGINX_AUTO_APR_POST_INFRAON_API_FD00D1B0
+      signal_key: nginx_auto_apr_post_infraon_api_fd00
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: apr post infraon api'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - nginx
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: apr post infraon api

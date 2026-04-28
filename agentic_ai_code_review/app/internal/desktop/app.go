@@ -10,11 +10,9 @@ import (
 	"agenticai/desktop/internal/core/config"
 	"agenticai/desktop/internal/core/events"
 	"agenticai/desktop/internal/core/jobs"
-	"agenticai/desktop/internal/core/legacyruntime"
 	"agenticai/desktop/internal/core/logging"
 	"agenticai/desktop/internal/core/secrets"
 	"agenticai/desktop/internal/services"
-	"agenticai/desktop/internal/services/legacy"
 	"agenticai/desktop/internal/services/native"
 )
 
@@ -26,7 +24,6 @@ type App struct {
 	secretStore secrets.Store
 	jobManager  *jobs.Manager
 	eventBus    *events.Bus
-	legacyRun   *legacyruntime.Manager
 }
 
 func New(configPath string) (*App, error) {
@@ -36,8 +33,8 @@ func New(configPath string) (*App, error) {
 	}
 
 	logger := logging.New(settings.LogLevel)
-	legacyRun := legacyruntime.NewManager(settings, logger)
-	service := buildService(settings, logger, legacyRun)
+	jobManager := jobs.NewManager(2 * time.Hour)
+	service := buildService(logger, jobManager)
 
 	app := &App{
 		logger:      logger,
@@ -45,16 +42,8 @@ func New(configPath string) (*App, error) {
 		configPath:  resolvedPath,
 		service:     service,
 		secretStore: secrets.NewDefaultStore(logger),
-		jobManager:  jobs.NewManager(2 * time.Hour),
+		jobManager:  jobManager,
 		eventBus:    events.NewBus(),
-		legacyRun:   legacyRun,
-	}
-	if settings.AutoStartLegacyAPI {
-		go func() {
-			if err := legacyRun.EnsureRunning(context.Background()); err != nil && logger != nil {
-				logger.Warn("legacy API auto-start on boot failed", "error", err.Error())
-			}
-		}()
 	}
 	return app, nil
 }
@@ -71,15 +60,11 @@ func (a *App) GetSettings() map[string]any {
 	return map[string]any{
 		"path": a.configPath,
 		"config": map[string]any{
-			"service_mode":                   a.settings.ServiceMode,
-			"legacy_api_base_url":            a.settings.LegacyAPIBaseURL,
-			"request_timeout_seconds":        a.settings.RequestTimeoutSeconds,
-			"log_level":                      a.settings.LogLevel,
-			"auto_start_legacy_api":          a.settings.AutoStartLegacyAPI,
-			"legacy_api_python_bin":          a.settings.LegacyAPIPythonBin,
-			"legacy_api_script_path":         a.settings.LegacyAPIScriptPath,
-			"legacy_startup_timeout_seconds": a.settings.LegacyStartupTimeoutSeconds,
-			"auto_install_legacy_deps":       a.settings.AutoInstallLegacyDeps,
+			"service_mode":              a.settings.ServiceMode,
+			"request_timeout_seconds":   a.settings.RequestTimeoutSeconds,
+			"log_level":                 a.settings.LogLevel,
+			"runtime":                   "wails-native",
+			"external_backend_required": false,
 		},
 	}
 }
@@ -88,9 +73,6 @@ func (a *App) SaveSettings(input map[string]any) (map[string]any, error) {
 	next := a.settings
 	if value, ok := input["service_mode"].(string); ok {
 		next.ServiceMode = value
-	}
-	if value, ok := input["legacy_api_base_url"].(string); ok {
-		next.LegacyAPIBaseURL = value
 	}
 	if value, ok := input["log_level"].(string); ok {
 		next.LogLevel = value
@@ -107,45 +89,12 @@ func (a *App) SaveSettings(input map[string]any) (map[string]any, error) {
 			next.RequestTimeoutSeconds = parsed
 		}
 	}
-	if value, ok := input["auto_start_legacy_api"].(bool); ok {
-		next.AutoStartLegacyAPI = value
-	}
-	if value, ok := input["legacy_api_python_bin"].(string); ok {
-		next.LegacyAPIPythonBin = value
-	}
-	if value, ok := input["legacy_api_script_path"].(string); ok {
-		next.LegacyAPIScriptPath = value
-	}
-	if value, ok := input["legacy_startup_timeout_seconds"].(float64); ok {
-		next.LegacyStartupTimeoutSeconds = int(value)
-	}
-	if value, ok := input["legacy_startup_timeout_seconds"].(int); ok {
-		next.LegacyStartupTimeoutSeconds = value
-	}
-	if value, ok := input["legacy_startup_timeout_seconds"].(string); ok {
-		parsed, err := strconv.Atoi(value)
-		if err == nil {
-			next.LegacyStartupTimeoutSeconds = parsed
-		}
-	}
-	if value, ok := input["auto_install_legacy_deps"].(bool); ok {
-		next.AutoInstallLegacyDeps = value
-	}
-
 	if err := config.Save(a.configPath, next); err != nil {
 		return nil, err
 	}
 
 	a.settings = next
-	a.legacyRun = legacyruntime.NewManager(a.settings, a.logger)
-	a.service = buildService(a.settings, a.logger, a.legacyRun)
-	if a.settings.AutoStartLegacyAPI {
-		go func() {
-			if err := a.legacyRun.EnsureRunning(context.Background()); err != nil && a.logger != nil {
-				a.logger.Warn("legacy API auto-start after settings save failed", "error", err.Error())
-			}
-		}()
-	}
+	a.service = buildService(a.logger, a.jobManager)
 	return a.GetSettings(), nil
 }
 
@@ -233,25 +182,6 @@ func (a *App) context() context.Context {
 	return context.Background()
 }
 
-func buildService(
-	settings config.Settings,
-	logger *slog.Logger,
-	legacyRun *legacyruntime.Manager,
-) services.DesktopService {
-	timeout := config.Timeout(settings)
-	ensureRunning := func(ctx context.Context) error {
-		if legacyRun == nil {
-			return nil
-		}
-		return legacyRun.EnsureRunning(ctx)
-	}
-	switch settings.ServiceMode {
-	case config.ServiceModeNative:
-		return native.NewService(settings.LegacyAPIBaseURL, timeout, logger, ensureRunning)
-	case config.ServiceModeHybrid:
-		// Hybrid currently routes all operations through the same stable bridge path.
-		return native.NewService(settings.LegacyAPIBaseURL, timeout, logger, ensureRunning)
-	default:
-		return legacy.NewClient(settings.LegacyAPIBaseURL, timeout, logger, ensureRunning)
-	}
+func buildService(logger *slog.Logger, jobManager *jobs.Manager) services.DesktopService {
+	return native.NewService(logger, jobManager)
 }

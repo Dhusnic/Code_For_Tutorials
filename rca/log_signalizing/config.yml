@@ -256,33 +256,33 @@ pipeline:
         term:
           event.module: "postgresql"
 
-    # - name: "system"
-    #   enabled: true
-    #   rule_file: "services/system.yml"
-    #   source_indices:
-    #     - "*"
-    #   start_time: "now-60m"
-    #   query:
-    #     bool:
-    #       should:
-    #         - term:
-    #             event.module: "system"
-    #         - term:
-    #             event.dataset: "system.syslog"
-    #         - term:
-    #             data_stream.dataset: "system.syslog"
-    #       must_not:
-    #         - term:
-    #             event.dataset: "system.auth"
-    #         - term:
-    #             data_stream.dataset: "system.auth"
-    #         - term:
-    #             fileset.name: "auth"
-    #         - wildcard:
-    #             log.file.path: "*/auth.log*"
-    #         - wildcard:
-    #             log.file.path: "*/secure*"
-    #       minimum_should_match: 1
+    - name: "system"
+      enabled: true
+      rule_file: "services/system.yml"
+      source_indices:
+        - "*"
+      start_time: "now-60m"
+      query:
+        bool:
+          should:
+            - term:
+                event.module: "system"
+            - term:
+                event.dataset: "system.syslog"
+            - term:
+                data_stream.dataset: "system.syslog"
+          must_not:
+            - term:
+                event.dataset: "system.auth"
+            - term:
+                data_stream.dataset: "system.auth"
+            - term:
+                fileset.name: "auth"
+            - wildcard:
+                log.file.path: "*/auth.log*"
+            - wildcard:
+                log.file.path: "*/secure*"
+          minimum_should_match: 1
 
     - name: "auth"
       enabled: true

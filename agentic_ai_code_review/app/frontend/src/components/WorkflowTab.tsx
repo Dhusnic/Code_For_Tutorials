@@ -24,9 +24,9 @@ export default function WorkflowTab() {
       return;
     }
     setRunning(true);
-    setOutput("Running raise-new-pr workflow...");
+    setOutput("Preparing PR plan...");
     try {
-      const result = await raiseNewPR(payload, true);
+      const result = await raiseNewPR(payload, false);
       setOutput(JSON.stringify(result, null, 2));
     } catch (error) {
       setOutput(String(error));
@@ -43,7 +43,7 @@ export default function WorkflowTab() {
     <section className="panel">
       <div className="panel-head">
         <h2>PR Workflow</h2>
-        <p>Branch orchestration, approvals, and PR creation in desktop flow.</p>
+        <p>Local change selection and branch planning.</p>
       </div>
       <div className="form-grid">
         <label>
@@ -79,7 +79,7 @@ export default function WorkflowTab() {
       </div>
       <div className="action-row">
         <button className="btn primary" disabled={running} onClick={executeRaisePR}>
-          Raise New PR (Async)
+          Prepare PR Plan
         </button>
       </div>
       <pre className="console">{output}</pre>

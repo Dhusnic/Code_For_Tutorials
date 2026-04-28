@@ -328,6 +328,7 @@ restart_pm2_apps() {
   case "$PROFILE" in
     direct-stream)
       restart_pm2_app signalizing-engine
+      restart_pm2_app log-config-syncer
       restart_pm2_app correlation-engine
       restart_pm2_app log-rca-engine
       ;;
@@ -336,6 +337,7 @@ restart_pm2_apps() {
       ;;
     all)
       restart_pm2_app signalizing-engine
+      restart_pm2_app log-config-syncer
       restart_pm2_app correlation-engine
       restart_pm2_app log-rca-engine
       restart_pm2_app signaled-logs-collector
@@ -346,12 +348,14 @@ restart_pm2_apps() {
 TARGET_NAMES=(
   "correlation-engine"
   "log-rca-engine"
+  "log-config-syncer"
   "signalizing-engine"
   "validate-rules"
   "signaled-logs-collector"
 )
 TARGET_PROJECTS=(
   "$REPO_ROOT/log_correlation_engine"
+  "$REPO_ROOT/log_rca_engine"
   "$REPO_ROOT/log_rca_engine"
   "$REPO_ROOT/log_signalizing/signalizing_go"
   "$REPO_ROOT/log_signalizing/signalizing_go"
@@ -360,6 +364,7 @@ TARGET_PROJECTS=(
 TARGET_OUTPUTS=(
   "$REPO_ROOT/log_correlation_engine/bin/correlation-engine.exe"
   "$REPO_ROOT/log_rca_engine/bin/log-rca-engine.exe"
+  "$REPO_ROOT/log_rca_engine/bin/log-config-syncer.exe"
   "$REPO_ROOT/log_signalizing/signalizing_go/bin/signalizing-engine.exe"
   "$REPO_ROOT/log_signalizing/signalizing_go/bin/validate-rules.exe"
   "$REPO_ROOT/log_signal_processor/bin/signaled-logs-collector.exe"
@@ -367,6 +372,7 @@ TARGET_OUTPUTS=(
 TARGET_PACKAGES=(
   "./cmd"
   "./cmd"
+  "./cmd/log-config-syncer"
   "./cmd/signalizing-engine"
   "./cmd/validate-rules"
   "./cmd/signaled_logs_collector"
@@ -374,9 +380,9 @@ TARGET_PACKAGES=(
 
 selected_indices() {
   case "$PROFILE" in
-    direct-stream) printf '%s\n' 0 1 2 3 ;;
-    compatibility) printf '%s\n' 4 ;;
-    all) printf '%s\n' 0 1 2 3 4 ;;
+    direct-stream) printf '%s\n' 0 1 2 3 4 ;;
+    compatibility) printf '%s\n' 5 ;;
+    all) printf '%s\n' 0 1 2 3 4 5 ;;
   esac
 }
 

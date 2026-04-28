@@ -24,6 +24,7 @@ type filePayload struct {
 	Key                    string `json:"key"`
 	OrganizationID         string `json:"organization_id"`
 	Checkpoint             string `json:"checkpoint,omitempty"`
+	CheckpointDocID        string `json:"checkpoint_doc_id,omitempty"`
 	SignalPayloadSignature string `json:"signal_payload_signature,omitempty"`
 	RulesSignature         string `json:"rules_signature,omitempty"`
 	SignalCount            int    `json:"signal_count,omitempty"`
@@ -63,6 +64,7 @@ func (s *Store) LoadCheckpoint(ctx context.Context, organization string) (models
 	}
 
 	state := models.ProcessingCheckpoint{
+		CheckpointDocID:        strings.TrimSpace(stored.CheckpointDocID),
 		SignalPayloadSignature: strings.TrimSpace(stored.SignalPayloadSignature),
 		RulesSignature:         strings.TrimSpace(stored.RulesSignature),
 		SignalCount:            stored.SignalCount,
@@ -96,6 +98,7 @@ func (s *Store) SaveCheckpoint(ctx context.Context, organization string, checkpo
 		Key:                    s.CheckpointKey(organization),
 		OrganizationID:         organization,
 		Checkpoint:             formatCheckpointTime(checkpoint.Checkpoint),
+		CheckpointDocID:        strings.TrimSpace(checkpoint.CheckpointDocID),
 		SignalPayloadSignature: checkpoint.SignalPayloadSignature,
 		RulesSignature:         checkpoint.RulesSignature,
 		SignalCount:            checkpoint.SignalCount,

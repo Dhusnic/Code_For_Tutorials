@@ -1,60 +1,41 @@
 {
-  "schema_version": 1,
   "organizations": {
     "135098068173316952064": {
       "infraon_onprem_prod": {
         "services": [
-          {
-            "service_name": "nginx",
-            "device_ip": "10.0.4.72"
-          },
-          {
-            "service_name": "mongodb",
-            "device_ip": "10.0.4.72"
-          },
-          {
-            "service_name": "rabbitmq",
-            "device_ip": "10.0.4.72"
-          },
-          {
-            "service_name": "redis",
-            "device_ip": "10.0.4.72"
-          },
-          {
-            "service_name": "kafka",
-            "device_ip": "10.0.4.72"
-          },
-          {
-            "service_name": "postgresql",
-            "device_ip": "10.0.4.72"
-          },
-          {
-            "service_name": "auth",
-            "device_ip": "10.0.4.72"
-          },
-          {
-            "service_name": "network",
-            "device_ip": "10.0.4.72"
-          }
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {}
         ],
         "dependencies": [
           {
             "from": "10.0.4.72::nginx",
-            "to": "10.0.4.72::mongodb",
-            "relation": "crud_report_api_db_path"
+            "to": "10.0.4.72::instancegunicorn",
+            "relation": "upstream"
           },
           {
-            "from": "10.0.4.72::nginx",
+            "from": "10.0.4.72::instancegunicorn",
+            "to": "10.0.4.72::mongodb",
+            "relation": "crud_report_instancegunicorn_db_path"
+          },
+          {
+            "from": "10.0.4.72::instancegunicorn",
             "to": "10.0.4.72::rabbitmq",
             "relation": "background_job_submission_path"
           },
           {
-            "from": "10.0.4.72::nginx",
+            "from": "10.0.4.72::instancegunicorn",
             "to": "10.0.4.72::redis",
             "relation": "realtime_status_cache_path"
           },
           {
-            "from": "10.0.4.72::nginx",
+            "from": "10.0.4.72::instancegunicorn",
             "to": "10.0.4.72::kafka",
             "relation": "event_action_pipeline_path"
           },
@@ -100,6 +81,11 @@
           },
           {
             "from": "10.0.4.72::network",
+            "to": "10.0.4.72::instancegunicorn",
+            "relation": "underlay_dependency"
+          },
+          {
+            "from": "10.0.4.72::network",
             "to": "10.0.4.72::mongodb",
             "relation": "underlay_dependency"
           },
@@ -122,188 +108,88 @@
             "from": "10.0.4.72::network",
             "to": "10.0.4.72::postgresql",
             "relation": "underlay_dependency"
+          },
+          {
+            "from": "10.0.4.72::system",
+            "to": "10.0.4.72::nginx",
+            "relation": "host_storage_dependency"
+          },
+          {
+            "from": "10.0.4.72::system",
+            "to": "10.0.4.72::instancegunicorn",
+            "relation": "host_storage_dependency"
+          },
+          {
+            "from": "10.0.4.72::system",
+            "to": "10.0.4.72::mongodb",
+            "relation": "host_storage_dependency"
+          },
+          {
+            "from": "10.0.4.72::system",
+            "to": "10.0.4.72::rabbitmq",
+            "relation": "host_storage_dependency"
+          },
+          {
+            "from": "10.0.4.72::system",
+            "to": "10.0.4.72::redis",
+            "relation": "host_storage_dependency"
+          },
+          {
+            "from": "10.0.4.72::system",
+            "to": "10.0.4.72::kafka",
+            "relation": "host_storage_dependency"
+          },
+          {
+            "from": "10.0.4.72::system",
+            "to": "10.0.4.72::postgresql",
+            "relation": "host_storage_dependency"
+          },
+          {
+            "from": "10.0.4.72::system",
+            "to": "10.0.4.72::auth",
+            "relation": "host_storage_dependency"
           }
         ],
         "devices": [
           {
-            "device_ip": "10.0.4.72",
-            "host_name": "localhost.localdomain",
             "services": [
               {
-                "service_name": "nginx",
-                "role": "edge_web_server",
-                "depends_on": [
-                  "mongodb",
-                  "rabbitmq",
-                  "redis",
-                  "kafka"
-                ]
+                "service_name": "",
+                "role": "edge_web_server"
               },
               {
-                "service_name": "mongodb",
-                "role": "primary_operational_database",
-                "depends_on": [
-                  "postgresql"
-                ]
+                "service_name": "",
+                "role": "application_backend"
               },
               {
-                "service_name": "rabbitmq",
-                "role": "background_job_broker",
-                "depends_on": [
-                  "redis",
-                  "mongodb"
-                ]
+                "service_name": "",
+                "role": "primary_operational_database"
               },
               {
-                "service_name": "redis",
-                "role": "realtime_cache_and_job_backend",
-                "depends_on": [
-                  "mongodb"
-                ]
+                "service_name": "",
+                "role": "background_job_broker"
               },
               {
-                "service_name": "kafka",
-                "role": "agent_event_stream",
-                "depends_on": [
-                  "redis",
-                  "mongodb",
-                  "postgresql"
-                ]
+                "service_name": "",
+                "role": "realtime_cache_and_job_backend"
               },
               {
-                "service_name": "postgresql",
+                "service_name": "",
+                "role": "agent_event_stream"
+              },
+              {
+                "service_name": "",
                 "role": "timeseries_statistics_store"
               },
               {
-                "service_name": "auth",
+                "service_name": "",
                 "role": "host_control_plane_auth"
               },
               {
-                "service_name": "network",
+                "service_name": "",
                 "role": "host_and_network_underlay"
               }
             ]
-          }
-        ],
-        "service_relations": [
-          {
-            "from_service": "nginx",
-            "from_ip": "10.0.4.72",
-            "to_service": "mongodb",
-            "to_ip": "10.0.4.72",
-            "relation": "crud_report_api_db_path"
-          },
-          {
-            "from_service": "nginx",
-            "from_ip": "10.0.4.72",
-            "to_service": "rabbitmq",
-            "to_ip": "10.0.4.72",
-            "relation": "background_job_submission_path"
-          },
-          {
-            "from_service": "nginx",
-            "from_ip": "10.0.4.72",
-            "to_service": "redis",
-            "to_ip": "10.0.4.72",
-            "relation": "realtime_status_cache_path"
-          },
-          {
-            "from_service": "nginx",
-            "from_ip": "10.0.4.72",
-            "to_service": "kafka",
-            "to_ip": "10.0.4.72",
-            "relation": "event_action_pipeline_path"
-          },
-          {
-            "from_service": "rabbitmq",
-            "from_ip": "10.0.4.72",
-            "to_service": "redis",
-            "to_ip": "10.0.4.72",
-            "relation": "job_execution_result_backend_path"
-          },
-          {
-            "from_service": "rabbitmq",
-            "from_ip": "10.0.4.72",
-            "to_service": "mongodb",
-            "to_ip": "10.0.4.72",
-            "relation": "background_job_result_persistence"
-          },
-          {
-            "from_service": "redis",
-            "from_ip": "10.0.4.72",
-            "to_service": "mongodb",
-            "to_ip": "10.0.4.72",
-            "relation": "active_events_rules_cache_to_db_path"
-          },
-          {
-            "from_service": "kafka",
-            "from_ip": "10.0.4.72",
-            "to_service": "redis",
-            "to_ip": "10.0.4.72",
-            "relation": "processed_stats_events_rules_cache_path"
-          },
-          {
-            "from_service": "kafka",
-            "from_ip": "10.0.4.72",
-            "to_service": "mongodb",
-            "to_ip": "10.0.4.72",
-            "relation": "active_events_incidents_path"
-          },
-          {
-            "from_service": "kafka",
-            "from_ip": "10.0.4.72",
-            "to_service": "postgresql",
-            "to_ip": "10.0.4.72",
-            "relation": "processed_events_computed_stats_path"
-          },
-          {
-            "from_service": "mongodb",
-            "from_ip": "10.0.4.72",
-            "to_service": "postgresql",
-            "to_ip": "10.0.4.72",
-            "relation": "historical_reports_detail_events_path"
-          },
-          {
-            "from_service": "network",
-            "from_ip": "10.0.4.72",
-            "to_service": "nginx",
-            "to_ip": "10.0.4.72",
-            "relation": "underlay_dependency"
-          },
-          {
-            "from_service": "network",
-            "from_ip": "10.0.4.72",
-            "to_service": "mongodb",
-            "to_ip": "10.0.4.72",
-            "relation": "underlay_dependency"
-          },
-          {
-            "from_service": "network",
-            "from_ip": "10.0.4.72",
-            "to_service": "rabbitmq",
-            "to_ip": "10.0.4.72",
-            "relation": "underlay_dependency"
-          },
-          {
-            "from_service": "network",
-            "from_ip": "10.0.4.72",
-            "to_service": "redis",
-            "to_ip": "10.0.4.72",
-            "relation": "underlay_dependency"
-          },
-          {
-            "from_service": "network",
-            "from_ip": "10.0.4.72",
-            "to_service": "kafka",
-            "to_ip": "10.0.4.72",
-            "relation": "underlay_dependency"
-          },
-          {
-            "from_service": "network",
-            "from_ip": "10.0.4.72",
-            "to_service": "postgresql",
-            "to_ip": "10.0.4.72",
-            "relation": "underlay_dependency"
           }
         ]
       }
