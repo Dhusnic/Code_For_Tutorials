@@ -310,12 +310,9 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 
 	if p.autoscaler != nil && p.autoscaler.Enabled() {
 		p.autoscaler.ObserveCycle(summary.IncrementalSignalLogs)
-		settings := p.autoscaler.CurrentSchedulerSettings()
 		p.logger.Info(
-			"autoscaling cycle updated",
+			"autoscaling workload observed",
 			"incremental_signal_logs", summary.IncrementalSignalLogs,
-			"next_scheduler_interval", settings.Interval.String(),
-			"next_scheduler_run_timeout", settings.RunTimeout.String(),
 		)
 	}
 

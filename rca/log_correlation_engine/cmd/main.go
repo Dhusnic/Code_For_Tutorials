@@ -90,6 +90,8 @@ func main() {
 			"scheduler_min_interval", cfg.Autoscaling.Scheduler.MinInterval.String(),
 			"scheduler_max_interval", cfg.Autoscaling.Scheduler.MaxInterval.String(),
 			"scheduler_timeout_ratio", cfg.Autoscaling.Scheduler.TimeoutRatio,
+			"scheduler_target_cycle_utilization", cfg.Autoscaling.Scheduler.TargetCycleUtilization,
+			"scheduler_timeout_scale_up_multiplier", cfg.Autoscaling.Scheduler.TimeoutScaleUpMultiplier,
 		)
 	}
 

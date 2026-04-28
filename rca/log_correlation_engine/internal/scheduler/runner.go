@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
@@ -24,6 +25,11 @@ type Config struct {
 
 type SettingsProvider interface {
 	CurrentSchedulerSettings() autoscaling.SchedulerSettings
+}
+
+type ExecutionObserver interface {
+	ObserveExecution(observation autoscaling.ExecutionObservation)
+	Enabled() bool
 }
 
 type Runner struct {
@@ -81,9 +87,13 @@ func (r *Runner) execute(parent context.Context) {
 	}
 	defer cancel()
 
+	var runErr error
 	defer func() {
 		duration := time.Since(started)
+		timedOut := errors.Is(runErr, context.DeadlineExceeded) || errors.Is(runCtx.Err(), context.DeadlineExceeded)
+		failed := runErr != nil
 		if recovered := recover(); recovered != nil {
+			failed = true
 			if r.logger != nil {
 				r.logger.Error(
 					"scheduled job panicked",
@@ -92,8 +102,10 @@ func (r *Runner) execute(parent context.Context) {
 					"duration", duration.String(),
 				)
 			}
+			r.observeExecution(settings, duration, failed, timedOut)
 			return
 		}
+		r.observeExecution(settings, duration, failed, timedOut)
 		if r.logger != nil {
 			r.logger.Debug("scheduled job finished", "duration", duration.String())
 		}
@@ -107,8 +119,9 @@ func (r *Runner) execute(parent context.Context) {
 		)
 	}
 
-	if err := r.job.RunCycle(runCtx); err != nil && r.logger != nil {
-		r.logger.Error("scheduled job failed", "error", err)
+	runErr = r.job.RunCycle(runCtx)
+	if runErr != nil && r.logger != nil {
+		r.logger.Error("scheduled job failed", "error", runErr)
 	}
 }
 
@@ -133,4 +146,38 @@ func (r *Runner) currentSettings() autoscaling.SchedulerSettings {
 		settings.RunTimeout = settings.Interval
 	}
 	return settings
+}
+
+func (r *Runner) observeExecution(
+	settings autoscaling.SchedulerSettings,
+	duration time.Duration,
+	failed bool,
+	timedOut bool,
+) {
+	observer, ok := r.settingsProvider.(ExecutionObserver)
+	if !ok || !observer.Enabled() {
+		return
+	}
+
+	observer.ObserveExecution(autoscaling.ExecutionObservation{
+		Interval:   settings.Interval,
+		RunTimeout: settings.RunTimeout,
+		Duration:   duration,
+		Failed:     failed,
+		TimedOut:   timedOut,
+	})
+
+	if r.logger != nil {
+		next := r.currentSettings()
+		r.logger.Info(
+			"autoscaling execution observed",
+			"observed_duration", duration.String(),
+			"timed_out", timedOut,
+			"failed", failed,
+			"previous_interval", settings.Interval.String(),
+			"previous_run_timeout", settings.RunTimeout.String(),
+			"next_interval", next.Interval.String(),
+			"next_run_timeout", next.RunTimeout.String(),
+		)
+	}
 }

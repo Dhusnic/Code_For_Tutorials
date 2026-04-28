@@ -19,6 +19,12 @@ func TestLoadDefaultsIncludesAutoscalingDefaults(t *testing.T) {
 	if cfg.Autoscaling.Fetcher.MaxGroupedLookupBatchSize != 10000 {
 		t.Fatalf("expected max grouped lookup batch size 10000, got %d", cfg.Autoscaling.Fetcher.MaxGroupedLookupBatchSize)
 	}
+	if cfg.Autoscaling.Scheduler.TargetCycleUtilization != 0.8 {
+		t.Fatalf("expected target cycle utilization 0.8, got %v", cfg.Autoscaling.Scheduler.TargetCycleUtilization)
+	}
+	if cfg.Autoscaling.Scheduler.TimeoutScaleUpMultiplier != 1.5 {
+		t.Fatalf("expected timeout scale up multiplier 1.5, got %v", cfg.Autoscaling.Scheduler.TimeoutScaleUpMultiplier)
+	}
 }
 
 func TestValidateRejectsInvalidAutoscalingBounds(t *testing.T) {
@@ -41,6 +47,18 @@ func TestValidateRejectsInvalidAutoscalingBounds(t *testing.T) {
 	}
 
 	cfg.Autoscaling.Scheduler.TimeoutRatio = 0.9
+	cfg.Autoscaling.Scheduler.TargetCycleUtilization = 1
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected invalid target cycle utilization to fail validation")
+	}
+
+	cfg.Autoscaling.Scheduler.TargetCycleUtilization = 0.8
+	cfg.Autoscaling.Scheduler.TimeoutScaleUpMultiplier = 0.5
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected invalid timeout scale up multiplier to fail validation")
+	}
+
+	cfg.Autoscaling.Scheduler.TimeoutScaleUpMultiplier = 1.5
 	cfg.Autoscaling.Fetcher.MinGroupedLookupBatchSize = 999
 	if err := cfg.Validate(); err == nil {
 		t.Fatalf("expected invalid fetcher min grouped lookup batch size to fail validation")

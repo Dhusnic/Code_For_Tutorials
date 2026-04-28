@@ -55,5 +55,5 @@ large_datasets/
 .gomodcache/
 
 #logs and exe files
-.log
-.exe
+*.log
+*.exe

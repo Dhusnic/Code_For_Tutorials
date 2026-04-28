@@ -15,6 +15,14 @@ type SchedulerSettings struct {
 	RunTimeout time.Duration
 }
 
+type ExecutionObservation struct {
+	Interval   time.Duration
+	RunTimeout time.Duration
+	Duration   time.Duration
+	Failed     bool
+	TimedOut   bool
+}
+
 type OrganizationSettings struct {
 	GroupedLookupBatchSize int
 	MaxNewLogsPerCycle     int
@@ -30,9 +38,11 @@ type Controller struct {
 	staticScheduler SchedulerSettings
 	staticBatchSize int
 
-	schedulerMinInterval  time.Duration
-	schedulerMaxInterval  time.Duration
-	schedulerTimeoutRatio float64
+	schedulerMinInterval          time.Duration
+	schedulerMaxInterval          time.Duration
+	schedulerTimeoutRatio         float64
+	schedulerTargetUtilization    float64
+	schedulerTimeoutScaleUpFactor float64
 
 	fetcherMinBatchSize int
 	fetcherMaxBatchSize int
@@ -47,6 +57,10 @@ type Controller struct {
 type schedulerState struct {
 	currentInterval time.Duration
 	downCycles      int
+	lastWorkload    int
+	hasWorkload     bool
+	lastExecution   ExecutionObservation
+	hasExecution    bool
 }
 
 type organizationState struct {
@@ -56,20 +70,22 @@ type organizationState struct {
 
 func NewController(cfg config.AutoscalingConfig, staticScheduler SchedulerSettings, staticBatchSize int) *Controller {
 	controller := &Controller{
-		enabled:               cfg.Enabled,
-		inputBasis:            strings.ToLower(strings.TrimSpace(cfg.InputBasis)),
-		lowWatermark:          cfg.InputLowWatermark,
-		highWatermark:         cfg.InputHighWatermark,
-		cooldownCycles:        cfg.ScaleDownCooldownCycles,
-		staticScheduler:       sanitizeSchedulerSettings(staticScheduler),
-		staticBatchSize:       maxInt(1, staticBatchSize),
-		schedulerMinInterval:  cfg.Scheduler.MinInterval,
-		schedulerMaxInterval:  cfg.Scheduler.MaxInterval,
-		schedulerTimeoutRatio: cfg.Scheduler.TimeoutRatio,
-		fetcherMinBatchSize:   cfg.Fetcher.MinGroupedLookupBatchSize,
-		fetcherMaxBatchSize:   cfg.Fetcher.MaxGroupedLookupBatchSize,
-		maxBatchesPerCycle:    maxInt(1, cfg.Fetcher.MaxBatchesPerCycle),
-		orgs:                  make(map[string]*organizationState),
+		enabled:                       cfg.Enabled,
+		inputBasis:                    strings.ToLower(strings.TrimSpace(cfg.InputBasis)),
+		lowWatermark:                  cfg.InputLowWatermark,
+		highWatermark:                 cfg.InputHighWatermark,
+		cooldownCycles:                cfg.ScaleDownCooldownCycles,
+		staticScheduler:               sanitizeSchedulerSettings(staticScheduler),
+		staticBatchSize:               maxInt(1, staticBatchSize),
+		schedulerMinInterval:          cfg.Scheduler.MinInterval,
+		schedulerMaxInterval:          cfg.Scheduler.MaxInterval,
+		schedulerTimeoutRatio:         cfg.Scheduler.TimeoutRatio,
+		schedulerTargetUtilization:    cfg.Scheduler.TargetCycleUtilization,
+		schedulerTimeoutScaleUpFactor: cfg.Scheduler.TimeoutScaleUpMultiplier,
+		fetcherMinBatchSize:           cfg.Fetcher.MinGroupedLookupBatchSize,
+		fetcherMaxBatchSize:           cfg.Fetcher.MaxGroupedLookupBatchSize,
+		maxBatchesPerCycle:            maxInt(1, cfg.Fetcher.MaxBatchesPerCycle),
+		orgs:                          make(map[string]*organizationState),
 	}
 	controller.scheduler.currentInterval = controller.staticScheduler.Interval
 	if controller.inputBasis == "" {
@@ -108,17 +124,22 @@ func (c *Controller) ObserveCycle(totalIncrementalLogs int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	targetInterval := c.resolveSchedulerInterval(totalIncrementalLogs)
-	if c.scheduler.currentInterval <= 0 {
-		c.scheduler.currentInterval = c.staticScheduler.Interval
+	c.scheduler.lastWorkload = maxInt(0, totalIncrementalLogs)
+	c.scheduler.hasWorkload = true
+	c.recomputeSchedulerLocked()
+}
+
+func (c *Controller) ObserveExecution(observation ExecutionObservation) {
+	if c == nil || !c.enabled {
+		return
 	}
-	c.scheduler.currentInterval, c.scheduler.downCycles = applyCooldownDuration(
-		c.scheduler.currentInterval,
-		targetInterval,
-		c.scheduler.downCycles,
-		c.cooldownCycles,
-	)
-	c.warmed = true
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.scheduler.lastExecution = sanitizeExecutionObservation(observation)
+	c.scheduler.hasExecution = true
+	c.recomputeSchedulerLocked()
 }
 
 func (c *Controller) ResolveOrganization(organization string, incrementalCount int) OrganizationSettings {
@@ -167,6 +188,19 @@ func sanitizeSchedulerSettings(settings SchedulerSettings) SchedulerSettings {
 		settings.RunTimeout = settings.Interval
 	}
 	return settings
+}
+
+func sanitizeExecutionObservation(observation ExecutionObservation) ExecutionObservation {
+	if observation.Interval <= 0 {
+		observation.Interval = time.Second
+	}
+	if observation.RunTimeout <= 0 || observation.RunTimeout > observation.Interval {
+		observation.RunTimeout = observation.Interval
+	}
+	if observation.Duration < 0 {
+		observation.Duration = 0
+	}
+	return observation
 }
 
 func applyCooldownInt(current, target, downCycles, cooldownCycles int) (int, int) {
@@ -223,28 +257,6 @@ func (c *Controller) scaleInt(input, minimum, maximum int) int {
 	return int(value + 0.5)
 }
 
-func (c *Controller) scaleDuration(input int, minimum, maximum time.Duration) time.Duration {
-	if minimum <= 0 {
-		minimum = time.Second
-	}
-	if maximum < minimum {
-		maximum = minimum
-	}
-	if input <= c.lowWatermark {
-		return minimum
-	}
-	if input >= c.highWatermark {
-		return maximum
-	}
-	if c.highWatermark <= c.lowWatermark {
-		return maximum
-	}
-
-	ratio := float64(input-c.lowWatermark) / float64(c.highWatermark-c.lowWatermark)
-	value := float64(minimum) + ratio*float64(maximum-minimum)
-	return time.Duration(value)
-}
-
 func (c *Controller) resolveSchedulerInterval(totalIncrementalLogs int) time.Duration {
 	if totalIncrementalLogs <= 0 {
 		return c.schedulerMinInterval
@@ -272,7 +284,66 @@ func (c *Controller) resolveSchedulerInterval(totalIncrementalLogs int) time.Dur
 
 	ratio := float64(totalIncrementalLogs-maxBatchCapacityAtMinInterval) / float64(upperBound-maxBatchCapacityAtMinInterval)
 	value := float64(c.schedulerMinInterval) + ratio*float64(c.schedulerMaxInterval-c.schedulerMinInterval)
-	return time.Duration(value)
+	return time.Duration(value + 0.5)
+}
+
+func (c *Controller) resolveSchedulerIntervalFromExecution(observation ExecutionObservation) time.Duration {
+	if observation.Duration <= 0 {
+		return 0
+	}
+	if observation.Failed && !observation.TimedOut {
+		return 0
+	}
+
+	targetUtilization := c.schedulerTargetUtilization
+	if targetUtilization <= 0 || targetUtilization >= 1 {
+		targetUtilization = 0.8
+	}
+	timeoutRatio := c.schedulerTimeoutRatio
+	if timeoutRatio <= 0 || timeoutRatio >= 1 {
+		timeoutRatio = 0.9
+	}
+
+	requiredInterval := float64(observation.Duration) / (timeoutRatio * targetUtilization)
+	if observation.TimedOut {
+		scaleUpFactor := c.schedulerTimeoutScaleUpFactor
+		if scaleUpFactor < 1 {
+			scaleUpFactor = 1
+		}
+		requiredInterval *= scaleUpFactor
+	}
+
+	return clampDuration(
+		time.Duration(requiredInterval+0.5),
+		c.schedulerMinInterval,
+		c.schedulerMaxInterval,
+	)
+}
+
+func (c *Controller) recomputeSchedulerLocked() {
+	targetInterval := time.Duration(0)
+	if c.scheduler.hasWorkload {
+		targetInterval = c.resolveSchedulerInterval(c.scheduler.lastWorkload)
+	}
+	if c.scheduler.hasExecution {
+		executionTarget := c.resolveSchedulerIntervalFromExecution(c.scheduler.lastExecution)
+		if executionTarget > targetInterval {
+			targetInterval = executionTarget
+		}
+	}
+	if targetInterval <= 0 {
+		return
+	}
+	if c.scheduler.currentInterval <= 0 {
+		c.scheduler.currentInterval = c.staticScheduler.Interval
+	}
+	c.scheduler.currentInterval, c.scheduler.downCycles = applyCooldownDuration(
+		c.scheduler.currentInterval,
+		targetInterval,
+		c.scheduler.downCycles,
+		c.cooldownCycles,
+	)
+	c.warmed = true
 }
 
 func maxInt(left, right int) int {
@@ -280,4 +351,20 @@ func maxInt(left, right int) int {
 		return left
 	}
 	return right
+}
+
+func clampDuration(value, minimum, maximum time.Duration) time.Duration {
+	if minimum <= 0 {
+		minimum = time.Second
+	}
+	if maximum < minimum {
+		maximum = minimum
+	}
+	if value < minimum {
+		return minimum
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
 }

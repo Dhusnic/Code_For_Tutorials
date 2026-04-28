@@ -23,9 +23,11 @@ type SchedulerConfig struct {
 }
 
 type AutoscalingSchedulerConfig struct {
-	MinInterval  time.Duration `yaml:"min_interval"`
-	MaxInterval  time.Duration `yaml:"max_interval"`
-	TimeoutRatio float64       `yaml:"timeout_ratio"`
+	MinInterval              time.Duration `yaml:"min_interval"`
+	MaxInterval              time.Duration `yaml:"max_interval"`
+	TimeoutRatio             float64       `yaml:"timeout_ratio"`
+	TargetCycleUtilization   float64       `yaml:"target_cycle_utilization"`
+	TimeoutScaleUpMultiplier float64       `yaml:"timeout_scale_up_multiplier"`
 }
 
 type AutoscalingFetcherConfig struct {
@@ -169,9 +171,11 @@ func defaultConfig() Config {
 			InputHighWatermark:      100000,
 			ScaleDownCooldownCycles: 3,
 			Scheduler: AutoscalingSchedulerConfig{
-				MinInterval:  10 * time.Second,
-				MaxInterval:  60 * time.Second,
-				TimeoutRatio: 0.9,
+				MinInterval:              10 * time.Second,
+				MaxInterval:              60 * time.Second,
+				TimeoutRatio:             0.9,
+				TargetCycleUtilization:   0.8,
+				TimeoutScaleUpMultiplier: 1.5,
 			},
 			Fetcher: AutoscalingFetcherConfig{
 				MinGroupedLookupBatchSize: 1000,
@@ -303,6 +307,12 @@ func (c *Config) normalize() {
 	if c.Autoscaling.Scheduler.TimeoutRatio <= 0 {
 		c.Autoscaling.Scheduler.TimeoutRatio = 0.9
 	}
+	if c.Autoscaling.Scheduler.TargetCycleUtilization <= 0 {
+		c.Autoscaling.Scheduler.TargetCycleUtilization = 0.8
+	}
+	if c.Autoscaling.Scheduler.TimeoutScaleUpMultiplier <= 0 {
+		c.Autoscaling.Scheduler.TimeoutScaleUpMultiplier = 1.5
+	}
 	if c.Autoscaling.Fetcher.MinGroupedLookupBatchSize <= 0 {
 		c.Autoscaling.Fetcher.MinGroupedLookupBatchSize = 1000
 	}
@@ -365,6 +375,12 @@ func (c Config) Validate() error {
 	}
 	if c.Autoscaling.Scheduler.TimeoutRatio <= 0 || c.Autoscaling.Scheduler.TimeoutRatio >= 1 {
 		return errors.New("autoscaling.scheduler.timeout_ratio must be greater than zero and less than one")
+	}
+	if c.Autoscaling.Scheduler.TargetCycleUtilization <= 0 || c.Autoscaling.Scheduler.TargetCycleUtilization >= 1 {
+		return errors.New("autoscaling.scheduler.target_cycle_utilization must be greater than zero and less than one")
+	}
+	if c.Autoscaling.Scheduler.TimeoutScaleUpMultiplier < 1 {
+		return errors.New("autoscaling.scheduler.timeout_scale_up_multiplier must be greater than or equal to one")
 	}
 	if c.Autoscaling.Fetcher.MinGroupedLookupBatchSize < 1000 || c.Autoscaling.Fetcher.MinGroupedLookupBatchSize > 10000 {
 		return errors.New("autoscaling.fetcher.min_grouped_lookup_batch_size must be between 1000 and 10000")

@@ -18,9 +18,11 @@ func TestControllerUsesStaticDefaultsBeforeWarmup(t *testing.T) {
 			InputHighWatermark:      100000,
 			ScaleDownCooldownCycles: 3,
 			Scheduler: config.AutoscalingSchedulerConfig{
-				MinInterval:  10 * time.Second,
-				MaxInterval:  60 * time.Second,
-				TimeoutRatio: 0.9,
+				MinInterval:              10 * time.Second,
+				MaxInterval:              60 * time.Second,
+				TimeoutRatio:             0.9,
+				TargetCycleUtilization:   0.8,
+				TimeoutScaleUpMultiplier: 1.5,
 			},
 			Fetcher: config.AutoscalingFetcherConfig{
 				MinGroupedLookupBatchSize: 1000,
@@ -57,9 +59,11 @@ func TestControllerScalesTimeoutWithIntervalAndAppliesCooldownOnScaleDown(t *tes
 			InputHighWatermark:      100000,
 			ScaleDownCooldownCycles: 3,
 			Scheduler: config.AutoscalingSchedulerConfig{
-				MinInterval:  10 * time.Second,
-				MaxInterval:  60 * time.Second,
-				TimeoutRatio: 0.9,
+				MinInterval:              10 * time.Second,
+				MaxInterval:              60 * time.Second,
+				TimeoutRatio:             0.9,
+				TargetCycleUtilization:   0.8,
+				TimeoutScaleUpMultiplier: 1.5,
 			},
 			Fetcher: config.AutoscalingFetcherConfig{
 				MinGroupedLookupBatchSize: 1000,
@@ -96,5 +100,54 @@ func TestControllerScalesTimeoutWithIntervalAndAppliesCooldownOnScaleDown(t *tes
 	controller.ObserveCycle(1000)
 	if scaledDown := controller.CurrentSchedulerSettings(); scaledDown.Interval != 10*time.Second || scaledDown.RunTimeout != 9*time.Second {
 		t.Fatalf("expected cooldown to scale down to 10s/9s, got %#v", scaledDown)
+	}
+}
+
+func TestControllerScalesSchedulerFromExecutionTimeWhenWorkloadOnlyWouldStayAtMinInterval(t *testing.T) {
+	t.Parallel()
+
+	controller := NewController(
+		config.AutoscalingConfig{
+			Enabled:                 true,
+			InputBasis:              "incremental_logs",
+			InputLowWatermark:       1000,
+			InputHighWatermark:      100000,
+			ScaleDownCooldownCycles: 3,
+			Scheduler: config.AutoscalingSchedulerConfig{
+				MinInterval:              10 * time.Second,
+				MaxInterval:              60 * time.Second,
+				TimeoutRatio:             0.9,
+				TargetCycleUtilization:   0.8,
+				TimeoutScaleUpMultiplier: 1.5,
+			},
+			Fetcher: config.AutoscalingFetcherConfig{
+				MinGroupedLookupBatchSize: 1000,
+				MaxGroupedLookupBatchSize: 10000,
+				MaxBatchesPerCycle:        10,
+			},
+		},
+		SchedulerSettings{Interval: 5 * time.Second, RunTimeout: 5 * time.Second},
+		250,
+	)
+
+	controller.ObserveCycle(98279)
+	if settings := controller.CurrentSchedulerSettings(); settings.Interval != 10*time.Second || settings.RunTimeout != 9*time.Second {
+		t.Fatalf("expected workload-only scaling to stay at 10s/9s, got %#v", settings)
+	}
+
+	controller.ObserveExecution(ExecutionObservation{
+		Interval:   10 * time.Second,
+		RunTimeout: 9 * time.Second,
+		Duration:   9 * time.Second,
+		Failed:     true,
+		TimedOut:   true,
+	})
+
+	scaled := controller.CurrentSchedulerSettings()
+	if scaled.Interval <= 10*time.Second {
+		t.Fatalf("expected execution timeout feedback to increase interval beyond 10s, got %#v", scaled)
+	}
+	if scaled.Interval != 18750*time.Millisecond || scaled.RunTimeout != 16875*time.Millisecond {
+		t.Fatalf("expected interval to scale to 18.75s/16.875s from timeout feedback, got %#v", scaled)
 	}
 }

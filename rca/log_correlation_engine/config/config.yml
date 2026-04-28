@@ -19,6 +19,8 @@ autoscaling:
     min_interval: 10s
     max_interval: 60s
     timeout_ratio: 0.9
+    target_cycle_utilization: 0.8
+    timeout_scale_up_multiplier: 1.5
   fetcher:
     min_grouped_lookup_batch_size: 1000
     max_grouped_lookup_batch_size: 10000
