@@ -28,6 +28,33 @@ type OrganizationSettings struct {
 	MaxNewLogsPerCycle     int
 }
 
+type DistributedObservation struct {
+	ActiveWorkers        int
+	CorrelationWorkUnits int
+	PlannedShards        int
+	CompletedShards      int
+	RetryCount           int
+	QueueDepth           int
+	TotalShardDuration   time.Duration
+	MaxShardDuration     time.Duration
+	MergeDuration        time.Duration
+}
+
+type DistributedShardHints struct {
+	DefaultTargetLogsPerShard int
+	MinShardsPerWorker        int
+	MaxShardsPerWorker        int
+	TargetShardDuration       time.Duration
+}
+
+type DistributedShardPlan struct {
+	ActiveWorkers            int
+	DesiredShards            int
+	TargetLogsPerShard       int
+	QueueDepth               int
+	EstimatedClusterDuration time.Duration
+}
+
 type Controller struct {
 	enabled        bool
 	inputBasis     string
@@ -48,10 +75,11 @@ type Controller struct {
 	fetcherMaxBatchSize int
 	maxBatchesPerCycle  int
 
-	mu        sync.Mutex
-	warmed    bool
-	scheduler schedulerState
-	orgs      map[string]*organizationState
+	mu          sync.Mutex
+	warmed      bool
+	scheduler   schedulerState
+	distributed clusterState
+	orgs        map[string]*organizationState
 }
 
 type schedulerState struct {
@@ -66,6 +94,14 @@ type schedulerState struct {
 type organizationState struct {
 	currentBatchSize int
 	downCycles       int
+}
+
+type clusterState struct {
+	activeWorkers       int
+	hasObservation      bool
+	lastObservation     DistributedObservation
+	perWorkerThroughput float64
+	workUnitMultiplier  float64
 }
 
 func NewController(cfg config.AutoscalingConfig, staticScheduler SchedulerSettings, staticBatchSize int) *Controller {
@@ -88,6 +124,7 @@ func NewController(cfg config.AutoscalingConfig, staticScheduler SchedulerSettin
 		orgs:                          make(map[string]*organizationState),
 	}
 	controller.scheduler.currentInterval = controller.staticScheduler.Interval
+	controller.distributed.activeWorkers = 1
 	if controller.inputBasis == "" {
 		controller.inputBasis = inputBasisIncrementalLogs
 	}
@@ -129,6 +166,20 @@ func (c *Controller) ObserveCycle(totalIncrementalLogs int) {
 	c.recomputeSchedulerLocked()
 }
 
+func (c *Controller) ObserveDistributedCycle(totalIncrementalLogs int, activeWorkers int) {
+	if c == nil || !c.enabled || c.inputBasis != inputBasisIncrementalLogs {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.scheduler.lastWorkload = maxInt(0, totalIncrementalLogs)
+	c.scheduler.hasWorkload = true
+	c.distributed.activeWorkers = maxInt(1, activeWorkers)
+	c.recomputeSchedulerLocked()
+}
+
 func (c *Controller) ObserveExecution(observation ExecutionObservation) {
 	if c == nil || !c.enabled {
 		return
@@ -139,6 +190,31 @@ func (c *Controller) ObserveExecution(observation ExecutionObservation) {
 
 	c.scheduler.lastExecution = sanitizeExecutionObservation(observation)
 	c.scheduler.hasExecution = true
+	c.recomputeSchedulerLocked()
+}
+
+func (c *Controller) ObserveDistributedObservation(observation DistributedObservation) {
+	if c == nil || !c.enabled {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	sanitized := sanitizeDistributedObservation(observation)
+	if sanitized.ActiveWorkers > 0 {
+		c.distributed.activeWorkers = sanitized.ActiveWorkers
+	}
+	if sanitized.CorrelationWorkUnits > 0 && sanitized.TotalShardDuration > 0 {
+		target := float64(sanitized.CorrelationWorkUnits) / sanitized.TotalShardDuration.Seconds()
+		c.distributed.perWorkerThroughput = blendPositiveFloat(c.distributed.perWorkerThroughput, target)
+	}
+	if sanitized.CorrelationWorkUnits > 0 && c.scheduler.hasWorkload && c.scheduler.lastWorkload > 0 {
+		target := float64(sanitized.CorrelationWorkUnits) / float64(c.scheduler.lastWorkload)
+		c.distributed.workUnitMultiplier = blendPositiveFloat(c.distributed.workUnitMultiplier, target)
+	}
+	c.distributed.lastObservation = sanitized
+	c.distributed.hasObservation = true
 	c.recomputeSchedulerLocked()
 }
 
@@ -180,6 +256,61 @@ func (c *Controller) ResolveOrganization(organization string, incrementalCount i
 	return result
 }
 
+func (c *Controller) ResolveDistributedShardPlan(
+	logCount int,
+	activeWorkers int,
+	hints DistributedShardHints,
+) DistributedShardPlan {
+	activeWorkers = maxInt(1, activeWorkers)
+	defaultTarget := maxInt(1, hints.DefaultTargetLogsPerShard)
+	if logCount <= 0 {
+		return DistributedShardPlan{
+			ActiveWorkers:      activeWorkers,
+			DesiredShards:      0,
+			TargetLogsPerShard: defaultTarget,
+		}
+	}
+
+	c.mu.Lock()
+	throughput := c.distributed.perWorkerThroughput
+	c.mu.Unlock()
+
+	targetLogsPerShard := defaultTarget
+	if throughput > 0 && hints.TargetShardDuration > 0 {
+		targetByDuration := int(throughput*hints.TargetShardDuration.Seconds() + 0.5)
+		if targetByDuration > 0 {
+			targetLogsPerShard = targetByDuration
+		}
+	}
+
+	baseShards := divideRoundUp(logCount, targetLogsPerShard)
+	minShards := activeWorkers * maxInt(1, hints.MinShardsPerWorker)
+	maxShards := activeWorkers * maxInt(maxInt(1, hints.MinShardsPerWorker), hints.MaxShardsPerWorker)
+	desiredShards := clampInt(baseShards, minShards, maxShards)
+	if desiredShards > logCount {
+		desiredShards = logCount
+	}
+	if desiredShards <= 0 {
+		desiredShards = 1
+	}
+	targetLogsPerShard = divideRoundUp(logCount, desiredShards)
+
+	concurrentWorkers := minInt(activeWorkers, desiredShards)
+	estimatedDuration := time.Duration(0)
+	if throughput > 0 && concurrentWorkers > 0 {
+		seconds := float64(logCount) / (throughput * float64(concurrentWorkers))
+		estimatedDuration = time.Duration(seconds*float64(time.Second) + 0.5)
+	}
+
+	return DistributedShardPlan{
+		ActiveWorkers:            activeWorkers,
+		DesiredShards:            desiredShards,
+		TargetLogsPerShard:       maxInt(1, targetLogsPerShard),
+		QueueDepth:               maxInt(0, desiredShards-activeWorkers),
+		EstimatedClusterDuration: estimatedDuration,
+	}
+}
+
 func sanitizeSchedulerSettings(settings SchedulerSettings) SchedulerSettings {
 	if settings.Interval <= 0 {
 		settings.Interval = time.Second
@@ -199,6 +330,25 @@ func sanitizeExecutionObservation(observation ExecutionObservation) ExecutionObs
 	}
 	if observation.Duration < 0 {
 		observation.Duration = 0
+	}
+	return observation
+}
+
+func sanitizeDistributedObservation(observation DistributedObservation) DistributedObservation {
+	observation.ActiveWorkers = maxInt(1, observation.ActiveWorkers)
+	observation.CorrelationWorkUnits = maxInt(0, observation.CorrelationWorkUnits)
+	observation.PlannedShards = maxInt(0, observation.PlannedShards)
+	observation.CompletedShards = maxInt(0, observation.CompletedShards)
+	observation.RetryCount = maxInt(0, observation.RetryCount)
+	observation.QueueDepth = maxInt(0, observation.QueueDepth)
+	if observation.TotalShardDuration < 0 {
+		observation.TotalShardDuration = 0
+	}
+	if observation.MaxShardDuration < 0 {
+		observation.MaxShardDuration = 0
+	}
+	if observation.MergeDuration < 0 {
+		observation.MergeDuration = 0
 	}
 	return observation
 }
@@ -262,8 +412,6 @@ func (c *Controller) resolveSchedulerInterval(totalIncrementalLogs int) time.Dur
 		return c.schedulerMinInterval
 	}
 
-	// Keep the scheduler pinned at the minimum interval while the fetch side
-	// can still absorb the observed backlog by growing grouped lookup batches.
 	maxBatchCapacityAtMinInterval := c.fetcherMaxBatchSize * c.maxBatchesPerCycle
 	if maxBatchCapacityAtMinInterval <= 0 || totalIncrementalLogs <= maxBatchCapacityAtMinInterval {
 		return c.schedulerMinInterval
@@ -294,6 +442,43 @@ func (c *Controller) resolveSchedulerIntervalFromExecution(observation Execution
 	if observation.Failed && !observation.TimedOut {
 		return 0
 	}
+	return c.resolveSchedulerIntervalFromDuration(observation.Duration, observation.TimedOut)
+}
+
+func (c *Controller) resolveSchedulerIntervalFromCluster() time.Duration {
+	if !c.distributed.hasObservation || c.distributed.perWorkerThroughput <= 0 || !c.scheduler.hasWorkload || c.scheduler.lastWorkload <= 0 {
+		return 0
+	}
+
+	activeWorkers := maxInt(1, c.distributed.activeWorkers)
+	workMultiplier := c.distributed.workUnitMultiplier
+	if workMultiplier <= 0 {
+		workMultiplier = 1
+	}
+
+	workUnits := float64(c.scheduler.lastWorkload) * workMultiplier
+	durationSeconds := workUnits / (c.distributed.perWorkerThroughput * float64(activeWorkers))
+	if durationSeconds <= 0 {
+		return 0
+	}
+
+	requiredDuration := time.Duration(durationSeconds*float64(time.Second) + 0.5)
+	if c.distributed.lastObservation.MergeDuration > 0 {
+		requiredDuration += c.distributed.lastObservation.MergeDuration
+	}
+	if c.distributed.lastObservation.RetryCount > 0 {
+		planned := maxInt(1, c.distributed.lastObservation.PlannedShards)
+		retryFactor := 1 + minFloat(1, float64(c.distributed.lastObservation.RetryCount)/float64(planned))*0.25
+		requiredDuration = time.Duration(float64(requiredDuration)*retryFactor + 0.5)
+	}
+
+	return c.resolveSchedulerIntervalFromDuration(requiredDuration, false)
+}
+
+func (c *Controller) resolveSchedulerIntervalFromDuration(duration time.Duration, timedOut bool) time.Duration {
+	if duration <= 0 {
+		return 0
+	}
 
 	targetUtilization := c.schedulerTargetUtilization
 	if targetUtilization <= 0 || targetUtilization >= 1 {
@@ -304,8 +489,8 @@ func (c *Controller) resolveSchedulerIntervalFromExecution(observation Execution
 		timeoutRatio = 0.9
 	}
 
-	requiredInterval := float64(observation.Duration) / (timeoutRatio * targetUtilization)
-	if observation.TimedOut {
+	requiredInterval := float64(duration) / (timeoutRatio * targetUtilization)
+	if timedOut {
 		scaleUpFactor := c.schedulerTimeoutScaleUpFactor
 		if scaleUpFactor < 1 {
 			scaleUpFactor = 1
@@ -331,6 +516,10 @@ func (c *Controller) recomputeSchedulerLocked() {
 			targetInterval = executionTarget
 		}
 	}
+	clusterTarget := c.resolveSchedulerIntervalFromCluster()
+	if clusterTarget > targetInterval {
+		targetInterval = clusterTarget
+	}
 	if targetInterval <= 0 {
 		return
 	}
@@ -346,11 +535,54 @@ func (c *Controller) recomputeSchedulerLocked() {
 	c.warmed = true
 }
 
+func blendPositiveFloat(current, target float64) float64 {
+	if target <= 0 {
+		return current
+	}
+	if current <= 0 {
+		return target
+	}
+	return current*0.5 + target*0.5
+}
+
+func divideRoundUp(value, divisor int) int {
+	if divisor <= 0 {
+		divisor = 1
+	}
+	if value <= 0 {
+		return 0
+	}
+	return (value + divisor - 1) / divisor
+}
+
 func maxInt(left, right int) int {
 	if left > right {
 		return left
 	}
 	return right
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func clampInt(value, minimum, maximum int) int {
+	if minimum <= 0 {
+		minimum = 1
+	}
+	if maximum < minimum {
+		maximum = minimum
+	}
+	if value < minimum {
+		return minimum
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
 }
 
 func clampDuration(value, minimum, maximum time.Duration) time.Duration {
@@ -367,4 +599,11 @@ func clampDuration(value, minimum, maximum time.Duration) time.Duration {
 		return maximum
 	}
 	return value
+}
+
+func minFloat(left, right float64) float64 {
+	if left < right {
+		return left
+	}
+	return right
 }

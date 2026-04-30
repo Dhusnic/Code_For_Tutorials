@@ -26,6 +26,16 @@ autoscaling:
     max_grouped_lookup_batch_size: 10000
     max_batches_per_cycle: 10
 
+distributed:
+  enabled: false
+  worker_id_env: RCA_WORKER_ID
+  lease_ttl: 45s
+  lease_heartbeat_interval: 15s
+  claim_limit_per_cycle: 32
+  stream_consumer_group: rca-correlation
+  prefetch_full_logs: true
+  full_log_cache_ttl: 2h
+
 redis:
   address: 10.0.5.97:6379
   username: ""
@@ -64,6 +74,15 @@ engine:
   incremental_lookback: 0s
   incident_inactivity_ttl: 30m
   checkpoint_directory: data/checkpoints
+  parallel_correlation:
+    enabled: true
+    min_logs: 5000
+    target_logs_per_shard: 5000
+    max_workers: 4
+    distributed_target_shard_duration: 2s
+    distributed_min_shards_per_worker: 1
+    distributed_max_shards_per_worker: 4
+    shard_poll_interval: 20ms
 
 mongo_sync:
   enabled: true

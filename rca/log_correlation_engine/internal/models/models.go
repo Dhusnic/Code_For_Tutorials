@@ -11,25 +11,28 @@ import (
 )
 
 type SignalLog struct {
-	Signal    string
-	LogLevel  string
-	DocID     string
-	TimeStamp time.Time
+	HostIdentity string
+	Signal       string
+	LogLevel     string
+	DocID        string
+	TimeStamp    time.Time
 }
 
 type signalLogPayload struct {
-	Signal    string `json:"signal"`
-	LogLevel  string `json:"log_level"`
-	DocID     string `json:"doc_id"`
-	TimeStamp string `json:"time_stamp"`
+	HostIdentity string `json:"host_identity,omitempty"`
+	Signal       string `json:"signal"`
+	LogLevel     string `json:"log_level"`
+	DocID        string `json:"doc_id"`
+	TimeStamp    string `json:"time_stamp"`
 }
 
 func (s SignalLog) MarshalJSON() ([]byte, error) {
 	return json.Marshal(signalLogPayload{
-		Signal:    s.Signal,
-		LogLevel:  s.LogLevel,
-		DocID:     s.DocID,
-		TimeStamp: s.TimeStamp.UTC().Format(time.RFC3339Nano),
+		HostIdentity: s.HostIdentity,
+		Signal:       s.Signal,
+		LogLevel:     s.LogLevel,
+		DocID:        s.DocID,
+		TimeStamp:    s.TimeStamp.UTC().Format(time.RFC3339Nano),
 	})
 }
 
@@ -44,6 +47,7 @@ func (s *SignalLog) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("parse time_stamp %q: %w", payload.TimeStamp, err)
 	}
 
+	s.HostIdentity = payload.HostIdentity
 	s.Signal = payload.Signal
 	s.LogLevel = payload.LogLevel
 	s.DocID = payload.DocID
@@ -75,6 +79,7 @@ type SignalizedLog = SignalLog
 
 type SignalStreamEvent struct {
 	OrganizationID string    `json:"organization_id"`
+	HostIdentity   string    `json:"host_identity,omitempty"`
 	DocID          string    `json:"doc_id"`
 	Signal         string    `json:"signal"`
 	LogLevel       string    `json:"log_level"`
@@ -221,6 +226,8 @@ type ProcessingCheckpoint struct {
 	SignalCount            int
 	StreamID               string
 	RulesSignature         string
+	LeaseOwner             string
+	LeaseToken             string
 }
 
 type IncidentState struct {

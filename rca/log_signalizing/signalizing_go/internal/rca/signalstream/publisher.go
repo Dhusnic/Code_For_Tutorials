@@ -15,6 +15,7 @@ import (
 // Event is the compact signal payload published for downstream correlation ingestion.
 type Event struct {
 	OrganizationID string    `json:"organization_id"`
+	HostIdentity   string    `json:"host_identity,omitempty"`
 	DocID          string    `json:"doc_id"`
 	Signal         string    `json:"signal"`
 	LogLevel       string    `json:"log_level"`

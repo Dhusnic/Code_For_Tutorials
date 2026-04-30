@@ -1,5 +1,6 @@
 const signalizingInstances = Number(process.env.SIGNALIZING_INSTANCES || 1);
 const signalizingModulePartitions = signalizingInstances;
+const correlationInstances = Number(process.env.CORRELATION_INSTANCES || 1);
 
 const directStreamApps = [
   {
@@ -45,8 +46,9 @@ const directStreamApps = [
     cwd: './log_correlation_engine',
     script: './bin/correlation-engine.exe',
     args: ['--config', './config/config.yml'],
-    instances: 1,
+    instances: correlationInstances,
     exec_mode: 'fork',
+    instance_var: 'RCA_WORKER_ID',
     exec_interpreter: 'none',
     autorestart: true,
     max_restarts: 10,

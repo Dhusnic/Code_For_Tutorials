@@ -1,9 +1,0 @@
-{
-  "key": "Rca:135098068173316952064:correlation_checkpoint",
-  "organization_id": "135098068173316952064",
-  "checkpoint": "2026-04-21T14:14:45.637Z",
-  "signal_payload_signature": "6551be3e3bc90109c5ad3f95142a646c4e7233ceb71274cded1b5c4d7318e313",
-  "rules_signature": "18c36e3231593c3357ab6125d4a579339474ec9f6e2067c16184b4ba23d2b971",
-  "signal_count": 201,
-  "updated_at": "2026-04-21T14:16:06.3740445Z"
-}

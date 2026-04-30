@@ -5,7 +5,7 @@
       "cwd": "D:\\Code for tutorials\\rca\\log_signalizing\\signalizing_go",
       "script": "D:\\Code for tutorials\\rca\\log_signalizing\\signalizing_go\\bin\\signalizing-engine.exe",
       "args": ["--config", "D:\\Code for tutorials\\rca\\log_signalizing\\config.yml"],
-      "instances": 4,
+      "instances": 1,
       "exec_mode": "fork",
       "instance_var": "RCA_WORKER_ID",
       "wait_ready": false,

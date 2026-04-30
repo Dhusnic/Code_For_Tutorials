@@ -46,6 +46,17 @@ type AutoscalingConfig struct {
 	Fetcher                 AutoscalingFetcherConfig   `yaml:"fetcher"`
 }
 
+type DistributedConfig struct {
+	Enabled                bool          `yaml:"enabled"`
+	WorkerIDEnv            string        `yaml:"worker_id_env"`
+	LeaseTTL               time.Duration `yaml:"lease_ttl"`
+	LeaseHeartbeatInterval time.Duration `yaml:"lease_heartbeat_interval"`
+	ClaimLimitPerCycle     int           `yaml:"claim_limit_per_cycle"`
+	StreamConsumerGroup    string        `yaml:"stream_consumer_group"`
+	PrefetchFullLogs       bool          `yaml:"prefetch_full_logs"`
+	FullLogCacheTTL        time.Duration `yaml:"full_log_cache_ttl"`
+}
+
 type RedisConfig struct {
 	Address                         string        `yaml:"address"`
 	Username                        string        `yaml:"username"`
@@ -77,14 +88,26 @@ type ElasticsearchConfig struct {
 	BulkBatchSize  int           `yaml:"bulk_batch_size"`
 }
 
+type ParallelCorrelationConfig struct {
+	Enabled                        bool          `yaml:"enabled"`
+	MinLogs                        int           `yaml:"min_logs"`
+	TargetLogsPerShard             int           `yaml:"target_logs_per_shard"`
+	MaxWorkers                     int           `yaml:"max_workers"`
+	DistributedTargetShardDuration time.Duration `yaml:"distributed_target_shard_duration"`
+	DistributedMinShardsPerWorker  int           `yaml:"distributed_min_shards_per_worker"`
+	DistributedMaxShardsPerWorker  int           `yaml:"distributed_max_shards_per_worker"`
+	ShardPollInterval              time.Duration `yaml:"shard_poll_interval"`
+}
+
 type EngineConfig struct {
-	RulesFile             string        `yaml:"rules_file"`
-	HotReloadInterval     time.Duration `yaml:"hot_reload_interval"`
-	DefaultWindow         time.Duration `yaml:"default_window"`
-	DefaultMaxGap         time.Duration `yaml:"default_max_gap"`
-	IncrementalLookback   time.Duration `yaml:"incremental_lookback"`
-	IncidentInactivityTTL time.Duration `yaml:"incident_inactivity_ttl"`
-	CheckpointDirectory   string        `yaml:"checkpoint_directory"`
+	RulesFile             string                    `yaml:"rules_file"`
+	HotReloadInterval     time.Duration             `yaml:"hot_reload_interval"`
+	DefaultWindow         time.Duration             `yaml:"default_window"`
+	DefaultMaxGap         time.Duration             `yaml:"default_max_gap"`
+	IncrementalLookback   time.Duration             `yaml:"incremental_lookback"`
+	IncidentInactivityTTL time.Duration             `yaml:"incident_inactivity_ttl"`
+	CheckpointDirectory   string                    `yaml:"checkpoint_directory"`
+	ParallelCorrelation   ParallelCorrelationConfig `yaml:"parallel_correlation"`
 }
 
 type MongoSyncConfig struct {
@@ -126,6 +149,7 @@ type Config struct {
 	Logging       LoggingConfig       `yaml:"logging"`
 	Scheduler     SchedulerConfig     `yaml:"scheduler"`
 	Autoscaling   AutoscalingConfig   `yaml:"autoscaling"`
+	Distributed   DistributedConfig   `yaml:"distributed"`
 	Redis         RedisConfig         `yaml:"redis"`
 	Elasticsearch ElasticsearchConfig `yaml:"elasticsearch"`
 	Engine        EngineConfig        `yaml:"engine"`
@@ -183,6 +207,16 @@ func defaultConfig() Config {
 				MaxBatchesPerCycle:        10,
 			},
 		},
+		Distributed: DistributedConfig{
+			Enabled:                false,
+			WorkerIDEnv:            "RCA_WORKER_ID",
+			LeaseTTL:               45 * time.Second,
+			LeaseHeartbeatInterval: 15 * time.Second,
+			ClaimLimitPerCycle:     32,
+			StreamConsumerGroup:    "rca-correlation",
+			PrefetchFullLogs:       true,
+			FullLogCacheTTL:        2 * time.Hour,
+		},
 		Redis: RedisConfig{
 			DB:                              0,
 			DialTimeout:                     5 * time.Second,
@@ -214,6 +248,16 @@ func defaultConfig() Config {
 			IncrementalLookback:   0,
 			IncidentInactivityTTL: 30 * time.Minute,
 			CheckpointDirectory:   filepath.Join("data", "checkpoints"),
+			ParallelCorrelation: ParallelCorrelationConfig{
+				Enabled:                        false,
+				MinLogs:                        5000,
+				TargetLogsPerShard:             5000,
+				MaxWorkers:                     4,
+				DistributedTargetShardDuration: 2 * time.Second,
+				DistributedMinShardsPerWorker:  1,
+				DistributedMaxShardsPerWorker:  4,
+				ShardPollInterval:              20 * time.Millisecond,
+			},
 		},
 		MongoSync: MongoSyncConfig{
 			Database:           "dhusnic_test_db",
@@ -244,6 +288,8 @@ func (c *Config) normalize() {
 	c.Logging.Level = strings.TrimSpace(c.Logging.Level)
 	c.Logging.Format = strings.ToLower(strings.TrimSpace(c.Logging.Format))
 	c.Autoscaling.InputBasis = strings.ToLower(strings.TrimSpace(c.Autoscaling.InputBasis))
+	c.Distributed.WorkerIDEnv = strings.TrimSpace(c.Distributed.WorkerIDEnv)
+	c.Distributed.StreamConsumerGroup = strings.TrimSpace(c.Distributed.StreamConsumerGroup)
 
 	c.Redis.Address = strings.TrimSpace(c.Redis.Address)
 	c.Redis.Username = strings.TrimSpace(c.Redis.Username)
@@ -285,6 +331,45 @@ func (c *Config) normalize() {
 	c.Fetcher.Addresses = compactStrings(c.Fetcher.Addresses)
 	if c.Fetcher.Mode == "" {
 		c.Fetcher.Mode = "mock"
+	}
+	if c.Engine.ParallelCorrelation.MinLogs <= 0 {
+		c.Engine.ParallelCorrelation.MinLogs = 5000
+	}
+	if c.Engine.ParallelCorrelation.TargetLogsPerShard <= 0 {
+		c.Engine.ParallelCorrelation.TargetLogsPerShard = 5000
+	}
+	if c.Engine.ParallelCorrelation.MaxWorkers <= 0 {
+		c.Engine.ParallelCorrelation.MaxWorkers = 4
+	}
+	if c.Engine.ParallelCorrelation.DistributedTargetShardDuration <= 0 {
+		c.Engine.ParallelCorrelation.DistributedTargetShardDuration = 2 * time.Second
+	}
+	if c.Engine.ParallelCorrelation.DistributedMinShardsPerWorker <= 0 {
+		c.Engine.ParallelCorrelation.DistributedMinShardsPerWorker = 1
+	}
+	if c.Engine.ParallelCorrelation.DistributedMaxShardsPerWorker <= 0 {
+		c.Engine.ParallelCorrelation.DistributedMaxShardsPerWorker = 4
+	}
+	if c.Engine.ParallelCorrelation.ShardPollInterval <= 0 {
+		c.Engine.ParallelCorrelation.ShardPollInterval = 20 * time.Millisecond
+	}
+	if c.Distributed.WorkerIDEnv == "" {
+		c.Distributed.WorkerIDEnv = "RCA_WORKER_ID"
+	}
+	if c.Distributed.LeaseTTL <= 0 {
+		c.Distributed.LeaseTTL = 45 * time.Second
+	}
+	if c.Distributed.LeaseHeartbeatInterval <= 0 {
+		c.Distributed.LeaseHeartbeatInterval = 15 * time.Second
+	}
+	if c.Distributed.ClaimLimitPerCycle <= 0 {
+		c.Distributed.ClaimLimitPerCycle = 32
+	}
+	if c.Distributed.StreamConsumerGroup == "" {
+		c.Distributed.StreamConsumerGroup = "rca-correlation"
+	}
+	if c.Distributed.FullLogCacheTTL <= 0 {
+		c.Distributed.FullLogCacheTTL = 2 * time.Hour
 	}
 	if c.Autoscaling.InputBasis == "" {
 		c.Autoscaling.InputBasis = "incremental_logs"
@@ -394,6 +479,29 @@ func (c Config) Validate() error {
 	if c.Autoscaling.Fetcher.MaxBatchesPerCycle <= 0 {
 		return errors.New("autoscaling.fetcher.max_batches_per_cycle must be greater than zero")
 	}
+	if c.Distributed.Enabled {
+		if c.Distributed.WorkerIDEnv == "" {
+			return errors.New("distributed.worker_id_env must not be empty when distributed.enabled is true")
+		}
+		if c.Distributed.LeaseTTL <= 0 {
+			return errors.New("distributed.lease_ttl must be greater than zero when distributed.enabled is true")
+		}
+		if c.Distributed.LeaseHeartbeatInterval <= 0 {
+			return errors.New("distributed.lease_heartbeat_interval must be greater than zero when distributed.enabled is true")
+		}
+		if c.Distributed.LeaseHeartbeatInterval >= c.Distributed.LeaseTTL {
+			return errors.New("distributed.lease_heartbeat_interval must be less than distributed.lease_ttl")
+		}
+		if c.Distributed.ClaimLimitPerCycle <= 0 {
+			return errors.New("distributed.claim_limit_per_cycle must be greater than zero when distributed.enabled is true")
+		}
+		if c.Distributed.StreamConsumerGroup == "" {
+			return errors.New("distributed.stream_consumer_group must not be empty when distributed.enabled is true")
+		}
+		if c.Distributed.FullLogCacheTTL <= 0 {
+			return errors.New("distributed.full_log_cache_ttl must be greater than zero when distributed.enabled is true")
+		}
+	}
 	if c.Redis.Address == "" {
 		return errors.New("redis.address must not be empty")
 	}
@@ -464,6 +572,29 @@ func (c Config) Validate() error {
 	}
 	if c.Engine.CheckpointDirectory == "" {
 		return errors.New("engine.checkpoint_directory must not be empty")
+	}
+	if c.Engine.ParallelCorrelation.Enabled {
+		if c.Engine.ParallelCorrelation.MinLogs <= 0 {
+			return errors.New("engine.parallel_correlation.min_logs must be greater than zero when engine.parallel_correlation.enabled is true")
+		}
+		if c.Engine.ParallelCorrelation.TargetLogsPerShard <= 0 {
+			return errors.New("engine.parallel_correlation.target_logs_per_shard must be greater than zero when engine.parallel_correlation.enabled is true")
+		}
+		if c.Engine.ParallelCorrelation.MaxWorkers <= 1 {
+			return errors.New("engine.parallel_correlation.max_workers must be greater than one when engine.parallel_correlation.enabled is true")
+		}
+		if c.Engine.ParallelCorrelation.DistributedTargetShardDuration <= 0 {
+			return errors.New("engine.parallel_correlation.distributed_target_shard_duration must be greater than zero when engine.parallel_correlation.enabled is true")
+		}
+		if c.Engine.ParallelCorrelation.DistributedMinShardsPerWorker <= 0 {
+			return errors.New("engine.parallel_correlation.distributed_min_shards_per_worker must be greater than zero when engine.parallel_correlation.enabled is true")
+		}
+		if c.Engine.ParallelCorrelation.DistributedMaxShardsPerWorker < c.Engine.ParallelCorrelation.DistributedMinShardsPerWorker {
+			return errors.New("engine.parallel_correlation.distributed_max_shards_per_worker must be greater than or equal to engine.parallel_correlation.distributed_min_shards_per_worker when engine.parallel_correlation.enabled is true")
+		}
+		if c.Engine.ParallelCorrelation.ShardPollInterval <= 0 {
+			return errors.New("engine.parallel_correlation.shard_poll_interval must be greater than zero when engine.parallel_correlation.enabled is true")
+		}
 	}
 	if c.MongoSync.Enabled {
 		if c.MongoSync.URI == "" {

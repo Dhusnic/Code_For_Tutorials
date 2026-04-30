@@ -151,3 +151,67 @@ func TestControllerScalesSchedulerFromExecutionTimeWhenWorkloadOnlyWouldStayAtMi
 		t.Fatalf("expected interval to scale to 18.75s/16.875s from timeout feedback, got %#v", scaled)
 	}
 }
+
+func TestControllerUsesDistributedThroughputForShardPlanningAndSchedulerScaling(t *testing.T) {
+	t.Parallel()
+
+	controller := NewController(
+		config.AutoscalingConfig{
+			Enabled:                 true,
+			InputBasis:              "incremental_logs",
+			InputLowWatermark:       1000,
+			InputHighWatermark:      100000,
+			ScaleDownCooldownCycles: 3,
+			Scheduler: config.AutoscalingSchedulerConfig{
+				MinInterval:              10 * time.Second,
+				MaxInterval:              60 * time.Second,
+				TimeoutRatio:             0.9,
+				TargetCycleUtilization:   0.8,
+				TimeoutScaleUpMultiplier: 1.5,
+			},
+			Fetcher: config.AutoscalingFetcherConfig{
+				MinGroupedLookupBatchSize: 1000,
+				MaxGroupedLookupBatchSize: 10000,
+				MaxBatchesPerCycle:        10,
+			},
+		},
+		SchedulerSettings{Interval: 5 * time.Second, RunTimeout: 5 * time.Second},
+		250,
+	)
+
+	controller.ObserveDistributedCycle(60000, 3)
+	controller.ObserveDistributedObservation(DistributedObservation{
+		ActiveWorkers:        3,
+		CorrelationWorkUnits: 60000,
+		PlannedShards:        6,
+		CompletedShards:      6,
+		QueueDepth:           3,
+		TotalShardDuration:   60 * time.Second,
+		MaxShardDuration:     6 * time.Second,
+		MergeDuration:        500 * time.Millisecond,
+	})
+
+	settings := controller.CurrentSchedulerSettings()
+	if settings.Interval <= 10*time.Second {
+		t.Fatalf("expected distributed throughput feedback to increase interval beyond 10s, got %#v", settings)
+	}
+
+	plan := controller.ResolveDistributedShardPlan(12000, 3, DistributedShardHints{
+		DefaultTargetLogsPerShard: 5000,
+		MinShardsPerWorker:        1,
+		MaxShardsPerWorker:        4,
+		TargetShardDuration:       2 * time.Second,
+	})
+	if plan.DesiredShards != 6 {
+		t.Fatalf("expected 6 desired shards from distributed throughput plan, got %#v", plan)
+	}
+	if plan.TargetLogsPerShard != 2000 {
+		t.Fatalf("expected 2000 target logs per shard, got %#v", plan)
+	}
+	if plan.QueueDepth != 3 {
+		t.Fatalf("expected queue depth 3, got %#v", plan)
+	}
+	if plan.EstimatedClusterDuration != 4*time.Second {
+		t.Fatalf("expected estimated cluster duration 4s, got %#v", plan)
+	}
+}

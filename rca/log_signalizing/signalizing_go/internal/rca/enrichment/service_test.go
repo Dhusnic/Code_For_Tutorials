@@ -255,6 +255,9 @@ func TestBuildSignalStreamEventUsesOrganizationAndNormalizedLevel(t *testing.T) 
 		"doc-1",
 		map[string]any{
 			"@timestamp": "2026-04-09T10:00:00Z",
+			"host": map[string]any{
+				"ip": []any{"10.0.0.12", "10.0.0.13"},
+			},
 			"log": map[string]any{
 				"level": "ERR",
 			},
@@ -272,6 +275,9 @@ func TestBuildSignalStreamEventUsesOrganizationAndNormalizedLevel(t *testing.T) 
 	}
 	if event.OrganizationID != "org-1" {
 		t.Fatalf("expected organization org-1, got %q", event.OrganizationID)
+	}
+	if event.HostIdentity != "10.0.0.12" {
+		t.Fatalf("expected host identity 10.0.0.12, got %q", event.HostIdentity)
 	}
 	if event.DocID != "doc-1" {
 		t.Fatalf("expected doc id doc-1, got %q", event.DocID)
@@ -327,5 +333,8 @@ func TestBuildSignalStreamEventFallsBackToOrganizationInMessage(t *testing.T) {
 	}
 	if event.Signal != "nginx_access_5xx_any" {
 		t.Fatalf("expected nginx signal, got %q", event.Signal)
+	}
+	if event.HostIdentity != "" {
+		t.Fatalf("expected empty host identity without host metadata, got %q", event.HostIdentity)
 	}
 }

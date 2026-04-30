@@ -113,11 +113,30 @@ func main() {
 	}
 
 	store := redis.NewStore(redisClient.Raw(), cfg.Redis, log.With("component", "redis"))
-	checkpointStore := checkpoint.NewStore(
-		cfg.Engine.CheckpointDirectory,
-		cfg.Redis.KeyPrefix,
-		log.With("component", "checkpoint"),
-	)
+	var checkpointStore service.CheckpointStore
+	if cfg.Distributed.Enabled {
+		checkpointStore = checkpoint.NewRedisStore(
+			redisClient.Raw(),
+			cfg.Redis.KeyPrefix,
+			log.With("component", "checkpoint"),
+		)
+		log.Info(
+			"distributed correlation mode enabled",
+			"worker_id_env", cfg.Distributed.WorkerIDEnv,
+			"stream_consumer_group", cfg.Distributed.StreamConsumerGroup,
+			"lease_ttl", cfg.Distributed.LeaseTTL.String(),
+			"lease_heartbeat_interval", cfg.Distributed.LeaseHeartbeatInterval.String(),
+			"claim_limit_per_cycle", cfg.Distributed.ClaimLimitPerCycle,
+			"prefetch_full_logs", cfg.Distributed.PrefetchFullLogs,
+			"full_log_cache_ttl", cfg.Distributed.FullLogCacheTTL.String(),
+		)
+	} else {
+		checkpointStore = checkpoint.NewStore(
+			cfg.Engine.CheckpointDirectory,
+			cfg.Redis.KeyPrefix,
+			log.With("component", "checkpoint"),
+		)
+	}
 
 	writer, err := elastic.NewWriter(cfg.Elasticsearch, log.With("component", "elasticsearch"))
 	if err != nil {

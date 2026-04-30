@@ -299,3 +299,16 @@ rules:
         field: message
         op: contains
         value: heap size
+    - id: SYSTEM_AUTO_29T18_DEBUG_PLUGINS_ALERTING_C80ED036
+      signal_key: system_auto_29t18_debug_plugins_alerting_c80e
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: 29t18 debug plugins alerting'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: 29t18 debug plugins alerting

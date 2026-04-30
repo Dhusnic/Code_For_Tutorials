@@ -29,6 +29,8 @@ type filePayload struct {
 	RulesSignature         string `json:"rules_signature,omitempty"`
 	SignalCount            int    `json:"signal_count,omitempty"`
 	StreamID               string `json:"stream_id,omitempty"`
+	LeaseOwner             string `json:"lease_owner,omitempty"`
+	LeaseToken             string `json:"lease_token,omitempty"`
 	UpdatedAt              string `json:"updated_at"`
 }
 
@@ -69,6 +71,8 @@ func (s *Store) LoadCheckpoint(ctx context.Context, organization string) (models
 		RulesSignature:         strings.TrimSpace(stored.RulesSignature),
 		SignalCount:            stored.SignalCount,
 		StreamID:               strings.TrimSpace(stored.StreamID),
+		LeaseOwner:             strings.TrimSpace(stored.LeaseOwner),
+		LeaseToken:             strings.TrimSpace(stored.LeaseToken),
 	}
 
 	if strings.TrimSpace(stored.Checkpoint) != "" {
@@ -103,6 +107,8 @@ func (s *Store) SaveCheckpoint(ctx context.Context, organization string, checkpo
 		RulesSignature:         checkpoint.RulesSignature,
 		SignalCount:            checkpoint.SignalCount,
 		StreamID:               strings.TrimSpace(checkpoint.StreamID),
+		LeaseOwner:             strings.TrimSpace(checkpoint.LeaseOwner),
+		LeaseToken:             strings.TrimSpace(checkpoint.LeaseToken),
 		UpdatedAt:              now.Format(time.RFC3339Nano),
 	}, "", "  ")
 	if err != nil {

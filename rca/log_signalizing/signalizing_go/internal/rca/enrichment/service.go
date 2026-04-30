@@ -20,7 +20,10 @@ import (
 	"rca/internal/rca/writer"
 )
 
-var organizationQueryPattern = regexp.MustCompile(`(?:[?&](?:org|organization)=)([A-Za-z0-9_-]+)`)
+var (
+	organizationQueryPattern = regexp.MustCompile(`(?:[?&](?:org|organization)=)([A-Za-z0-9_-]+)`)
+	ipv4Pattern              = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+)
 
 // CountClient is the count subset needed from Elasticsearch.
 type CountClient interface {
@@ -557,6 +560,7 @@ func (s *SignalEnrichmentService) buildSignalStreamEvent(
 
 	return signalstream.Event{
 		OrganizationID: organizationID,
+		HostIdentity:   resolveSignalStreamHostIdentity(sourceDoc),
 		DocID:          sourceID,
 		Signal:         strings.TrimSpace(fmt.Sprint(selectedSignal["signal"])),
 		LogLevel:       logLevel,
@@ -564,6 +568,29 @@ func (s *SignalEnrichmentService) buildSignalStreamEvent(
 		SourceIndex:    sourceIndex,
 		SourceID:       sourceID,
 	}, true
+}
+
+func resolveSignalStreamHostIdentity(sourceDoc map[string]any) string {
+	if len(sourceDoc) == 0 {
+		return ""
+	}
+
+	rawHostIP := util.GetNested(sourceDoc, "host.ip")
+	if rawHostIP != nil {
+		matches := ipv4Pattern.FindAllString(strings.TrimSpace(fmt.Sprint(rawHostIP)), -1)
+		for _, match := range matches {
+			trimmed := strings.TrimSpace(match)
+			if trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+
+	hostName := strings.TrimSpace(fmt.Sprint(util.GetNested(sourceDoc, "host.name")))
+	if hostName == "" || hostName == "<nil>" {
+		return ""
+	}
+	return hostName
 }
 
 func extractOrganizationFromFallbackFields(sourceDoc map[string]any) string {

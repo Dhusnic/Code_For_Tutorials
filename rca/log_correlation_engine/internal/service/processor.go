@@ -16,6 +16,7 @@ import (
 
 	"log_correlation_engine/internal/autoscaling"
 	"log_correlation_engine/internal/config"
+	"log_correlation_engine/internal/distributed"
 	"log_correlation_engine/internal/fetch"
 	"log_correlation_engine/internal/models"
 	"log_correlation_engine/internal/utils"
@@ -38,6 +39,39 @@ type OrganizationStore interface {
 type CheckpointStore interface {
 	LoadCheckpoint(ctx context.Context, organization string) (models.ProcessingCheckpoint, error)
 	SaveCheckpoint(ctx context.Context, organization string, checkpoint models.ProcessingCheckpoint) error
+}
+
+type DistributedStore interface {
+	EnsureSignalStreamConsumerGroup(ctx context.Context, group string) error
+	ReadSignalStreamConsumerGroup(ctx context.Context, group, consumer string, minIdle time.Duration) ([]models.SignalStreamEvent, []string, error)
+	AckSignalStream(ctx context.Context, group string, ids []string) error
+	MergeSignalLogs(ctx context.Context, organization string, incoming []models.SignalLog, retentionCutoff time.Time) (bool, bool, error)
+	LoadCachedFullLogs(ctx context.Context, docIDs []string) (map[string]*models.FullLog, error)
+	SaveCachedFullLogs(ctx context.Context, logs map[string]*models.FullLog, ttl time.Duration) error
+	HeartbeatWorker(ctx context.Context, worker distributed.WorkerHeartbeat, ttl time.Duration) error
+	ListActiveWorkers(ctx context.Context) ([]distributed.WorkerHeartbeat, error)
+	ClaimWorkloadLease(ctx context.Context, lease distributed.Lease, ttl time.Duration) (bool, error)
+	RenewWorkloadLease(ctx context.Context, lease distributed.Lease, ttl time.Duration) (bool, error)
+	VerifyWorkloadLease(ctx context.Context, lease distributed.Lease) (bool, error)
+	ReleaseWorkloadLease(ctx context.Context, lease distributed.Lease) error
+	StartWorkloadRun(ctx context.Context, lease distributed.Lease, run distributed.WorkloadRun, shard distributed.ShardContract, ttl time.Duration) error
+	ClaimWorkloadRunFinalization(ctx context.Context, lease distributed.Lease, run distributed.WorkloadRun, ttl time.Duration) (bool, error)
+	StoreWorkloadShards(ctx context.Context, lease distributed.Lease, run distributed.WorkloadRun, shards []distributed.ShardExecutionPayload, ttl time.Duration) error
+	ClaimWorkloadShard(ctx context.Context, workerID string, ttl time.Duration, run *distributed.WorkloadRun) (*distributed.ShardExecutionPayload, *distributed.ShardLease, error)
+	RenewWorkloadShardLease(ctx context.Context, lease distributed.ShardLease, ttl time.Duration) (bool, error)
+	ReleaseWorkloadShardLease(ctx context.Context, lease distributed.ShardLease) error
+	CompleteWorkloadShard(ctx context.Context, lease distributed.ShardLease, result distributed.ShardExecutionResult, ttl time.Duration) error
+	FailWorkloadShard(ctx context.Context, lease distributed.ShardLease, message string, retryable bool, retryAfter time.Time, ttl time.Duration) error
+	LoadWorkloadShardResults(ctx context.Context, run distributed.WorkloadRun, mode string) ([]distributed.ShardExecutionResult, []distributed.ShardContract, error)
+	FinishWorkloadRun(
+		ctx context.Context,
+		lease distributed.Lease,
+		run distributed.WorkloadRun,
+		shard distributed.ShardContract,
+		status distributed.ShardState,
+		ttl time.Duration,
+		message string,
+	) error
 }
 
 type LogFetcher interface {
@@ -79,6 +113,7 @@ type Dependencies struct {
 type Processor struct {
 	config      config.Config
 	store       OrganizationStore
+	distributed DistributedStore
 	checkpoints CheckpointStore
 	fetcher     LogFetcher
 	engine      Correlator
@@ -86,29 +121,57 @@ type Processor struct {
 	writer      ResultWriter
 	autoscaler  *autoscaling.Controller
 	logger      *slog.Logger
+	workerID    string
+	consumer    string
 	now         func() time.Time
 }
 
 type CycleSummary struct {
-	Organizations         int
-	OrganizationsWithLogs int
-	OrganizationsSkipped  int
-	OrganizationFailures  int
-	SignalLogsRead        int
-	IncrementalSignalLogs int
-	EnrichedLogs          int
-	FetchErrors           int
-	CorrelationsFound     int
-	IncidentsOpened       int
-	IncidentsUpdated      int
-	IncidentsClosed       int
-	ResultsWritten        int
-	ResultWriteFailures   int
-	ResultPublishFailures int
-	ResultsSuppressed     int
-	ShadowMatches         int
-	IncidentStateFailures int
-	CheckpointFailures    int
+	Organizations                 int
+	OrganizationsWithLogs         int
+	OrganizationsSkipped          int
+	OrganizationFailures          int
+	SignalLogsRead                int
+	IncrementalSignalLogs         int
+	EnrichedLogs                  int
+	FetchErrors                   int
+	CorrelationsFound             int
+	IncidentsOpened               int
+	IncidentsUpdated              int
+	IncidentsClosed               int
+	ResultsWritten                int
+	ResultWriteFailures           int
+	ResultPublishFailures         int
+	ResultsSuppressed             int
+	ShadowMatches                 int
+	IncidentStateFailures         int
+	CheckpointFailures            int
+	DistributedShardsPlanned      int
+	DistributedShardsCompleted    int
+	DistributedShardRetries       int
+	DistributedShardQueueDepth    int
+	DistributedCorrelationLogs    int
+	DistributedTotalShardDuration time.Duration
+	DistributedMaxShardDuration   time.Duration
+	DistributedMergeDuration      time.Duration
+}
+
+func (s *CycleSummary) mergeCorrelationMetrics(metrics correlationRunMetrics) {
+	if s == nil {
+		return
+	}
+	s.DistributedShardsPlanned += metrics.ShardsPlanned
+	s.DistributedShardsCompleted += metrics.ShardsCompleted
+	s.DistributedShardRetries += metrics.ShardRetryCount
+	if metrics.ShardQueueDepth > s.DistributedShardQueueDepth {
+		s.DistributedShardQueueDepth = metrics.ShardQueueDepth
+	}
+	s.DistributedCorrelationLogs += metrics.CorrelationLogs
+	s.DistributedTotalShardDuration += metrics.TotalShardDuration
+	if metrics.MaxShardDuration > s.DistributedMaxShardDuration {
+		s.DistributedMaxShardDuration = metrics.MaxShardDuration
+	}
+	s.DistributedMergeDuration += metrics.MergeDuration
 }
 
 type organizationOutcome struct {
@@ -172,10 +235,21 @@ func NewProcessor(deps Dependencies) *Processor {
 	if checkpoints == nil {
 		checkpoints = noopCheckpointStore{}
 	}
+	var distributedStore DistributedStore
+	if ds, ok := deps.Store.(DistributedStore); ok {
+		distributedStore = ds
+	}
+	workerID := ""
+	consumer := ""
+	if deps.Config.Distributed.Enabled {
+		workerID = distributed.ResolveWorkerID(deps.Config.Distributed.WorkerIDEnv)
+		consumer = workerID
+	}
 
 	return &Processor{
 		config:      deps.Config,
 		store:       deps.Store,
+		distributed: distributedStore,
 		checkpoints: checkpoints,
 		fetcher:     deps.Fetcher,
 		engine:      deps.Engine,
@@ -183,6 +257,8 @@ func NewProcessor(deps Dependencies) *Processor {
 		writer:      deps.Writer,
 		autoscaler:  deps.Autoscaler,
 		logger:      log.With("component", "processor"),
+		workerID:    workerID,
+		consumer:    consumer,
 		now:         time.Now,
 	}
 }
@@ -191,6 +267,9 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 	started := p.now().UTC()
 
 	rules := p.rules.GetRules()
+	if p.config.Distributed.Enabled {
+		return p.runDistributedCycle(ctx, started, rules)
+	}
 	if p.config.Redis.SignalStreamEnabled {
 		if err := p.ingestSignalStream(ctx, rules); err != nil {
 			return fmt.Errorf("ingest signal stream: %w", err)
@@ -281,6 +360,18 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 		summary.ShadowMatches += outcome.summary.ShadowMatches
 		summary.IncidentStateFailures += outcome.summary.IncidentStateFailures
 		summary.CheckpointFailures += outcome.summary.CheckpointFailures
+		summary.DistributedShardsPlanned += outcome.summary.DistributedShardsPlanned
+		summary.DistributedShardsCompleted += outcome.summary.DistributedShardsCompleted
+		summary.DistributedShardRetries += outcome.summary.DistributedShardRetries
+		if outcome.summary.DistributedShardQueueDepth > summary.DistributedShardQueueDepth {
+			summary.DistributedShardQueueDepth = outcome.summary.DistributedShardQueueDepth
+		}
+		summary.DistributedCorrelationLogs += outcome.summary.DistributedCorrelationLogs
+		summary.DistributedTotalShardDuration += outcome.summary.DistributedTotalShardDuration
+		if outcome.summary.DistributedMaxShardDuration > summary.DistributedMaxShardDuration {
+			summary.DistributedMaxShardDuration = outcome.summary.DistributedMaxShardDuration
+		}
+		summary.DistributedMergeDuration += outcome.summary.DistributedMergeDuration
 	}
 
 	p.logger.Info(
@@ -306,6 +397,14 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 		"shadow_matches", summary.ShadowMatches,
 		"incident_state_failures", summary.IncidentStateFailures,
 		"checkpoint_failures", summary.CheckpointFailures,
+		"distributed_shards_planned", summary.DistributedShardsPlanned,
+		"distributed_shards_completed", summary.DistributedShardsCompleted,
+		"distributed_shard_retries", summary.DistributedShardRetries,
+		"distributed_shard_queue_depth", summary.DistributedShardQueueDepth,
+		"distributed_correlation_logs", summary.DistributedCorrelationLogs,
+		"distributed_total_shard_duration", summary.DistributedTotalShardDuration.String(),
+		"distributed_max_shard_duration", summary.DistributedMaxShardDuration.String(),
+		"distributed_merge_duration", summary.DistributedMergeDuration.String(),
 	)
 
 	if p.autoscaler != nil && p.autoscaler.Enabled() {
@@ -353,10 +452,11 @@ func (p *Processor) ingestSignalStream(ctx context.Context, rules []models.Rule)
 			continue
 		}
 		grouped[organizationID] = append(grouped[organizationID], models.SignalLog{
-			Signal:    event.Signal,
-			LogLevel:  event.LogLevel,
-			DocID:     event.DocID,
-			TimeStamp: event.TimeStamp.UTC(),
+			HostIdentity: strings.TrimSpace(event.HostIdentity),
+			Signal:       event.Signal,
+			LogLevel:     event.LogLevel,
+			DocID:        event.DocID,
+			TimeStamp:    event.TimeStamp.UTC(),
 		})
 	}
 
@@ -450,304 +550,17 @@ func (p *Processor) processOrganization(ctx context.Context, organization string
 	if err != nil {
 		return CycleSummary{}, fmt.Errorf("load signal payload for organization %s: %w", organization, err)
 	}
-
-	checkpointState, err := p.checkpoints.LoadCheckpoint(ctx, organization)
-	if err != nil {
-		return CycleSummary{CheckpointFailures: 1}, fmt.Errorf("load checkpoint for organization %s: %w", organization, err)
-	}
-
 	activeIncidents, err := p.store.ListActiveIncidents(ctx, organization)
 	if err != nil {
 		return CycleSummary{}, fmt.Errorf("list active incidents for organization %s: %w", organization, err)
 	}
-	activeByID := make(map[string]models.IncidentState, len(activeIncidents))
-	for _, incident := range activeIncidents {
-		activeByID[incident.IncidentID] = incident
-	}
-
-	signature := signalPayloadSignature(payload)
-	orgRules := filterRulesByOrg(rules, organization)
-	rulesSignature := ruleSetSignature(orgRules)
-	changed, _, rulesChanged := shouldProcessOrganization(signature, rulesSignature, checkpointState)
-	now := p.now().UTC()
-	checkpointInFuture := !checkpointState.Checkpoint.IsZero() && checkpointState.Checkpoint.After(now.Add(time.Minute))
-	if checkpointInFuture {
-		changed = true
-	}
-
-	saveCheckpointState := func(summary *CycleSummary, cursor signalCursor, signalCount int) error {
-		state := models.ProcessingCheckpoint{
-			Checkpoint:             cursor.Timestamp.UTC(),
-			CheckpointDocID:        strings.TrimSpace(cursor.DocID),
-			SignalPayloadSignature: signature,
-			RulesSignature:         rulesSignature,
-			SignalCount:            signalCount,
-		}
-		if err := p.checkpoints.SaveCheckpoint(ctx, organization, state); err != nil {
-			summary.CheckpointFailures++
-			return fmt.Errorf("save checkpoint for organization %s: %w", organization, err)
-		}
-		return nil
-	}
-
-	if len(payload) == 0 {
-		summary := CycleSummary{}
-		err := p.closeInactiveIncidents(ctx, organization, activeByID, map[string]struct{}{}, now, &summary)
-		if err != nil {
-			return summary, err
-		}
-		if err := saveCheckpointState(&summary, checkpointToCursor(checkpointState), 0); err != nil {
-			return summary, err
-		}
-		return summary, nil
-	}
-
-	signalLogs, err := models.DecodeSignalLogsPayload(payload)
-	if err != nil {
-		return CycleSummary{}, fmt.Errorf("decode signal payload for organization %s: %w", organization, err)
-	}
-	sortSignalLogs(signalLogs)
-
-	summary := CycleSummary{
-		OrganizationsWithLogs: boolToInt(len(signalLogs) > 0),
-		SignalLogsRead:        len(signalLogs),
-	}
-	if len(signalLogs) == 0 {
-		err := p.closeInactiveIncidents(ctx, organization, activeByID, map[string]struct{}{}, now, &summary)
-		if err != nil {
-			return summary, err
-		}
-		if err := saveCheckpointState(&summary, checkpointToCursor(checkpointState), 0); err != nil {
-			return summary, err
-		}
-		return summary, nil
-	}
-
-	checkpointCursor := checkpointToCursor(checkpointState)
-	maxCursor := signalLogToCursor(signalLogs[len(signalLogs)-1])
-	checkpointCaughtUp := compareCheckpointToSignalCursor(checkpointState, maxCursor) >= 0
-	if !changed && len(activeIncidents) == 0 && checkpointCaughtUp {
-		summary.OrganizationsSkipped = 1
-		p.logger.Debug(
-			"organization skipped because signal payload is unchanged, checkpoint is caught up, and no incidents are active",
-			"organization", organization,
-			"signal_logs", len(signalLogs),
-			"checkpoint", checkpointCursor.Timestamp.Format(time.RFC3339Nano),
-			"checkpoint_doc_id", checkpointCursor.DocID,
-		)
-		return summary, nil
-	}
-
-	ruleBuckets := partitionRulesByExecutionMode(orgRules)
-	ruleLookup := indexRulesByID(orgRules)
-
-	lookback := p.lookbackWindow(ruleBuckets.incrementalLive)
-	if candidate := p.lookbackWindow(ruleBuckets.incrementalShadow); candidate > lookback {
-		lookback = candidate
-	}
-
-	rawNewLogs := selectNewSignalLogs(signalLogs, checkpointState)
-	checkpointAheadOfSignals := isCheckpointAheadOfSignals(checkpointState, maxCursor)
-	orgSettings := p.resolveOrganizationSettings(organization, len(rawNewLogs))
-	capBypassed := false
-	if orgSettings.MaxNewLogsPerCycle > 0 && len(rawNewLogs) > orgSettings.MaxNewLogsPerCycle &&
-		(len(ruleBuckets.fullPayloadLive) > 0 || len(ruleBuckets.fullPayloadShadow) > 0) {
-		capBypassed = true
-		orgSettings.MaxNewLogsPerCycle = 0
-		p.logger.Warn(
-			"autoscaling cap bypassed because full-payload rules require complete organization replay",
-			"organization", organization,
-			"raw_incremental_signal_logs", len(rawNewLogs),
-			"full_payload_rules", len(ruleBuckets.fullPayloadLive)+len(ruleBuckets.fullPayloadShadow),
-		)
-	}
-
-	selection := selectIncrementalSignalLogs(signalLogs, checkpointState, lookback, orgSettings.MaxNewLogsPerCycle)
-	if len(rawNewLogs) == 0 && len(signalLogs) > 0 && (rulesChanged || checkpointAheadOfSignals) {
-		selection = incrementalSelection{
-			WorkingLogs:   append([]models.SignalLog(nil), signalLogs...),
-			NewLogs:       append([]models.SignalLog(nil), signalLogs...),
-			RawNewCount:   len(signalLogs),
-			MaxCursor:     maxCursor,
-			LastProcessed: maxCursor,
-		}
-	}
-	summary.IncrementalSignalLogs = selection.RawNewCount
-	p.logOrganizationAutoscaling(organization, summary.IncrementalSignalLogs, orgSettings, selection.Capped)
-
-	if len(selection.NewLogs) == 0 {
-		err := p.closeInactiveIncidents(ctx, organization, activeByID, map[string]struct{}{}, now, &summary)
-		if err != nil {
-			return summary, err
-		}
-		if err := saveCheckpointState(&summary, maxSignalCursor(checkpointCursor, selection.MaxCursor), len(signalLogs)); err != nil {
-			return summary, err
-		}
-		return summary, nil
-	}
-
-	cache := newEnrichmentCache()
-	liveResults := make([]models.CorrelationResult, 0)
-	shadowResults := make([]models.CorrelationResult, 0)
-	var recoveryLogs []models.FullLog
-	fetchOptions := fetch.BatchFetchOptions{
-		GroupedLookupBatchSize: orgSettings.GroupedLookupBatchSize,
-	}
-
-	if len(ruleBuckets.fullPayloadLive) > 0 || len(ruleBuckets.fullPayloadShadow) > 0 {
-		fullWorkingLogs, newFullLogs, fetchErrors, err := p.enrichSignalLogs(ctx, signalLogs, selection.NewLogs, cache, fetchOptions)
-		if err != nil {
-			return summary, fmt.Errorf("enrich full-payload signal logs for organization %s: %w", organization, err)
-		}
-		summary.FetchErrors += fetchErrors
-		summary.EnrichedLogs += len(fullWorkingLogs)
-
-		if len(ruleBuckets.fullPayloadLive) > 0 {
-			fullResults, err := p.engine.Correlate(ctx, organization, fullWorkingLogs, ruleBuckets.fullPayloadLive)
-			if err != nil {
-				return summary, fmt.Errorf("correlate full-payload live rules for organization %s: %w", organization, err)
-			}
-			liveResults = append(liveResults, fullResults...)
-		}
-		if len(ruleBuckets.fullPayloadShadow) > 0 {
-			fullShadowResults, err := p.engine.Correlate(ctx, organization, fullWorkingLogs, ruleBuckets.fullPayloadShadow)
-			if err != nil {
-				return summary, fmt.Errorf("correlate full-payload shadow rules for organization %s: %w", organization, err)
-			}
-			shadowResults = append(shadowResults, fullShadowResults...)
-		}
-		recoveryLogs = newFullLogs
-	}
-
-	if len(ruleBuckets.incrementalLive) > 0 || len(ruleBuckets.incrementalShadow) > 0 {
-		workingFullLogs, newFullLogs, fetchErrors, err := p.enrichSignalLogs(ctx, selection.WorkingLogs, selection.NewLogs, cache, fetchOptions)
-		if err != nil {
-			return summary, fmt.Errorf("enrich incremental signal logs for organization %s: %w", organization, err)
-		}
-		summary.FetchErrors += fetchErrors
-		summary.EnrichedLogs += len(workingFullLogs)
-
-		if len(ruleBuckets.incrementalLive) > 0 {
-			incrementalResults, err := p.engine.Correlate(ctx, organization, workingFullLogs, ruleBuckets.incrementalLive)
-			if err != nil {
-				return summary, fmt.Errorf("correlate incremental live rules for organization %s: %w", organization, err)
-			}
-			liveResults = append(liveResults, incrementalResults...)
-		}
-		if len(ruleBuckets.incrementalShadow) > 0 {
-			shadowIncrementalResults, err := p.engine.Correlate(ctx, organization, workingFullLogs, ruleBuckets.incrementalShadow)
-			if err != nil {
-				return summary, fmt.Errorf("correlate incremental shadow rules for organization %s: %w", organization, err)
-			}
-			shadowResults = append(shadowResults, shadowIncrementalResults...)
-		}
-		if recoveryLogs == nil {
-			recoveryLogs = newFullLogs
-		}
-	}
-
-	results, _ := models.NormalizeCorrelationResults(liveResults)
-	shadowResults, _ = models.NormalizeCorrelationResults(shadowResults)
-	summary.ShadowMatches = len(shadowResults)
-	p.logShadowMatches(organization, shadowResults, ruleLookup)
-	summary.CorrelationsFound = len(results)
-
-	actions := make([]incidentAction, 0)
-	matchedIncidentIDs := make(map[string]struct{})
-	for idx := range results {
-		result := &results[idx]
-		action, shouldWrite, err := p.buildIncidentAction(organization, result, activeByID)
-		if err != nil {
-			summary.IncidentStateFailures++
-			p.logger.Warn(
-				"failed to build incident action",
-				"organization", organization,
-				"rule_id", result.RuleID,
-				"error", err,
-			)
-			continue
-		}
-		if !shouldWrite {
-			summary.ResultsSuppressed++
-			continue
-		}
-
-		matchedIncidentIDs[result.IncidentID] = struct{}{}
-		if result.Status == "open" {
-			summary.IncidentsOpened++
-		}
-		if result.Status == "updated" {
-			summary.IncidentsUpdated++
-		}
-		p.logMatchAudit("correlation rule matched", organization, action.result, ruleLookup[result.RuleID], false)
-		actions = append(actions, action)
-	}
-
-	recoveryActions, err := p.buildRecoveryClosures(ctx, organization, orgRules, recoveryLogs, activeByID)
-	if err != nil {
-		summary.IncidentStateFailures++
-		return summary, err
-	}
-	for _, action := range recoveryActions {
-		summary.IncidentsClosed++
-		actions = append(actions, action)
-	}
-
-	writeErr := p.applyIncidentActions(ctx, organization, activeByID, actions, &summary)
-	if writeErr != nil {
-		return summary, writeErr
-	}
-
-	if !selection.Capped {
-		inactivityErr := p.closeInactiveIncidents(ctx, organization, activeByID, matchedIncidentIDs, now, &summary)
-		if inactivityErr != nil {
-			return summary, inactivityErr
-		}
-	} else {
-		p.logger.Debug(
-			"skipping inactivity-based incident closure because incremental backlog is being drained in capped slices",
-			"organization", organization,
-			"raw_incremental_signal_logs", selection.RawNewCount,
-			"processed_incremental_signal_logs", len(selection.NewLogs),
-		)
-	}
-
-	checkpointToSave := maxSignalCursor(checkpointCursor, selection.MaxCursor)
-	if selection.Capped {
-		checkpointToSave = maxSignalCursor(checkpointCursor, selection.LastProcessed)
-	}
-	if err := saveCheckpointState(&summary, checkpointToSave, len(signalLogs)); err != nil {
-		return summary, err
-	}
-
-	p.logger.Info(
-		"organization processed",
-		"organization", organization,
-		"signal_logs", len(signalLogs),
-		"incremental_signal_logs", selection.RawNewCount,
-		"processed_incremental_signal_logs", len(selection.NewLogs),
-		"effective_grouped_lookup_batch_size", orgSettings.GroupedLookupBatchSize,
-		"effective_max_new_logs_per_cycle", orgSettings.MaxNewLogsPerCycle,
-		"incremental_backlog_capped", selection.Capped,
-		"incremental_cap_bypassed_for_full_payload", capBypassed,
-		"incremental_rules", len(ruleBuckets.incrementalLive)+len(ruleBuckets.incrementalShadow),
-		"full_payload_rules", len(ruleBuckets.fullPayloadLive)+len(ruleBuckets.fullPayloadShadow),
-		"enriched_logs", summary.EnrichedLogs,
-		"results_found", len(results),
-		"shadow_matches", summary.ShadowMatches,
-		"incidents_opened", summary.IncidentsOpened,
-		"incidents_updated", summary.IncidentsUpdated,
-		"incidents_closed", summary.IncidentsClosed,
-		"results_written", summary.ResultsWritten,
-		"fetch_errors", summary.FetchErrors,
-		"result_write_failures", summary.ResultWriteFailures,
-		"result_publish_failures", summary.ResultPublishFailures,
-		"results_suppressed", summary.ResultsSuppressed,
-		"incident_state_failures", summary.IncidentStateFailures,
-		"checkpoint_failures", summary.CheckpointFailures,
-	)
-
-	return summary, nil
+	return p.processSignalWorkload(ctx, processingScope{
+		WorkloadKey:     organization,
+		CheckpointKey:   organization,
+		OrganizationID:  organization,
+		Payload:         payload,
+		ActiveIncidents: activeIncidents,
+	}, rules)
 }
 
 func (p *Processor) buildIncidentAction(organization string, result *models.CorrelationResult, activeByID map[string]models.IncidentState) (incidentAction, bool, error) {
@@ -914,12 +727,16 @@ func (p *Processor) buildRecoveryClosures(
 
 func (p *Processor) closeInactiveIncidents(
 	ctx context.Context,
-	organization string,
+	scope *processingScope,
 	activeByID map[string]models.IncidentState,
 	matchedIncidentIDs map[string]struct{},
 	now time.Time,
 	summary *CycleSummary,
 ) error {
+	organization := ""
+	if scope != nil {
+		organization = scope.OrganizationID
+	}
 	if len(activeByID) == 0 {
 		return nil
 	}
@@ -930,6 +747,10 @@ func (p *Processor) closeInactiveIncidents(
 		}
 		if now.Sub(state.LastSeen.UTC()) < p.incidentReopenWindow() {
 			continue
+		}
+		if err := p.ensureMutationOwned(ctx, scope); err != nil {
+			summary.IncidentStateFailures++
+			return fmt.Errorf("verify mutation ownership before purging closed incident state for organization %s: %w", organization, err)
 		}
 		if err := p.store.DeleteIncident(ctx, organization, incidentID); err != nil {
 			summary.IncidentStateFailures++
@@ -962,18 +783,27 @@ func (p *Processor) closeInactiveIncidents(
 		summary.IncidentsClosed++
 	}
 
-	return p.applyIncidentActions(ctx, organization, activeByID, actions, summary)
+	return p.applyIncidentActions(ctx, scope, activeByID, actions, summary)
 }
 
 func (p *Processor) applyIncidentActions(
 	ctx context.Context,
-	organization string,
+	scope *processingScope,
 	activeByID map[string]models.IncidentState,
 	actions []incidentAction,
 	summary *CycleSummary,
 ) error {
+	organization := ""
+	if scope != nil {
+		organization = scope.OrganizationID
+	}
 	if len(actions) == 0 {
 		return nil
+	}
+
+	if err := p.ensureMutationOwned(ctx, scope); err != nil {
+		summary.ResultWriteFailures += len(actions)
+		return fmt.Errorf("verify mutation ownership before writing correlation results for organization %s: %w", organization, err)
 	}
 
 	results := make([]*models.CorrelationResult, 0, len(actions))
@@ -1007,6 +837,14 @@ func (p *Processor) applyIncidentActions(
 
 		summary.ResultsWritten++
 		if action.delete {
+			if err := p.ensureMutationOwned(ctx, scope); err != nil {
+				summary.IncidentStateFailures++
+				rollbackIncidentActionState(activeByID, action)
+				if firstCriticalErr == nil {
+					firstCriticalErr = fmt.Errorf("verify mutation ownership before deleting incident state for organization %s: %w", organization, err)
+				}
+				continue
+			}
 			if err := p.store.DeleteIncident(ctx, organization, action.result.IncidentID); err != nil {
 				summary.IncidentStateFailures++
 				rollbackIncidentActionState(activeByID, action)
@@ -1022,6 +860,14 @@ func (p *Processor) applyIncidentActions(
 				continue
 			}
 		} else if action.state != nil {
+			if err := p.ensureMutationOwned(ctx, scope); err != nil {
+				summary.IncidentStateFailures++
+				rollbackIncidentActionState(activeByID, action)
+				if firstCriticalErr == nil {
+					firstCriticalErr = fmt.Errorf("verify mutation ownership before saving incident state for organization %s: %w", organization, err)
+				}
+				continue
+			}
 			if err := p.store.SaveIncident(ctx, action.state, p.config.Engine.IncidentInactivityTTL); err != nil {
 				summary.IncidentStateFailures++
 				rollbackIncidentActionState(activeByID, action)
@@ -1040,6 +886,13 @@ func (p *Processor) applyIncidentActions(
 		}
 
 		if action.publish && p.config.Redis.PublishResults {
+			if err := p.ensureMutationOwned(ctx, scope); err != nil {
+				summary.ResultPublishFailures++
+				if firstCriticalErr == nil {
+					firstCriticalErr = fmt.Errorf("verify mutation ownership before publishing correlation result for organization %s: %w", organization, err)
+				}
+				continue
+			}
 			if err := p.store.PublishResult(ctx, action.result); err != nil {
 				summary.ResultPublishFailures++
 				p.logger.Warn(
@@ -1082,14 +935,19 @@ func (p *Processor) enrichSignalLogs(
 	}
 
 	fetchErrors := 0
+	neededDocIDs := missingCacheDocIDs(workingSignalLogs, cache)
+	if len(neededDocIDs) > 0 {
+		p.hydrateDistributedFullLogCache(ctx, neededDocIDs, cache)
+		neededDocIDs = filterMissingDocIDs(neededDocIDs, cache)
+	}
 	switch batchFetcher := p.fetcher.(type) {
 	case BatchLogFetcherWithOptions:
-		neededDocIDs := missingCacheDocIDs(workingSignalLogs, cache)
 		if len(neededDocIDs) > 0 {
 			fetchedLogs, err := batchFetcher.FetchLogsWithOptions(ctx, neededDocIDs, options)
 			if err != nil {
 				return nil, nil, fetchErrors, err
 			}
+			p.saveDistributedFullLogCache(ctx, fetchedLogs)
 			for docID, fetched := range fetchedLogs {
 				if fetched == nil {
 					continue
@@ -1113,12 +971,12 @@ func (p *Processor) enrichSignalLogs(
 			}
 		}
 	case BatchLogFetcher:
-		neededDocIDs := missingCacheDocIDs(workingSignalLogs, cache)
 		if len(neededDocIDs) > 0 {
 			fetchedLogs, err := batchFetcher.FetchLogs(ctx, neededDocIDs)
 			if err != nil {
 				return nil, nil, fetchErrors, err
 			}
+			p.saveDistributedFullLogCache(ctx, fetchedLogs)
 			for docID, fetched := range fetchedLogs {
 				if fetched == nil {
 					continue
@@ -1166,6 +1024,9 @@ func (p *Processor) enrichSignalLogs(
 			}
 			fullLog = cloneFullLog(*fetched)
 			cache.fullLogs[signalLog.DocID] = fullLog
+			p.saveDistributedFullLogCache(ctx, map[string]*models.FullLog{
+				signalLog.DocID: fetched,
+			})
 		}
 
 		enriched := cloneFullLog(fullLog)
@@ -1179,6 +1040,51 @@ func (p *Processor) enrichSignalLogs(
 	}
 
 	return workingFullLogs, newFullLogs, fetchErrors, nil
+}
+
+func (p *Processor) hydrateDistributedFullLogCache(ctx context.Context, docIDs []string, cache *enrichmentCache) {
+	if cache == nil || p.distributed == nil || !p.config.Distributed.Enabled || len(docIDs) == 0 {
+		return
+	}
+
+	cachedLogs, err := p.distributed.LoadCachedFullLogs(ctx, docIDs)
+	if err != nil {
+		p.logger.Warn("failed to load distributed full log cache", "error", err, "doc_ids", len(docIDs))
+		return
+	}
+	for docID, fullLog := range cachedLogs {
+		if fullLog == nil {
+			continue
+		}
+		cache.fullLogs[docID] = cloneFullLog(*fullLog)
+	}
+}
+
+func (p *Processor) saveDistributedFullLogCache(ctx context.Context, logs map[string]*models.FullLog) {
+	if p.distributed == nil || !p.config.Distributed.Enabled || len(logs) == 0 {
+		return
+	}
+	if err := p.distributed.SaveCachedFullLogs(ctx, logs, p.config.Distributed.FullLogCacheTTL); err != nil {
+		p.logger.Warn("failed to save distributed full log cache", "error", err, "doc_ids", len(logs))
+	}
+}
+
+func filterMissingDocIDs(docIDs []string, cache *enrichmentCache) []string {
+	if len(docIDs) == 0 {
+		return nil
+	}
+
+	result := make([]string, 0, len(docIDs))
+	for _, docID := range docIDs {
+		if _, ok := cache.fullLogs[docID]; ok {
+			continue
+		}
+		if _, ok := cache.missing[docID]; ok {
+			continue
+		}
+		result = append(result, docID)
+	}
+	return result
 }
 
 func filterRulesByOrg(rules []models.Rule, orgID string) []models.Rule {
@@ -1884,6 +1790,9 @@ func shouldReplaceSignalLog(current models.SignalLog, candidate models.SignalLog
 
 func signalLogCompletenessScore(log models.SignalLog) int {
 	score := 0
+	if strings.TrimSpace(log.HostIdentity) != "" {
+		score++
+	}
 	if strings.TrimSpace(log.Signal) != "" {
 		score++
 	}
@@ -1901,6 +1810,9 @@ func signalLogsEqual(left []models.SignalLog, right []models.SignalLog) bool {
 		return false
 	}
 	for idx := range left {
+		if left[idx].HostIdentity != right[idx].HostIdentity {
+			return false
+		}
 		if left[idx].Signal != right[idx].Signal {
 			return false
 		}
@@ -1988,6 +1900,17 @@ func maxCheckpointTimestamp(previous, candidate time.Time) time.Time {
 		return candidate.UTC()
 	}
 	return previous.UTC()
+}
+
+func (p *Processor) distributedMetadataTTL() time.Duration {
+	ttl := p.config.Redis.SignalStreamUnconsumedRetention
+	if ttl <= 0 {
+		ttl = 2 * time.Hour
+	}
+	if leaseTTL := p.config.Distributed.LeaseTTL; leaseTTL > ttl {
+		return leaseTTL
+	}
+	return ttl
 }
 
 func partitionRulesByExecutionMode(rules []models.Rule) ruleExecutionBuckets {
