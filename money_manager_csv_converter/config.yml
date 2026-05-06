@@ -1,0 +1,401 @@
+input:
+  directory: inputs
+  patterns:
+    - "*.xls"
+    - "*.xlsx"
+    - "*.pdf"
+  recursive: false
+
+output:
+  directory: outputs
+  combine_statements: true
+  write_individual_files: false
+  write_tsv: true
+  write_xlsx: true
+  template_mode: from_sample
+  template_sample: outputs/01-01-25_31-12-25.xlsx
+  combined_file_name: money_manager_import_all_accounts
+  date_format: "%d/%m/%Y"
+
+money_manager:
+  default_currency: INR
+  default_expense_category: Other
+  default_expense_subcategory: Others
+  default_income_category: "Dept return to Me \U0001f4b8\U0001f4b0"
+  default_income_subcategory: ""
+  transfer_in_strategy: income
+  transfer_in_category: Savings ACC
+  transfer_in_subcategory: ""
+  note_include_raw_narration: true
+  note_include_bank_reference: true
+  note_include_vpa: true
+  fallback_account_prefix: HDFC
+
+history:
+  enabled: true
+  reference_export: outputs/01-01-25_31-12-25.xlsx
+  min_score: 2
+  account_name_hints:
+    bank_account_keywords:
+      - SALARY
+    credit_card_keywords:
+      - CARD
+    savings_account_keywords:
+      - SAVINGS
+
+statement_types:
+  credit_card:
+    skip_payment_credits: false
+    payment_credit_keywords:
+      - CC PAYMENT
+      - PAYZAPP
+
+statement_sources:
+  hdfc_acc:
+    parser: hdfc_bank
+    account_id: hdfc_salary_account
+    password: ""
+    file_match:
+      filename_contains:
+        - HDFC_acc
+        - HDFC_account
+        - HDFC_statement
+      extensions:
+        - .xls
+        - .xlsx
+        - .pdf
+
+  hdfc_credit_card:
+    parser: hdfc_credit_card
+    account_id: hdfc_credit_card
+    password: ""
+    file_match:
+      filename_contains:
+        - HDFC_credit_card
+        - credit_card
+      extensions:
+        - .xls
+        - .xlsx
+        - .pdf
+
+  sbi_acc:
+    parser: sbi_bank
+    account_id: sbi_salary_account
+    password: "DHUSN14082003"
+    file_match:
+      filename_contains:
+        - SBI_acc
+        - SBI_account
+        - SBI_statement
+      extensions:
+        - .xls
+        - .xlsx
+        - .pdf
+
+  ippnb_acc:
+    parser: ippb_bank
+    account_id: ippnb_account
+    password: ""
+    file_match:
+      filename_contains:
+        - IPPNB_acc
+        - IPPNB_account
+        - IPPB_statement
+        - IPPB_acc
+      extensions:
+        - .xls
+        - .xlsx
+        - .pdf
+
+identity:
+  names:
+    - DHUSNIC INFANT D M
+    - DHUSNICINFANT
+    - DHUSNIC D
+  vpas:
+    - DHUSNICINFANT@OKSBI
+    - DHUSNICINFANT@OKAXIS
+  keywords:
+    - SELF TRANSFER
+
+accounts:
+  hdfc_salary_account:
+    money_manager_name: Salary Account
+    currency: INR
+    account_numbers:
+      - ""
+    identity_tokens:
+      - DHUSNIC INFANT D M
+      - DHUSNICINFANT
+      - DHUSNICINFANT@OKSBI
+      - DHUSNICINFANT@OKAXIS
+    transfer_targets:
+      - contains_any:
+          - HDFC CC BILLPAY
+          - HDFCCCBILLPAY
+          - PAYZAPP
+        account_id: hdfc_credit_card
+      - contains_any:
+          - DHUSNICINFANT@OKSBI
+          - SELF TRANSFER
+        account_id: sbi_salary_account
+
+  hdfc_credit_card:
+    money_manager_name: Hdfc Card
+    currency: INR
+    account_numbers:
+      - ""
+    transfer_targets:
+      - contains_any:
+          - CC PAYMENT
+          - PAYZAPP
+        account_id: hdfc_salary_account
+
+  sbi_salary_account:
+    money_manager_name: Accounts
+    currency: INR
+    account_numbers:
+      - ""
+    identity_tokens:
+      - DHUSNIC INFANT D M
+      - DHUSNICINFANT
+      - DHUSNIC
+      - DHUSNICINF
+    transfer_targets:
+      - contains_any:
+          - DHUSNICINF
+          - SELF TRANSFER
+        account_id: hdfc_salary_account
+
+  ippnb_account:
+    money_manager_name: Savings ACC
+    currency: INR
+    account_numbers: []
+    identity_tokens: []
+    transfer_targets: []
+
+  investment_sip:
+    money_manager_name: SIP
+    currency: INR
+    account_numbers: []
+    identity_tokens: []
+    transfer_targets: []
+
+  investment_gold_silver:
+    money_manager_name: Gold/Silver
+    currency: INR
+    account_numbers: []
+    identity_tokens: []
+    transfer_targets: []
+
+  investment_domnic_sip:
+    money_manager_name: Domnic SIP
+    currency: INR
+    account_numbers: []
+    identity_tokens: []
+    transfer_targets: []
+
+  investment_bonds:
+    money_manager_name: Bonds
+    currency: INR
+    account_numbers: []
+    identity_tokens: []
+    transfer_targets: []
+
+  investment_shares_or_stock:
+    money_manager_name: Shares or stock
+    currency: INR
+    account_numbers: []
+    identity_tokens: []
+    transfer_targets: []
+
+transfer_targets:
+  - contains_any:
+      - HDFCCCBILLPAY
+      - CC PAYMENT
+      - PAYZAPP
+    account_id: hdfc_credit_card
+
+rules:
+  - name: Salary Credit
+    direction: credit
+    contains_any:
+      - SALARY
+    transaction_type: Income
+    category: "\U0001f4b0 Salary"
+    subcategory: "Salary \U0001f4b5"
+    description: Salary Credit
+
+  - name: Refund And Reversal
+    direction: credit
+    contains_any:
+      - REFUND
+      - RETURN
+      - REV-UPI
+    transaction_type: Income
+    category: "Dept return to Me \U0001f4b8\U0001f4b0"
+    subcategory: ""
+
+  - name: Debit Return Misc
+    direction: debit
+    contains_any:
+      - RETURN
+    transaction_type: Expense
+    category: Other
+    subcategory: Others
+
+  - name: Card Payment Transfer
+    direction: debit
+    contains_any:
+      - HDFC CC BILLPAY
+      - HDFCCCBILLPAY
+      - PAYZAPP
+    transaction_type: Expense
+    counterpart_account_id: hdfc_credit_card
+
+  - name: Savings Transfer
+    direction: debit
+    contains_any:
+      - DHUSNICINFANT@OKSBI
+      - SELF TRANSFER
+    transaction_type: Transfer-Out
+    counterpart_account_id: sbi_salary_account
+
+  - name: Rent Payment
+    direction: debit
+    contains_any:
+      - RENT
+    transaction_type: Expense
+    category: pg rent
+    subcategory: pg rent
+
+  - name: Subscription
+    direction: debit
+    contains_any:
+      - SPOTIFY
+      - NETFLIX
+      - PRIME
+      - YOUTUBE
+    transaction_type: Expense
+    category: "Subscribtion \U0001f441\ufe0f\u200d\U0001f5e8\ufe0f\U0001f4c0"
+    subcategory: "Spotify \U0001f3b5\U0001f3bc"
+
+  - name: Cloud Services
+    direction: debit
+    contains_any:
+      - AWS
+      - AMAZONAWS
+    transaction_type: Expense
+    category: "Cloud Computing \u2601\ufe0f\U0001f5a5\ufe0f"
+    subcategory: AWS Charges
+
+  - name: Gym Food
+    direction: debit
+    contains_any:
+      - EGG
+      - BANANA
+      - PROTEIN
+      - PUMPKIN
+      - SABJA
+    transaction_type: Expense
+    category: "Gym expenses \U0001f4aa\U0001f9be\U0001f3cb\ufe0f"
+    subcategory: "Gym Food \U0001f3cb\ufe0f\U0001f373\U0001f95a\U0001f357"
+
+  - name: Groceries
+    direction: debit
+    contains_any:
+      - ZEPTO
+      - SUPERMARKET
+      - MARKETPLACE
+      - CURD
+      - COCONUT
+    transaction_type: Expense
+    category: "\U0001f966 groceries"
+    subcategory: ""
+
+  - name: Recharge
+    direction: debit
+    contains_any:
+      - RECHARGE
+    transaction_type: Expense
+    category: "\U0001f4f1 recharge"
+    subcategory: ""
+
+  - name: Insurance
+    direction: debit
+    contains_any:
+      - POLICYBAZAAR
+      - INSURANCE
+    transaction_type: Expense
+    category: Insurances
+    subcategory: ""
+
+  - name: Movies
+    direction: debit
+    contains_any:
+      - CINEMA
+      - BIGTREE
+      - MOVIE
+    transaction_type: Expense
+    category: "Movie \U0001f3a5\U0001f37f"
+    subcategory: ""
+
+  - name: Medical
+    direction: debit
+    contains_any:
+      - DIAGNOSIS
+      - GNOSIS
+      - MEDICAL
+      - CLINIC
+      - LAB
+    transaction_type: Expense
+    category: "Medical Expenses \U0001f489\U0001f48a"
+    subcategory: Medicine or ointment or injection
+
+  - name: Gold
+    direction: debit
+    contains_any:
+      - AURAGOLD
+      - GOLD
+    transaction_type: Transfer-Out
+    counterpart_account_id: investment_gold_silver
+
+  - name: SIP
+    direction: debit
+    contains_any:
+      - SIP
+      - WEALTH
+      - INVESTMENT
+    transaction_type: Transfer-Out
+    counterpart_account_id: investment_sip
+
+  - name: Domnic SIP
+    direction: debit
+    contains_any:
+      - HDFCMutual
+    transaction_type: Transfer-Out
+    counterpart_account_id: investment_domnic_sip
+  
+  - name: Bonds
+    direction: debit
+    contains_any:
+      - BOND
+    transaction_type: Transfer-Out
+    counterpart_account_id: investment_bonds
+
+  - name: Home
+    direction: debit
+    contains_any:
+      - HOME
+    transaction_type: Expense
+    category: "Given to Family 👨‍👩‍👦‍👦❤️"
+    subcategory: "Given to Family 👨‍👩‍👦‍👦❤️"
+  
+  - name: EMI
+    direction: debit
+    contains_any:
+      - EMI
+    transaction_type: Expense
+    category: "EMI"
+    subcategory: "Mobile EMI"
+  
