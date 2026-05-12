@@ -47,14 +47,17 @@ type AutoscalingConfig struct {
 }
 
 type DistributedConfig struct {
-	Enabled                bool          `yaml:"enabled"`
-	WorkerIDEnv            string        `yaml:"worker_id_env"`
-	LeaseTTL               time.Duration `yaml:"lease_ttl"`
-	LeaseHeartbeatInterval time.Duration `yaml:"lease_heartbeat_interval"`
-	ClaimLimitPerCycle     int           `yaml:"claim_limit_per_cycle"`
-	StreamConsumerGroup    string        `yaml:"stream_consumer_group"`
-	PrefetchFullLogs       bool          `yaml:"prefetch_full_logs"`
-	FullLogCacheTTL        time.Duration `yaml:"full_log_cache_ttl"`
+	Enabled                  bool          `yaml:"enabled"`
+	WorkerIDEnv              string        `yaml:"worker_id_env"`
+	LeaseTTL                 time.Duration `yaml:"lease_ttl"`
+	LeaseHeartbeatInterval   time.Duration `yaml:"lease_heartbeat_interval"`
+	ClaimLimitPerCycle       int           `yaml:"claim_limit_per_cycle"`
+	StreamConsumerGroup      string        `yaml:"stream_consumer_group"`
+	SingleStreamIngestLeader bool          `yaml:"single_stream_ingest_leader"`
+	PrefetchFullLogs         bool          `yaml:"prefetch_full_logs"`
+	PrefetchTimeout          time.Duration `yaml:"prefetch_timeout"`
+	PrefetchMaxDocIDs        int           `yaml:"prefetch_max_doc_ids"`
+	FullLogCacheTTL          time.Duration `yaml:"full_log_cache_ttl"`
 }
 
 type RedisConfig struct {
@@ -83,6 +86,7 @@ type ElasticsearchConfig struct {
 	Password       string        `yaml:"password"`
 	APIKey         string        `yaml:"api_key"`
 	Index          string        `yaml:"index"`
+	WriteHistory   bool          `yaml:"write_history_index"`
 	CurrentIndex   string        `yaml:"current_index"`
 	RequestTimeout time.Duration `yaml:"request_timeout"`
 	BulkBatchSize  int           `yaml:"bulk_batch_size"`
@@ -94,6 +98,8 @@ type ParallelCorrelationConfig struct {
 	TargetLogsPerShard             int           `yaml:"target_logs_per_shard"`
 	MaxWorkers                     int           `yaml:"max_workers"`
 	DistributedTargetShardDuration time.Duration `yaml:"distributed_target_shard_duration"`
+	DistributedShardTimeout        time.Duration `yaml:"distributed_shard_timeout"`
+	DistributedRunReserve          time.Duration `yaml:"distributed_run_reserve"`
 	DistributedMinShardsPerWorker  int           `yaml:"distributed_min_shards_per_worker"`
 	DistributedMaxShardsPerWorker  int           `yaml:"distributed_max_shards_per_worker"`
 	ShardPollInterval              time.Duration `yaml:"shard_poll_interval"`
@@ -195,27 +201,30 @@ func defaultConfig() Config {
 			InputHighWatermark:      100000,
 			ScaleDownCooldownCycles: 3,
 			Scheduler: AutoscalingSchedulerConfig{
-				MinInterval:              10 * time.Second,
-				MaxInterval:              60 * time.Second,
+				MinInterval:              20 * time.Second,
+				MaxInterval:              90 * time.Second,
 				TimeoutRatio:             0.9,
 				TargetCycleUtilization:   0.8,
 				TimeoutScaleUpMultiplier: 1.5,
 			},
 			Fetcher: AutoscalingFetcherConfig{
-				MinGroupedLookupBatchSize: 1000,
-				MaxGroupedLookupBatchSize: 10000,
-				MaxBatchesPerCycle:        10,
+				MinGroupedLookupBatchSize: 250,
+				MaxGroupedLookupBatchSize: 2000,
+				MaxBatchesPerCycle:        4,
 			},
 		},
 		Distributed: DistributedConfig{
-			Enabled:                false,
-			WorkerIDEnv:            "RCA_WORKER_ID",
-			LeaseTTL:               45 * time.Second,
-			LeaseHeartbeatInterval: 15 * time.Second,
-			ClaimLimitPerCycle:     32,
-			StreamConsumerGroup:    "rca-correlation",
-			PrefetchFullLogs:       true,
-			FullLogCacheTTL:        2 * time.Hour,
+			Enabled:                  false,
+			WorkerIDEnv:              "RCA_WORKER_ID",
+			LeaseTTL:                 45 * time.Second,
+			LeaseHeartbeatInterval:   15 * time.Second,
+			ClaimLimitPerCycle:       32,
+			StreamConsumerGroup:      "rca-correlation",
+			SingleStreamIngestLeader: true,
+			PrefetchFullLogs:         false,
+			PrefetchTimeout:          5 * time.Second,
+			PrefetchMaxDocIDs:        1000,
+			FullLogCacheTTL:          2 * time.Hour,
 		},
 		Redis: RedisConfig{
 			DB:                              0,
@@ -229,13 +238,14 @@ func defaultConfig() Config {
 			PublishResults:                  false,
 			SignalStreamEnabled:             false,
 			SignalStreamKey:                 "Rca:signalized_log_events",
-			SignalStreamBatchSize:           1000,
+			SignalStreamBatchSize:           250,
 			SignalStreamConsumedRetention:   30 * time.Minute,
 			SignalStreamUnconsumedRetention: 2 * time.Hour,
 		},
 		Elasticsearch: ElasticsearchConfig{
 			Addresses:      []string{"http://localhost:9200"},
 			Index:          "rca_correlated_events",
+			WriteHistory:   true,
 			CurrentIndex:   "rca_correlated_incidents_current",
 			RequestTimeout: 15 * time.Second,
 			BulkBatchSize:  250,
@@ -251,11 +261,13 @@ func defaultConfig() Config {
 			ParallelCorrelation: ParallelCorrelationConfig{
 				Enabled:                        false,
 				MinLogs:                        5000,
-				TargetLogsPerShard:             5000,
-				MaxWorkers:                     4,
-				DistributedTargetShardDuration: 2 * time.Second,
+				TargetLogsPerShard:             1500,
+				MaxWorkers:                     8,
+				DistributedTargetShardDuration: 750 * time.Millisecond,
+				DistributedShardTimeout:        5 * time.Second,
+				DistributedRunReserve:          3 * time.Second,
 				DistributedMinShardsPerWorker:  1,
-				DistributedMaxShardsPerWorker:  4,
+				DistributedMaxShardsPerWorker:  10,
 				ShardPollInterval:              20 * time.Millisecond,
 			},
 		},
@@ -276,7 +288,7 @@ func defaultConfig() Config {
 		Fetcher: FetcherConfig{
 			Mode:                   "mock",
 			RequestTimeout:         15 * time.Second,
-			GroupedLookupBatchSize: 250,
+			GroupedLookupBatchSize: 100,
 			TimestampField:         "@timestamp",
 			LogLevelField:          "log.level",
 		},
@@ -336,19 +348,25 @@ func (c *Config) normalize() {
 		c.Engine.ParallelCorrelation.MinLogs = 5000
 	}
 	if c.Engine.ParallelCorrelation.TargetLogsPerShard <= 0 {
-		c.Engine.ParallelCorrelation.TargetLogsPerShard = 5000
+		c.Engine.ParallelCorrelation.TargetLogsPerShard = 1500
 	}
 	if c.Engine.ParallelCorrelation.MaxWorkers <= 0 {
-		c.Engine.ParallelCorrelation.MaxWorkers = 4
+		c.Engine.ParallelCorrelation.MaxWorkers = 8
 	}
 	if c.Engine.ParallelCorrelation.DistributedTargetShardDuration <= 0 {
-		c.Engine.ParallelCorrelation.DistributedTargetShardDuration = 2 * time.Second
+		c.Engine.ParallelCorrelation.DistributedTargetShardDuration = 750 * time.Millisecond
+	}
+	if c.Engine.ParallelCorrelation.DistributedShardTimeout <= 0 {
+		c.Engine.ParallelCorrelation.DistributedShardTimeout = 5 * time.Second
+	}
+	if c.Engine.ParallelCorrelation.DistributedRunReserve <= 0 {
+		c.Engine.ParallelCorrelation.DistributedRunReserve = 3 * time.Second
 	}
 	if c.Engine.ParallelCorrelation.DistributedMinShardsPerWorker <= 0 {
 		c.Engine.ParallelCorrelation.DistributedMinShardsPerWorker = 1
 	}
 	if c.Engine.ParallelCorrelation.DistributedMaxShardsPerWorker <= 0 {
-		c.Engine.ParallelCorrelation.DistributedMaxShardsPerWorker = 4
+		c.Engine.ParallelCorrelation.DistributedMaxShardsPerWorker = 10
 	}
 	if c.Engine.ParallelCorrelation.ShardPollInterval <= 0 {
 		c.Engine.ParallelCorrelation.ShardPollInterval = 20 * time.Millisecond
@@ -384,10 +402,10 @@ func (c *Config) normalize() {
 		c.Autoscaling.ScaleDownCooldownCycles = 3
 	}
 	if c.Autoscaling.Scheduler.MinInterval <= 0 {
-		c.Autoscaling.Scheduler.MinInterval = 10 * time.Second
+		c.Autoscaling.Scheduler.MinInterval = 20 * time.Second
 	}
 	if c.Autoscaling.Scheduler.MaxInterval <= 0 {
-		c.Autoscaling.Scheduler.MaxInterval = 60 * time.Second
+		c.Autoscaling.Scheduler.MaxInterval = 90 * time.Second
 	}
 	if c.Autoscaling.Scheduler.TimeoutRatio <= 0 {
 		c.Autoscaling.Scheduler.TimeoutRatio = 0.9
@@ -399,13 +417,19 @@ func (c *Config) normalize() {
 		c.Autoscaling.Scheduler.TimeoutScaleUpMultiplier = 1.5
 	}
 	if c.Autoscaling.Fetcher.MinGroupedLookupBatchSize <= 0 {
-		c.Autoscaling.Fetcher.MinGroupedLookupBatchSize = 1000
+		c.Autoscaling.Fetcher.MinGroupedLookupBatchSize = 250
 	}
 	if c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize <= 0 {
-		c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize = 10000
+		c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize = 2000
 	}
 	if c.Autoscaling.Fetcher.MaxBatchesPerCycle <= 0 {
-		c.Autoscaling.Fetcher.MaxBatchesPerCycle = 10
+		c.Autoscaling.Fetcher.MaxBatchesPerCycle = 4
+	}
+	if c.Distributed.PrefetchTimeout <= 0 {
+		c.Distributed.PrefetchTimeout = 5 * time.Second
+	}
+	if c.Distributed.PrefetchMaxDocIDs <= 0 {
+		c.Distributed.PrefetchMaxDocIDs = 1000
 	}
 	if c.Fetcher.TimestampField == "" {
 		c.Fetcher.TimestampField = "@timestamp"
@@ -417,7 +441,7 @@ func (c *Config) normalize() {
 		c.Fetcher.RequestTimeout = 0
 	}
 	if c.Fetcher.GroupedLookupBatchSize <= 0 {
-		c.Fetcher.GroupedLookupBatchSize = 250
+		c.Fetcher.GroupedLookupBatchSize = 100
 	}
 }
 
@@ -452,8 +476,8 @@ func (c Config) Validate() error {
 	if c.Autoscaling.Scheduler.MinInterval < 10*time.Second {
 		return errors.New("autoscaling.scheduler.min_interval must be greater than or equal to 10s")
 	}
-	if c.Autoscaling.Scheduler.MaxInterval > 60*time.Second {
-		return errors.New("autoscaling.scheduler.max_interval must be less than or equal to 60s")
+	if c.Autoscaling.Scheduler.MaxInterval > 90*time.Second {
+		return errors.New("autoscaling.scheduler.max_interval must be less than or equal to 90s")
 	}
 	if c.Autoscaling.Scheduler.MinInterval > c.Autoscaling.Scheduler.MaxInterval {
 		return errors.New("autoscaling.scheduler.min_interval must be less than or equal to autoscaling.scheduler.max_interval")
@@ -467,11 +491,11 @@ func (c Config) Validate() error {
 	if c.Autoscaling.Scheduler.TimeoutScaleUpMultiplier < 1 {
 		return errors.New("autoscaling.scheduler.timeout_scale_up_multiplier must be greater than or equal to one")
 	}
-	if c.Autoscaling.Fetcher.MinGroupedLookupBatchSize < 1000 || c.Autoscaling.Fetcher.MinGroupedLookupBatchSize > 10000 {
-		return errors.New("autoscaling.fetcher.min_grouped_lookup_batch_size must be between 1000 and 10000")
+	if c.Autoscaling.Fetcher.MinGroupedLookupBatchSize < 100 || c.Autoscaling.Fetcher.MinGroupedLookupBatchSize > 10000 {
+		return errors.New("autoscaling.fetcher.min_grouped_lookup_batch_size must be between 100 and 10000")
 	}
-	if c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize < 1000 || c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize > 10000 {
-		return errors.New("autoscaling.fetcher.max_grouped_lookup_batch_size must be between 1000 and 10000")
+	if c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize < 100 || c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize > 10000 {
+		return errors.New("autoscaling.fetcher.max_grouped_lookup_batch_size must be between 100 and 10000")
 	}
 	if c.Autoscaling.Fetcher.MinGroupedLookupBatchSize > c.Autoscaling.Fetcher.MaxGroupedLookupBatchSize {
 		return errors.New("autoscaling.fetcher.min_grouped_lookup_batch_size must be less than or equal to autoscaling.fetcher.max_grouped_lookup_batch_size")
@@ -497,6 +521,14 @@ func (c Config) Validate() error {
 		}
 		if c.Distributed.StreamConsumerGroup == "" {
 			return errors.New("distributed.stream_consumer_group must not be empty when distributed.enabled is true")
+		}
+		if c.Distributed.PrefetchFullLogs {
+			if c.Distributed.PrefetchTimeout <= 0 {
+				return errors.New("distributed.prefetch_timeout must be greater than zero when distributed.prefetch_full_logs is true")
+			}
+			if c.Distributed.PrefetchMaxDocIDs <= 0 {
+				return errors.New("distributed.prefetch_max_doc_ids must be greater than zero when distributed.prefetch_full_logs is true")
+			}
 		}
 		if c.Distributed.FullLogCacheTTL <= 0 {
 			return errors.New("distributed.full_log_cache_ttl must be greater than zero when distributed.enabled is true")
@@ -540,8 +572,8 @@ func (c Config) Validate() error {
 	if len(c.Elasticsearch.Addresses) == 0 {
 		return errors.New("elasticsearch.addresses must contain at least one host")
 	}
-	if c.Elasticsearch.Index == "" {
-		return errors.New("elasticsearch.index must not be empty")
+	if c.Elasticsearch.WriteHistory && c.Elasticsearch.Index == "" {
+		return errors.New("elasticsearch.index must not be empty when elasticsearch.write_history_index is true")
 	}
 	if c.Elasticsearch.CurrentIndex == "" {
 		return errors.New("elasticsearch.current_index must not be empty")
@@ -585,6 +617,12 @@ func (c Config) Validate() error {
 		}
 		if c.Engine.ParallelCorrelation.DistributedTargetShardDuration <= 0 {
 			return errors.New("engine.parallel_correlation.distributed_target_shard_duration must be greater than zero when engine.parallel_correlation.enabled is true")
+		}
+		if c.Engine.ParallelCorrelation.DistributedShardTimeout <= 0 {
+			return errors.New("engine.parallel_correlation.distributed_shard_timeout must be greater than zero when engine.parallel_correlation.enabled is true")
+		}
+		if c.Engine.ParallelCorrelation.DistributedRunReserve <= 0 {
+			return errors.New("engine.parallel_correlation.distributed_run_reserve must be greater than zero when engine.parallel_correlation.enabled is true")
 		}
 		if c.Engine.ParallelCorrelation.DistributedMinShardsPerWorker <= 0 {
 			return errors.New("engine.parallel_correlation.distributed_min_shards_per_worker must be greater than zero when engine.parallel_correlation.enabled is true")

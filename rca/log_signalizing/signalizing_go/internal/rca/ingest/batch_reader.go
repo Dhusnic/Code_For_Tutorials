@@ -47,6 +47,18 @@ func NewBatchReader(
 
 // IterHits reads and returns all hits in ascending time order.
 func (r *BatchReader) IterHits(checkpointSort []any) ([]map[string]any, error) {
+	out := make([]map[string]any, 0)
+	if err := r.IterateHits(checkpointSort, func(hit map[string]any) error {
+		out = append(out, hit)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// IterateHits streams hits in ascending time order to the provided callback.
+func (r *BatchReader) IterateHits(checkpointSort []any, handle func(map[string]any) error) error {
 	searchAfter := normalizeSearchAfter(checkpointSort)
 	if len(checkpointSort) > 0 && searchAfter == nil {
 		r.logger.Warning(
@@ -58,7 +70,6 @@ func (r *BatchReader) IterHits(checkpointSort []any) ([]map[string]any, error) {
 
 	pulledTotal := 0
 	batchNumber := 0
-	out := make([]map[string]any, 0)
 
 	for {
 		query := r.buildQuery(searchAfter)
@@ -70,7 +81,7 @@ func (r *BatchReader) IterHits(checkpointSort []any) ([]map[string]any, error) {
 				logging.F("index", r.index),
 				logging.F("batch_number", batchNumber+1),
 			)
-			return nil, err
+			return err
 		}
 
 		hits, _ := anyValue(mapValue(response, "hits"), "hits").([]any)
@@ -81,7 +92,7 @@ func (r *BatchReader) IterHits(checkpointSort []any) ([]map[string]any, error) {
 				logging.F("total_taken_from_index", pulledTotal),
 				logging.F("batch_count", batchNumber),
 			)
-			return out, nil
+			return nil
 		}
 
 		batchNumber++
@@ -97,14 +108,16 @@ func (r *BatchReader) IterHits(checkpointSort []any) ([]map[string]any, error) {
 		for _, hitRaw := range hits {
 			hit, ok := hitRaw.(map[string]any)
 			if ok {
-				out = append(out, hit)
+				if err := handle(hit); err != nil {
+					return err
+				}
 			}
 		}
 
 		lastHit, _ := hits[len(hits)-1].(map[string]any)
 		searchAfter = normalizeSearchAfter(sliceValue(lastHit, "sort"))
 		if searchAfter == nil {
-			return nil, fmt.Errorf("Hit missing compatible sort values for pagination in index=%s", r.index)
+			return fmt.Errorf("Hit missing compatible sort values for pagination in index=%s", r.index)
 		}
 	}
 }

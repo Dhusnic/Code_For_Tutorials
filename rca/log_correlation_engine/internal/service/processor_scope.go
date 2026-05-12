@@ -126,25 +126,17 @@ func (p *Processor) processSignalWorkload(ctx context.Context, scope processingS
 	if candidate := p.lookbackWindow(ruleBuckets.incrementalShadow); candidate > lookback {
 		lookback = candidate
 	}
+	fullPayloadLookback := p.lookbackWindow(ruleBuckets.fullPayloadLive)
+	if candidate := p.lookbackWindow(ruleBuckets.fullPayloadShadow); candidate > fullPayloadLookback {
+		fullPayloadLookback = candidate
+	}
 
 	rawNewLogs := selectNewSignalLogs(signalLogs, checkpointState)
 	checkpointAheadOfSignals := isCheckpointAheadOfSignals(checkpointState, maxCursor)
 	orgSettings := p.resolveOrganizationSettings(scope.WorkloadKey, len(rawNewLogs))
-	capBypassed := false
-	if orgSettings.MaxNewLogsPerCycle > 0 && len(rawNewLogs) > orgSettings.MaxNewLogsPerCycle &&
-		(len(ruleBuckets.fullPayloadLive) > 0 || len(ruleBuckets.fullPayloadShadow) > 0) {
-		capBypassed = true
-		orgSettings.MaxNewLogsPerCycle = 0
-		p.logger.Warn(
-			"autoscaling cap bypassed because full-payload rules require complete workload replay",
-			append(scopeLoggerFields(scope),
-				"raw_incremental_signal_logs", len(rawNewLogs),
-				"full_payload_rules", len(ruleBuckets.fullPayloadLive)+len(ruleBuckets.fullPayloadShadow),
-			)...,
-		)
-	}
 
 	selection := selectIncrementalSignalLogs(signalLogs, checkpointState, lookback, orgSettings.MaxNewLogsPerCycle)
+	fullPayloadSelection := selectIncrementalSignalLogs(signalLogs, checkpointState, fullPayloadLookback, orgSettings.MaxNewLogsPerCycle)
 	if len(rawNewLogs) == 0 && len(signalLogs) > 0 && (rulesChanged || checkpointAheadOfSignals) {
 		selection = incrementalSelection{
 			WorkingLogs:   append([]models.SignalLog(nil), signalLogs...),
@@ -153,9 +145,23 @@ func (p *Processor) processSignalWorkload(ctx context.Context, scope processingS
 			MaxCursor:     maxCursor,
 			LastProcessed: maxCursor,
 		}
+		fullPayloadSelection = selection
 	}
 	summary.IncrementalSignalLogs = selection.RawNewCount
 	p.logOrganizationAutoscaling(scope.WorkloadKey, summary.IncrementalSignalLogs, orgSettings, selection.Capped)
+	fullPayloadReplayBounded := fullPayloadSelection.Capped &&
+		(len(ruleBuckets.fullPayloadLive) > 0 || len(ruleBuckets.fullPayloadShadow) > 0)
+	if fullPayloadReplayBounded {
+		p.logger.Warn(
+			"full-payload replay bounded by autoscaling cap",
+			append(scopeLoggerFields(scope),
+				"raw_incremental_signal_logs", len(rawNewLogs),
+				"processed_incremental_signal_logs", len(fullPayloadSelection.NewLogs),
+				"full_payload_rules", len(ruleBuckets.fullPayloadLive)+len(ruleBuckets.fullPayloadShadow),
+				"full_payload_lookback", fullPayloadLookback.String(),
+			)...,
+		)
+	}
 
 	if len(selection.NewLogs) == 0 {
 		if err := p.closeInactiveIncidents(ctx, &scope, activeByID, map[string]struct{}{}, now, &summary); err != nil {
@@ -176,7 +182,7 @@ func (p *Processor) processSignalWorkload(ctx context.Context, scope processingS
 	}
 
 	if len(ruleBuckets.fullPayloadLive) > 0 || len(ruleBuckets.fullPayloadShadow) > 0 {
-		fullWorkingLogs, newFullLogs, fetchErrors, err := p.enrichSignalLogs(ctx, signalLogs, selection.NewLogs, cache, fetchOptions)
+		fullWorkingLogs, newFullLogs, fetchErrors, err := p.enrichSignalLogs(ctx, fullPayloadSelection.WorkingLogs, fullPayloadSelection.NewLogs, cache, fetchOptions)
 		if err != nil {
 			return summary, fmt.Errorf("enrich full-payload signal logs for workload %s: %w", scope.WorkloadKey, err)
 		}
@@ -314,7 +320,7 @@ func (p *Processor) processSignalWorkload(ctx context.Context, scope processingS
 			"effective_grouped_lookup_batch_size", orgSettings.GroupedLookupBatchSize,
 			"effective_max_new_logs_per_cycle", orgSettings.MaxNewLogsPerCycle,
 			"incremental_backlog_capped", selection.Capped,
-			"incremental_cap_bypassed_for_full_payload", capBypassed,
+			"full_payload_replay_bounded", fullPayloadReplayBounded,
 			"incremental_rules", len(ruleBuckets.incrementalLive)+len(ruleBuckets.incrementalShadow),
 			"full_payload_rules", len(ruleBuckets.fullPayloadLive)+len(ruleBuckets.fullPayloadShadow),
 			"enriched_logs", summary.EnrichedLogs,

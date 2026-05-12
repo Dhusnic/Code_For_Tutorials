@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +27,8 @@ type Store struct {
 	incidentField         string
 	legacyOrgIndexKey     string
 	activeOrgSetKey       string
+	activeOrgRebuildKey   string
+	activeOrgCursorKey    string
 	resultList            string
 	resultListMaxLen      int
 	signalStreamEnabled   bool
@@ -35,6 +39,14 @@ type Store struct {
 
 const activeIncidentHashField = "active_incidents"
 
+const (
+	activeOrgRebuildLockTTL               = 90 * time.Second
+	activeOrgRebuildPollWait              = 200 * time.Millisecond
+	activeOrgRebuildScanCount       int64 = 250
+	activeOrgRebuildMaxBatches            = 8
+	activeOrgRebuildDeadlineReserve       = 3 * time.Second
+)
+
 func NewStore(client goredis.UniversalClient, cfg config.RedisConfig, logger *slog.Logger) *Store {
 	keyPrefix := strings.TrimSuffix(cfg.KeyPrefix, ":")
 	return &Store{
@@ -44,6 +56,8 @@ func NewStore(client goredis.UniversalClient, cfg config.RedisConfig, logger *sl
 		incidentField:         activeIncidentHashField,
 		legacyOrgIndexKey:     fmt.Sprintf("%s:organizations", keyPrefix),
 		activeOrgSetKey:       fmt.Sprintf("%s:active_organizations", keyPrefix),
+		activeOrgRebuildKey:   fmt.Sprintf("%s:active_organizations:rebuild_lock", keyPrefix),
+		activeOrgCursorKey:    fmt.Sprintf("%s:active_organizations:rebuild_cursor", keyPrefix),
 		resultList:            cfg.ResultList,
 		resultListMaxLen:      cfg.ResultListMaxLen,
 		signalStreamEnabled:   cfg.SignalStreamEnabled,
@@ -73,44 +87,169 @@ func (s *Store) ActiveIncidentStateKey(organization string) string {
 	return fmt.Sprintf("%s:%s:active_incident_states", s.keyPrefix, organization)
 }
 
-func (s *Store) ActiveIncidentLastSeenKey(organization string) string {
-	return fmt.Sprintf("%s:%s:active_incidents_by_last_seen", s.keyPrefix, organization)
-}
-
 func (s *Store) SignalStreamKey() string {
 	return s.signalStreamKey
 }
 
 func (s *Store) ListOrganizations(ctx context.Context) ([]string, error) {
-	if organizations, err := s.activeOrganizations(ctx); err == nil && len(organizations) > 0 {
-		return organizations, nil
-	} else if err != nil {
+	organizations, rebuildPending, err := s.activeOrganizationsState(ctx)
+	if err != nil {
 		return nil, err
 	}
+	if len(organizations) > 0 && !rebuildPending {
+		return organizations, nil
+	}
 
-	organizations, err := s.scanOrganizations(ctx)
+	return s.rebuildActiveOrganizations(ctx, organizations, rebuildPending)
+}
+
+func (s *Store) rebuildActiveOrganizations(ctx context.Context, current []string, rebuildPending bool) ([]string, error) {
+	lockToken, acquired, err := s.tryClaimActiveOrganizationRebuildLock(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !acquired {
+		if len(current) > 0 {
+			return current, nil
+		}
+		return s.waitForActiveOrganizations(ctx)
+	}
+	defer s.releaseActiveOrganizationRebuildLock(context.Background(), lockToken)
+
+	organizations, pending, err := s.advanceActiveOrganizationRebuild(ctx, rebuildPending)
 	if err != nil {
 		return nil, err
 	}
 	if len(organizations) > 0 {
-		if err := s.client.SAdd(ctx, s.activeOrgSetKey, stringSliceToAny(organizations)...).Err(); err != nil && s.logger != nil {
-			s.logger.Warn("failed to rebuild active organization index", "key", s.activeOrgSetKey, "error", err)
+		return organizations, nil
+	}
+	if len(current) > 0 {
+		return current, nil
+	}
+	if pending {
+		if s.logger != nil {
+			s.logger.Debug(
+				"active organization rebuild still in progress",
+				"key", s.activeOrgSetKey,
+				"cursor_key", s.activeOrgCursorKey,
+			)
 		}
 	}
-	return organizations, nil
+	return nil, nil
 }
 
-func (s *Store) scanOrganizations(ctx context.Context) ([]string, error) {
-	s.cleanupLegacyOrganizationIndex(ctx)
-
-	var cursor uint64
-	pattern := s.keyPrefix + ":*"
-	seen := make(map[string]struct{})
+func (s *Store) waitForActiveOrganizations(ctx context.Context) ([]string, error) {
+	ticker := time.NewTicker(activeOrgRebuildPollWait)
+	defer ticker.Stop()
 
 	for {
-		keys, nextCursor, err := s.client.Scan(ctx, cursor, pattern, 100).Result()
+		organizations, err := s.activeOrganizations(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("scan redis keys: %w", err)
+			return nil, err
+		}
+		if len(organizations) > 0 {
+			return organizations, nil
+		}
+
+		lockExists, err := s.client.Exists(ctx, s.activeOrgRebuildKey).Result()
+		if err != nil && !errors.Is(err, goredis.Nil) {
+			return nil, fmt.Errorf("inspect active organization rebuild lock %s: %w", s.activeOrgRebuildKey, err)
+		}
+		if lockExists == 0 {
+			if s.logger != nil {
+				s.logger.Debug(
+					"active organization rebuild completed without populating index",
+					"key", s.activeOrgSetKey,
+				)
+			}
+			return nil, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Store) activeOrganizationsState(ctx context.Context) ([]string, bool, error) {
+	organizations, err := s.activeOrganizations(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	if strings.TrimSpace(s.activeOrgCursorKey) == "" {
+		return organizations, false, nil
+	}
+	cursorExists, err := s.client.Exists(ctx, s.activeOrgCursorKey).Result()
+	if err != nil && !errors.Is(err, goredis.Nil) {
+		return nil, false, fmt.Errorf("inspect active organization rebuild cursor %s: %w", s.activeOrgCursorKey, err)
+	}
+	return organizations, cursorExists > 0, nil
+}
+
+func (s *Store) tryClaimActiveOrganizationRebuildLock(ctx context.Context) (string, bool, error) {
+	if strings.TrimSpace(s.activeOrgRebuildKey) == "" {
+		return "", true, nil
+	}
+
+	token, err := randomToken()
+	if err != nil {
+		return "", false, fmt.Errorf("create active organization rebuild lock token: %w", err)
+	}
+
+	acquired, err := s.client.SetNX(ctx, s.activeOrgRebuildKey, token, activeOrgRebuildLockTTL).Result()
+	if err != nil {
+		return "", false, fmt.Errorf("claim active organization rebuild lock %s: %w", s.activeOrgRebuildKey, err)
+	}
+	return token, acquired, nil
+}
+
+func (s *Store) releaseActiveOrganizationRebuildLock(ctx context.Context, token string) {
+	if strings.TrimSpace(s.activeOrgRebuildKey) == "" || strings.TrimSpace(token) == "" {
+		return
+	}
+
+	const releaseScript = `
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+	return redis.call("DEL", KEYS[1])
+end
+return 0
+`
+	if err := s.client.Eval(ctx, releaseScript, []string{s.activeOrgRebuildKey}, token).Err(); err != nil &&
+		!errors.Is(err, goredis.Nil) &&
+		s.logger != nil {
+		s.logger.Warn(
+			"failed to release active organization rebuild lock",
+			"key", s.activeOrgRebuildKey,
+			"error", err,
+		)
+	}
+}
+
+func (s *Store) advanceActiveOrganizationRebuild(ctx context.Context, rebuildPending bool) ([]string, bool, error) {
+	cursor, hadCursor, err := s.activeOrganizationRebuildCursor(ctx)
+	if err != nil {
+		return nil, rebuildPending, err
+	}
+	if !hadCursor {
+		s.cleanupLegacyOrganizationIndex(ctx)
+	}
+
+	pattern := s.keyPrefix + ":*"
+	seen := make(map[string]struct{})
+	scanCursor := cursor
+	remainingBatches := activeOrgRebuildMaxBatches
+	complete := false
+
+	for remainingBatches > 0 {
+		if s.shouldYieldActiveOrganizationRebuild(ctx) {
+			break
+		}
+
+		keys, nextCursor, err := s.client.Scan(ctx, scanCursor, pattern, activeOrgRebuildScanCount).Result()
+		if err != nil {
+			return nil, rebuildPending, fmt.Errorf("scan redis keys: %w", err)
 		}
 
 		for _, key := range keys {
@@ -124,7 +263,7 @@ func (s *Store) scanOrganizations(ctx context.Context) ([]string, error) {
 			if needsInspection {
 				signalsExist, incidentsExist, err := s.organizationHashFieldsExist(ctx, key)
 				if err != nil {
-					return nil, fmt.Errorf("inspect redis hash for %s: %w", key, err)
+					return nil, rebuildPending, fmt.Errorf("inspect redis hash for %s: %w", key, err)
 				}
 				if !signalsExist && !incidentsExist {
 					continue
@@ -136,11 +275,43 @@ func (s *Store) scanOrganizations(ctx context.Context) ([]string, error) {
 			seen[organization] = struct{}{}
 		}
 
-		cursor = nextCursor
-		if cursor == 0 {
-			return sortedKeys(seen), nil
+		scanCursor = nextCursor
+		remainingBatches--
+		complete = scanCursor == 0
+		if complete {
+			break
 		}
 	}
+
+	discovered := sortedKeys(seen)
+	if len(discovered) > 0 {
+		if err := s.client.SAdd(ctx, s.activeOrgSetKey, stringSliceToAny(discovered)...).Err(); err != nil && s.logger != nil {
+			s.logger.Warn("failed to rebuild active organization index", "key", s.activeOrgSetKey, "error", err)
+		}
+	}
+
+	if complete {
+		if err := s.clearActiveOrganizationRebuildCursor(ctx); err != nil {
+			return nil, false, err
+		}
+	} else if err := s.setActiveOrganizationRebuildCursor(ctx, scanCursor); err != nil {
+		return nil, true, err
+	}
+
+	organizations, err := s.activeOrganizations(ctx)
+	if err != nil {
+		return nil, !complete, err
+	}
+	if s.logger != nil {
+		s.logger.Debug(
+			"advanced active organization rebuild",
+			"discovered", len(discovered),
+			"indexed", len(organizations),
+			"cursor", scanCursor,
+			"complete", complete,
+		)
+	}
+	return organizations, !complete, nil
 }
 
 func (s *Store) cleanupLegacyOrganizationIndex(ctx context.Context) {
@@ -188,8 +359,8 @@ func (s *Store) SaveSignalLogs(ctx context.Context, organization string, logs []
 	if err := s.client.HSet(ctx, s.OrganizationKey(organization), s.hashField, payload).Err(); err != nil {
 		return fmt.Errorf("write redis hash for organization %s: %w", organization, err)
 	}
-	if err := s.client.SAdd(ctx, s.activeOrgSetKey, organization).Err(); err != nil {
-		return fmt.Errorf("index active organization %s: %w", organization, err)
+	if err := s.indexActiveOrganization(ctx, organization); err != nil {
+		return err
 	}
 	return nil
 }
@@ -399,10 +570,7 @@ func (s *Store) SaveIncident(ctx context.Context, state *models.IncidentState, t
 
 	pipe := s.client.TxPipeline()
 	pipe.HSet(ctx, s.ActiveIncidentStateKey(state.OrganizationID), state.IncidentID, payload)
-	pipe.ZAdd(ctx, s.ActiveIncidentLastSeenKey(state.OrganizationID), goredis.Z{
-		Score:  float64(state.LastSeen.UTC().UnixMilli()),
-		Member: state.IncidentID,
-	})
+	pipe.Del(ctx, s.legacyActiveIncidentLastSeenKey(state.OrganizationID))
 	pipe.SAdd(ctx, s.activeOrgSetKey, state.OrganizationID)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("save active incident %s for organization %s: %w", state.IncidentID, state.OrganizationID, err)
@@ -428,7 +596,7 @@ func (s *Store) SaveIncident(ctx context.Context, state *models.IncidentState, t
 func (s *Store) DeleteIncident(ctx context.Context, organization, incidentID string) error {
 	pipe := s.client.TxPipeline()
 	pipe.HDel(ctx, s.ActiveIncidentStateKey(organization), incidentID)
-	pipe.ZRem(ctx, s.ActiveIncidentLastSeenKey(organization), incidentID)
+	pipe.Del(ctx, s.legacyActiveIncidentLastSeenKey(organization))
 	pipe.Del(ctx, s.IncidentKey(organization, incidentID))
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("delete active incident %s for organization %s: %w", incidentID, organization, err)
@@ -506,7 +674,7 @@ func (s *Store) cleanupIncidentStateKeysIfEmpty(ctx context.Context, organizatio
 
 	pipe := s.client.TxPipeline()
 	pipe.Del(ctx, stateKey)
-	pipe.Del(ctx, s.ActiveIncidentLastSeenKey(organization))
+	pipe.Del(ctx, s.legacyActiveIncidentLastSeenKey(organization))
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("cleanup active incident state keys for organization %s: %w", organization, err)
 	}
@@ -593,11 +761,11 @@ func (s *Store) loadActiveIncidentsFromStateHash(ctx context.Context, organizati
 
 func (s *Store) saveActiveIncidentsToStateHash(ctx context.Context, organization string, incidents []models.IncidentState) error {
 	stateKey := s.ActiveIncidentStateKey(organization)
-	lastSeenKey := s.ActiveIncidentLastSeenKey(organization)
+	legacyLastSeenKey := s.legacyActiveIncidentLastSeenKey(organization)
 	if len(incidents) == 0 {
 		pipe := s.client.TxPipeline()
 		pipe.Del(ctx, stateKey)
-		pipe.Del(ctx, lastSeenKey)
+		pipe.Del(ctx, legacyLastSeenKey)
 		if _, err := pipe.Exec(ctx); err != nil {
 			return fmt.Errorf("delete active incidents for organization %s: %w", organization, err)
 		}
@@ -605,24 +773,18 @@ func (s *Store) saveActiveIncidentsToStateHash(ctx context.Context, organization
 	}
 
 	payloads := make(map[string]any, len(incidents))
-	zEntries := make([]goredis.Z, 0, len(incidents))
 	for _, incident := range incidents {
 		payload, err := json.Marshal(incident)
 		if err != nil {
 			return fmt.Errorf("marshal active incident %s for organization %s: %w", incident.IncidentID, organization, err)
 		}
 		payloads[incident.IncidentID] = payload
-		zEntries = append(zEntries, goredis.Z{
-			Score:  float64(incident.LastSeen.UTC().UnixMilli()),
-			Member: incident.IncidentID,
-		})
 	}
 
 	pipe := s.client.TxPipeline()
 	pipe.Del(ctx, stateKey)
-	pipe.Del(ctx, lastSeenKey)
+	pipe.Del(ctx, legacyLastSeenKey)
 	pipe.HSet(ctx, stateKey, payloads)
-	pipe.ZAdd(ctx, lastSeenKey, zEntries...)
 	pipe.SAdd(ctx, s.activeOrgSetKey, organization)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("save active incident state hash for organization %s: %w", organization, err)
@@ -722,6 +884,7 @@ func incidentSnapshotFromResult(result models.CorrelationResult) models.Incident
 		RuleCompletion: result.RuleCompletion,
 		SequenceMatch:  result.SequenceMatch,
 		MatchedAt:      result.MatchedAt.UTC(),
+		CorrelatedAt:   result.CorrelatedAt.UTC(),
 		Audit:          cloneMatchAudit(result.Audit),
 	}
 }
@@ -732,6 +895,7 @@ func isZeroIncidentSnapshot(snapshot models.IncidentSnapshot) bool {
 		snapshot.RuleCompletion == 0 &&
 		snapshot.SequenceMatch == 0 &&
 		snapshot.MatchedAt.IsZero() &&
+		snapshot.CorrelatedAt.IsZero() &&
 		snapshot.Audit == nil
 }
 
@@ -838,11 +1002,68 @@ func (s *Store) scanOrganizationFromKey(key string) (string, bool) {
 		return trimmed, true
 	case strings.HasSuffix(trimmed, ":active_incident_states"):
 		return strings.TrimSuffix(trimmed, ":active_incident_states"), false
+	case strings.HasSuffix(trimmed, ":active_incidents"):
+		return strings.TrimSuffix(trimmed, ":active_incidents"), false
 	case strings.HasSuffix(trimmed, ":active_incidents_by_last_seen"):
 		return strings.TrimSuffix(trimmed, ":active_incidents_by_last_seen"), false
+	case strings.Contains(trimmed, ":incident:"):
+		return strings.SplitN(trimmed, ":incident:", 2)[0], false
 	default:
 		return "", false
 	}
+}
+
+func (s *Store) activeOrganizationRebuildCursor(ctx context.Context) (uint64, bool, error) {
+	if strings.TrimSpace(s.activeOrgCursorKey) == "" {
+		return 0, false, nil
+	}
+
+	cursorValue, err := s.client.Get(ctx, s.activeOrgCursorKey).Result()
+	if errors.Is(err, goredis.Nil) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("load active organization rebuild cursor %s: %w", s.activeOrgCursorKey, err)
+	}
+
+	cursorValue = strings.TrimSpace(cursorValue)
+	if cursorValue == "" {
+		return 0, false, nil
+	}
+
+	cursor, err := strconv.ParseUint(cursorValue, 10, 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("parse active organization rebuild cursor %s: %w", s.activeOrgCursorKey, err)
+	}
+	return cursor, true, nil
+}
+
+func (s *Store) setActiveOrganizationRebuildCursor(ctx context.Context, cursor uint64) error {
+	if strings.TrimSpace(s.activeOrgCursorKey) == "" {
+		return nil
+	}
+	if err := s.client.Set(ctx, s.activeOrgCursorKey, fmt.Sprintf("%d", cursor), 0).Err(); err != nil {
+		return fmt.Errorf("save active organization rebuild cursor %s: %w", s.activeOrgCursorKey, err)
+	}
+	return nil
+}
+
+func (s *Store) clearActiveOrganizationRebuildCursor(ctx context.Context) error {
+	if strings.TrimSpace(s.activeOrgCursorKey) == "" {
+		return nil
+	}
+	if err := s.client.Del(ctx, s.activeOrgCursorKey).Err(); err != nil && !errors.Is(err, goredis.Nil) {
+		return fmt.Errorf("clear active organization rebuild cursor %s: %w", s.activeOrgCursorKey, err)
+	}
+	return nil
+}
+
+func (s *Store) shouldYieldActiveOrganizationRebuild(ctx context.Context) bool {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return false
+	}
+	return time.Until(deadline) <= activeOrgRebuildDeadlineReserve
 }
 
 func isWrongType(err error) bool {
@@ -881,4 +1102,27 @@ func stringSliceToAny(values []string) []any {
 		result = append(result, value)
 	}
 	return result
+}
+
+func (s *Store) indexActiveOrganization(ctx context.Context, organization string) error {
+	trimmed := strings.TrimSpace(organization)
+	if trimmed == "" {
+		return nil
+	}
+	if err := s.client.SAdd(ctx, s.activeOrgSetKey, trimmed).Err(); err != nil {
+		return fmt.Errorf("index active organization %s: %w", trimmed, err)
+	}
+	return nil
+}
+
+func (s *Store) legacyActiveIncidentLastSeenKey(organization string) string {
+	return fmt.Sprintf("%s:%s:active_incidents_by_last_seen", s.keyPrefix, organization)
+}
+
+func randomToken() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
 }

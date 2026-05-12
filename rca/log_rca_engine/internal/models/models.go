@@ -3,15 +3,16 @@ package models
 import "time"
 
 type EvidenceLog struct {
-	ID          string    `json:"id"`
-	Severity    string    `json:"severity"`
-	SourceIndex string    `json:"source_index,omitempty"`
-	Signal      string    `json:"signal,omitempty"`
-	Timestamp   time.Time `json:"timestamp,omitempty"`
-	ServiceName string    `json:"service_name,omitempty"`
-	HostName    string    `json:"host_name,omitempty"`
-	HostIP      string    `json:"host_ip,omitempty"`
-	HostIPs     []string  `json:"host_ips,omitempty"`
+	ID           string    `json:"id"`
+	Severity     string    `json:"severity"`
+	SourceIndex  string    `json:"source_index,omitempty"`
+	Signal       string    `json:"signal,omitempty"`
+	Timestamp    time.Time `json:"timestamp,omitempty"`
+	SignalizedAt time.Time `json:"signalized_at,omitempty"`
+	ServiceName  string    `json:"service_name,omitempty"`
+	HostName     string    `json:"host_name,omitempty"`
+	HostIP       string    `json:"host_ip,omitempty"`
+	HostIPs      []string  `json:"host_ips,omitempty"`
 }
 
 type MatchStepAudit struct {
@@ -51,6 +52,7 @@ type CorrelationEvent struct {
 	OrganizationID  string            `json:"organization_id,omitempty"`
 	GroupByValues   map[string]string `json:"group_by_values,omitempty"`
 	MatchedAt       time.Time         `json:"matched_at,omitempty"`
+	CorrelatedAt    time.Time         `json:"correlated_at,omitempty"`
 	ResultSignature string            `json:"result_signature,omitempty"`
 	Audit           *MatchAudit       `json:"audit,omitempty"`
 	DocumentID      string            `json:"-"`
@@ -210,12 +212,14 @@ type RCARecord struct {
 	ContradictionEvidence        []ContradictionEvidence `json:"contradiction_evidence,omitempty"`
 	GroupByValues                map[string]string       `json:"group_by_values,omitempty"`
 	MatchedAt                    time.Time               `json:"matched_at,omitempty"`
+	CorrelatedAt                 time.Time               `json:"correlated_at,omitempty"`
 	FirstSeen                    *time.Time              `json:"first_seen,omitempty"`
 	LastSeen                     *time.Time              `json:"last_seen,omitempty"`
 	ResultSignature              string                  `json:"result_signature,omitempty"`
 	LastProcessedResultSignature string                  `json:"last_processed_result_signature,omitempty"`
 	Audit                        *MatchAudit             `json:"audit,omitempty"`
 	LLM                          *LLMExplanation         `json:"llm,omitempty"`
+	RCAGeneratedAt               time.Time               `json:"rca_generated_at,omitempty"`
 	UpdatedAt                    time.Time               `json:"updated_at,omitempty"`
 }
 

@@ -1,10 +1,14 @@
 package redis
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -39,6 +43,8 @@ type shardExecutionResultDocument struct {
 	Message     string                     `json:"message,omitempty"`
 	CompletedAt string                     `json:"completed_at,omitempty"`
 }
+
+const compressedJSONPrefix = "gz:"
 
 func (s *Store) StoreWorkloadShards(
 	ctx context.Context,
@@ -516,12 +522,16 @@ func encodeShardExecutionPayload(payload distributed.ShardExecutionPayload) (str
 	if err != nil {
 		return "", fmt.Errorf("marshal distributed shard payload %s: %w", payload.NormalizedShardID(), err)
 	}
-	return string(document), nil
+	return encodeCompressedJSON(document)
 }
 
 func decodeShardExecutionPayload(payload string) (distributed.ShardExecutionPayload, error) {
 	var decoded shardExecutionPayloadDocument
-	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+	document, err := decodeCompressedJSON(payload)
+	if err != nil {
+		return distributed.ShardExecutionPayload{}, fmt.Errorf("decode distributed shard payload: %w", err)
+	}
+	if err := json.Unmarshal(document, &decoded); err != nil {
 		return distributed.ShardExecutionPayload{}, fmt.Errorf("decode distributed shard payload: %w", err)
 	}
 	result := distributed.ShardExecutionPayload{
@@ -566,12 +576,16 @@ func encodeShardExecutionResult(result distributed.ShardExecutionResult) (string
 	if err != nil {
 		return "", fmt.Errorf("marshal distributed shard result %s: %w", result.NormalizedShardID(), err)
 	}
-	return string(document), nil
+	return encodeCompressedJSON(document)
 }
 
 func decodeShardExecutionResult(payload string) (distributed.ShardExecutionResult, error) {
 	var decoded shardExecutionResultDocument
-	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+	document, err := decodeCompressedJSON(payload)
+	if err != nil {
+		return distributed.ShardExecutionResult{}, fmt.Errorf("decode distributed shard result: %w", err)
+	}
+	if err := json.Unmarshal(document, &decoded); err != nil {
 		return distributed.ShardExecutionResult{}, fmt.Errorf("decode distributed shard result: %w", err)
 	}
 	result := distributed.ShardExecutionResult{
@@ -625,6 +639,42 @@ func decodeShardContractPayload(payload string) (distributed.ShardContract, erro
 		contract.RetryAfter = parsed.UTC()
 	}
 	return contract, nil
+}
+
+func encodeCompressedJSON(document []byte) (string, error) {
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(document); err != nil {
+		_ = writer.Close()
+		return "", fmt.Errorf("gzip payload: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("finalize gzip payload: %w", err)
+	}
+	return compressedJSONPrefix + base64.StdEncoding.EncodeToString(compressed.Bytes()), nil
+}
+
+func decodeCompressedJSON(payload string) ([]byte, error) {
+	if !strings.HasPrefix(payload, compressedJSONPrefix) {
+		return []byte(payload), nil
+	}
+
+	encoded := strings.TrimPrefix(payload, compressedJSONPrefix)
+	compressed, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("base64 payload: %w", err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return nil, fmt.Errorf("open gzip payload: %w", err)
+	}
+	defer reader.Close()
+
+	document, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read gzip payload: %w", err)
+	}
+	return document, nil
 }
 
 func shardRunnable(contract distributed.ShardContract, now time.Time) bool {

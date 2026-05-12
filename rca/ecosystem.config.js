@@ -1,6 +1,7 @@
-const signalizingInstances = Number(process.env.SIGNALIZING_INSTANCES || 1);
+const signalizingInstances = Number(process.env.SIGNALIZING_INSTANCES || 7);
 const signalizingModulePartitions = signalizingInstances;
-const correlationInstances = Number(process.env.CORRELATION_INSTANCES || 1);
+const correlationInstances = Number(process.env.CORRELATION_INSTANCES || 7);
+const logRcaInstances = Number(process.env.LOG_RCA_INSTANCES || process.env.RCA_ENGINE_INSTANCES || 7);
 
 const directStreamApps = [
   {
@@ -65,8 +66,9 @@ const directStreamApps = [
     cwd: './log_rca_engine',
     script: './bin/log-rca-engine.exe',
     args: ['--config', './config/config.yml'],
-    instances: 1,
+    instances: logRcaInstances,
     exec_mode: 'fork',
+    instance_var: 'RCA_WORKER_ID',
     exec_interpreter: 'none',
     autorestart: true,
     max_restarts: 10,
@@ -75,7 +77,8 @@ const directStreamApps = [
     out_file: './logs/log-rca-engine.out.log',
     error_file: './logs/log-rca-engine.err.log',
     env: {
-      PM2_APP_NAME: 'log-rca-engine'
+      PM2_APP_NAME: 'log-rca-engine',
+      RCA_WORKER_COUNT: String(logRcaInstances)
     }
   }
 ];

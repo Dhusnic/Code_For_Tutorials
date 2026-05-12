@@ -1,0 +1,4 @@
+9    0fdc38ad71a1a066a2e02b6309cfd...  CORR_PROD_SYSTEM_RAID_DEG...  open    confirmed_rca   2     2026-05-05 07:36:56  2026-05-05 07:39:25  2m 29.0s   2m 30.8s  
+10   a5c01d8a3138b97e9ebdf83a92df3...  CORR_PROD_RABBITMQ_CONNEC...  open    probable_cause  1     2026-05-05 07:45:35  2026-05-05 07:47:05  1m 30.4s   1m 30.4s  
+11   a5c01d8a3138b97e9ebdf83a92df3...  CORR_PROD_RABBITMQ_CONNEC...  open    probable_cause  1     2026-05-05 07:45:35  2026-05-05 07:46:35  1m 00.4s   1m 00.4s  
+12   e84db4f14c55a6630b30552c32a96...  CORR_PROD_SYSTEM_RAID_DEG...  open    confirmed_rca   2     2026-05-05 07:42:46  2026-05-05 07:43:34  48.16 s    48.99 s   

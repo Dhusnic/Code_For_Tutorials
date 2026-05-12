@@ -9,7 +9,7 @@
     "reconnect_delay_s": 1.0
   },
   "runtime": {
-    "rate": 0.5,
+    "rate": 1000,
     "batch_size": 25,
     "count": 0,
     "dry_run": false,

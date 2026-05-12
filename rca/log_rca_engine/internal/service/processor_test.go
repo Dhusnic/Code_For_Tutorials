@@ -112,6 +112,18 @@ func (s *stubCheckpoint) Save(_ context.Context, checkpoint models.ReaderCheckpo
 	return nil
 }
 
+type stubPublisher struct {
+	records   [][]models.RCARecord
+	saveCalls int
+}
+
+func (s *stubPublisher) UpsertRecords(_ context.Context, records []models.RCARecord) error {
+	cloned := append([]models.RCARecord(nil), records...)
+	s.records = append(s.records, cloned)
+	s.saveCalls++
+	return nil
+}
+
 type stubScorer struct {
 	result      models.ScoreResult
 	results     []models.ScoreResult
@@ -350,6 +362,100 @@ func TestProcessorDedupesSameSignatureAndCallsLLMOnce(t *testing.T) {
 	}
 	if scorerStub.calls != 1 {
 		t.Fatalf("expected one score call after dedupe, got %d", scorerStub.calls)
+	}
+}
+
+func TestProcessorPublishesDuplicateEventToMongoPublisher(t *testing.T) {
+	event := baseEvent("sig-1", "open")
+	reader := &stubReader{pages: [][]models.CorrelationEvent{{event}}}
+	results := &stubResults{document: models.RCAOutputDocument{Items: []models.RCARecord{
+		{
+			SchemaVersion:                rcaRecordSchemaVersion,
+			IncidentID:                   event.IncidentID,
+			OrganizationID:               event.OrganizationID,
+			RuleID:                       event.RuleID,
+			Status:                       "open",
+			Classification:               scoring.ClassificationConfirmed,
+			ConfidenceScore:              8.2,
+			LastProcessedResultSignature: "sig-1",
+			ResultSignature:              "sig-1",
+		},
+	}}}
+	publisher := &stubPublisher{}
+
+	processor := NewProcessor(Dependencies{
+		Reader:          reader,
+		Rules:           &stubRules{rules: map[string]models.Rule{"rule-1": {ID: "rule-1"}}},
+		Topology:        &stubTopology{document: models.TopologyDocument{}},
+		Results:         results,
+		ResultPublisher: publisher,
+		Checkpoints:     &stubCheckpoint{},
+		Scorer:          &stubScorer{},
+		Explainer:       &stubExplainer{},
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("RunCycle returned error: %v", err)
+	}
+	if results.saveCalls != 0 {
+		t.Fatalf("expected duplicate event not to rewrite local result store, got %d saves", results.saveCalls)
+	}
+	if publisher.saveCalls != 1 {
+		t.Fatalf("expected duplicate event to be published once, got %d publishes", publisher.saveCalls)
+	}
+	if len(publisher.records) != 1 || len(publisher.records[0]) != 1 {
+		t.Fatalf("expected one published record, got %#v", publisher.records)
+	}
+	record := publisher.records[0][0]
+	if record.IncidentID != event.IncidentID || record.ResultSignature != event.ResultSignature {
+		t.Fatalf("unexpected published duplicate record: %#v", record)
+	}
+}
+
+func TestProcessorPublishesBelowThresholdEventToMongoPublisher(t *testing.T) {
+	reader := &stubReader{pages: [][]models.CorrelationEvent{{baseEvent("sig-low", "open")}}}
+	results := &stubResults{}
+	publisher := &stubPublisher{}
+	scorerStub := &stubScorer{
+		result: models.ScoreResult{
+			Classification:        scoring.ClassificationProbable,
+			ConfidenceScore:       1.5,
+			Breakdown:             models.ScoreBreakdown{DependencyMatch: 0.1},
+			BelowThresholdReasons: []string{"Low dependency confidence."},
+			InvolvedServices:      []string{"api"},
+			MatchedDocIDs:         []string{"doc-1"},
+		},
+	}
+
+	processor := NewProcessor(Dependencies{
+		Reader:               reader,
+		Rules:                &stubRules{rules: map[string]models.Rule{"rule-1": {ID: "rule-1"}}},
+		Topology:             &stubTopology{document: models.TopologyDocument{}},
+		Results:              results,
+		ResultPublisher:      publisher,
+		Checkpoints:          &stubCheckpoint{},
+		Scorer:               scorerStub,
+		Explainer:            &stubExplainer{},
+		ProbableCauseMin:     2.0,
+		NeighborhoodLogLimit: 10,
+		NearbyLogTrigger:     10,
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("RunCycle returned error: %v", err)
+	}
+	if results.saveCalls != 0 {
+		t.Fatalf("expected below-threshold event not to rewrite local result store, got %d saves", results.saveCalls)
+	}
+	if publisher.saveCalls != 1 {
+		t.Fatalf("expected below-threshold event to be published once, got %d publishes", publisher.saveCalls)
+	}
+	record := publisher.records[0][0]
+	if record.ConfidenceScore != 1.5 {
+		t.Fatalf("expected published low-score event to keep confidence, got %#v", record)
+	}
+	if record.IncidentID == "" {
+		t.Fatalf("expected published low-score event to have incident id, got %#v", record)
 	}
 }
 
@@ -963,6 +1069,59 @@ func TestBuildRecordPersistsContradictionEvidence(t *testing.T) {
 	}
 }
 
+func TestBuildRecordPreservesLatencyFieldsFromExistingRecordWhenEventIsSparse(t *testing.T) {
+	now := time.Now().UTC()
+	oldLogAt := now.Add(-2 * time.Minute)
+	oldSignalizedAt := now.Add(-90 * time.Second)
+	oldCorrelatedAt := now.Add(-time.Minute)
+	existing := models.RCARecord{
+		IncidentID:     "incident-1",
+		OrganizationID: "org-1",
+		CorrelatedAt:   oldCorrelatedAt,
+		MatchedLogs: []models.EvidenceLog{
+			{
+				ID:           "doc-1",
+				Severity:     "critical",
+				Timestamp:    oldLogAt,
+				SignalizedAt: oldSignalizedAt,
+			},
+		},
+		RCAGeneratedAt: now.Add(-30 * time.Second),
+	}
+
+	updatedAt := now.Add(15 * time.Second)
+	record := buildRecord(existing, true, models.CorrelationEvent{
+		SchemaVersion:  2,
+		IncidentID:     "incident-1",
+		OrganizationID: "org-1",
+		RuleID:         "rule-1",
+		Status:         "updated",
+		MatchedAt:      now,
+		LogID: []models.EvidenceLog{
+			{ID: "doc-1", Severity: "critical"},
+		},
+	}, "topology-1", models.ScoreResult{
+		Classification:  "probable_cause",
+		ConfidenceScore: 4.5,
+	}, updatedAt)
+
+	if len(record.MatchedLogs) != 1 {
+		t.Fatalf("expected one matched log, got %#v", record.MatchedLogs)
+	}
+	if !record.MatchedLogs[0].Timestamp.Equal(oldLogAt) {
+		t.Fatalf("expected matched log timestamp %s, got %s", oldLogAt, record.MatchedLogs[0].Timestamp)
+	}
+	if !record.MatchedLogs[0].SignalizedAt.Equal(oldSignalizedAt) {
+		t.Fatalf("expected matched log signalized_at %s, got %s", oldSignalizedAt, record.MatchedLogs[0].SignalizedAt)
+	}
+	if !record.CorrelatedAt.Equal(oldCorrelatedAt) {
+		t.Fatalf("expected correlated_at %s, got %s", oldCorrelatedAt, record.CorrelatedAt)
+	}
+	if !record.RCAGeneratedAt.Equal(updatedAt) {
+		t.Fatalf("expected rca_generated_at %s, got %s", updatedAt, record.RCAGeneratedAt)
+	}
+}
+
 func TestDuplicateEventReprocessesOlderRecordSchema(t *testing.T) {
 	existing := models.RCARecord{
 		SchemaVersion:                rcaRecordSchemaVersion - 1,
@@ -978,5 +1137,86 @@ func TestDuplicateEventReprocessesOlderRecordSchema(t *testing.T) {
 	existing.SchemaVersion = rcaRecordSchemaVersion
 	if !isDuplicateEvent(existing, "open", "sig-1") {
 		t.Fatal("expected current schema with same signature/status to dedupe")
+	}
+}
+
+func TestProcessorOnlyProcessesEventsOwnedByWorkerShard(t *testing.T) {
+	ownedEvent := baseEvent("sig-owned", "open")
+	ownedEvent.IncidentID = "incident-owned"
+	unownedEvent := baseEvent("sig-unowned", "open")
+	unownedEvent.IncidentID = "incident-unowned"
+
+	var ownerIndex int
+	for idx := 0; idx < 2; idx++ {
+		processor := NewProcessor(Dependencies{
+			Reader:      &stubReader{},
+			Rules:       &stubRules{},
+			Topology:    &stubTopology{},
+			Results:     &stubResults{},
+			Checkpoints: &stubCheckpoint{},
+			Scorer:      &stubScorer{},
+			Explainer:   &stubExplainer{},
+			WorkerIndex: idx,
+			WorkerCount: 2,
+		})
+		if processor.ownsEvent(ownedEvent) {
+			ownerIndex = idx
+			break
+		}
+	}
+
+	if ownershipKey(ownedEvent) == ownershipKey(unownedEvent) {
+		t.Fatal("expected distinct ownership keys for test events")
+	}
+
+	if ownerIndex == 0 && NewProcessor(Dependencies{
+		Reader:      &stubReader{},
+		Rules:       &stubRules{},
+		Topology:    &stubTopology{},
+		Results:     &stubResults{},
+		Checkpoints: &stubCheckpoint{},
+		Scorer:      &stubScorer{},
+		Explainer:   &stubExplainer{},
+		WorkerIndex: 0,
+		WorkerCount: 2,
+	}).ownsEvent(unownedEvent) {
+		ownerIndex = 1
+	}
+
+	reader := &stubReader{pages: [][]models.CorrelationEvent{{ownedEvent, unownedEvent}}}
+	results := &stubResults{}
+	scorerStub := &stubScorer{
+		result: models.ScoreResult{
+			Classification:   scoring.ClassificationProbable,
+			ConfidenceScore:  5.0,
+			Breakdown:        models.ScoreBreakdown{},
+			InvolvedServices: []string{"api"},
+			MatchedDocIDs:    []string{"doc-1"},
+		},
+	}
+
+	processor := NewProcessor(Dependencies{
+		Reader:      reader,
+		Rules:       &stubRules{rules: map[string]models.Rule{"rule-1": {ID: "rule-1"}}},
+		Topology:    &stubTopology{document: models.TopologyDocument{}},
+		Results:     results,
+		Checkpoints: &stubCheckpoint{},
+		Scorer:      scorerStub,
+		Explainer:   &stubExplainer{},
+		WorkerIndex: ownerIndex,
+		WorkerCount: 2,
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("RunCycle returned error: %v", err)
+	}
+	if scorerStub.calls != 1 {
+		t.Fatalf("expected only one owned event to be scored, got %d", scorerStub.calls)
+	}
+	if len(results.saved.Items) != 1 {
+		t.Fatalf("expected only one owned record to be saved, got %#v", results.saved.Items)
+	}
+	if results.saved.Items[0].IncidentID != ownedEvent.IncidentID {
+		t.Fatalf("expected owned incident %q, got %#v", ownedEvent.IncidentID, results.saved.Items[0])
 	}
 }

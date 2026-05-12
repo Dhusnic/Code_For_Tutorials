@@ -25,7 +25,71 @@ func TestStoreKeys(t *testing.T) {
 	if key := store.ActiveIncidentStateKey("org-1"); key != "Rca:org-1:active_incident_states" {
 		t.Fatalf("expected active incident state key Rca:org-1:active_incident_states, got %s", key)
 	}
-	if key := store.ActiveIncidentLastSeenKey("org-1"); key != "Rca:org-1:active_incidents_by_last_seen" {
-		t.Fatalf("expected active incident zset key Rca:org-1:active_incidents_by_last_seen, got %s", key)
+	if key := store.activeOrgCursorKey; key != "Rca:active_organizations:rebuild_cursor" {
+		t.Fatalf("expected active organization cursor key Rca:active_organizations:rebuild_cursor, got %s", key)
+	}
+}
+
+func TestScanOrganizationFromKey(t *testing.T) {
+	store := NewStore(nil, config.RedisConfig{
+		KeyPrefix:  "Rca",
+		HashField:  "signaled_logs",
+		ResultList: "correlated_events",
+	}, nil)
+
+	testCases := []struct {
+		name           string
+		key            string
+		wantOrg        string
+		wantInspection bool
+	}{
+		{
+			name:           "signal hash",
+			key:            "Rca:org-1",
+			wantOrg:        "org-1",
+			wantInspection: true,
+		},
+		{
+			name:           "active incident state hash",
+			key:            "Rca:org-1:active_incident_states",
+			wantOrg:        "org-1",
+			wantInspection: false,
+		},
+		{
+			name:           "legacy incident index",
+			key:            "Rca:org-1:active_incidents",
+			wantOrg:        "org-1",
+			wantInspection: false,
+		},
+		{
+			name:           "legacy incident payload",
+			key:            "Rca:org-1:incident:abc123",
+			wantOrg:        "org-1",
+			wantInspection: false,
+		},
+		{
+			name:           "last seen helper",
+			key:            "Rca:org-1:active_incidents_by_last_seen",
+			wantOrg:        "org-1",
+			wantInspection: false,
+		},
+		{
+			name:           "ignore distributed key",
+			key:            "Rca:distributed:worker:abc",
+			wantOrg:        "",
+			wantInspection: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			gotOrg, gotInspection := store.scanOrganizationFromKey(testCase.key)
+			if gotOrg != testCase.wantOrg {
+				t.Fatalf("expected organization %q, got %q", testCase.wantOrg, gotOrg)
+			}
+			if gotInspection != testCase.wantInspection {
+				t.Fatalf("expected needsInspection=%t, got %t", testCase.wantInspection, gotInspection)
+			}
+		})
 	}
 }

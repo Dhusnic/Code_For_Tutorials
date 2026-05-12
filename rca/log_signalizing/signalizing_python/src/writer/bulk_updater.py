@@ -75,6 +75,7 @@ class BulkActionFactory:
             "source_index": source_index,
             "source_id": source_id,
             "signal": selected_signal["signal"],
+            "signalized_at": selected_signal.get("matched_at"),
             # "signal_rule_id": selected_signal["rule_id"],
             "signal_present": True,
         }

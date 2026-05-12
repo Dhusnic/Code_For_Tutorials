@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import os
 import shutil
 import socket
@@ -100,6 +101,27 @@ def resolve_executable(*candidates: str) -> str:
         if resolved:
             return resolved
     raise RuntimeError(f"executable not found: {', '.join(candidates)}")
+
+
+def parse_bool(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def parse_duration_seconds(raw: str, default: float = 5.0) -> float:
+    value = raw.strip().lower()
+    if not value:
+        return default
+    units = {
+        "ms": 0.001,
+        "s": 1.0,
+        "m": 60.0,
+        "h": 3600.0,
+    }
+    for suffix, multiplier in units.items():
+        if value.endswith(suffix):
+            number = value[: -len(suffix)].strip()
+            return max(float(number) * multiplier, 0.1)
+    return max(float(value), 0.1)
 
 
 def chunked(values: list[str], size: int) -> Iterable[list[str]]:
@@ -260,6 +282,66 @@ def write_json_file(path: Path, content: str) -> None:
     log("info", f"cleared file {path}")
 
 
+def clear_mongo_results(uri: str, database: str, collection: str, timeout_seconds: float) -> None:
+    last_error: Exception | None = None
+    try:
+        clear_mongo_results_via_pymongo(uri, database, collection, timeout_seconds)
+        return
+    except Exception as exc:  # noqa: BLE001
+        last_error = exc
+        log("warn", f"pymongo reset path unavailable: {exc}")
+
+    try:
+        clear_mongo_results_via_mongosh(uri, database, collection, timeout_seconds)
+        return
+    except Exception as exc:  # noqa: BLE001
+        if last_error is None:
+            raise
+        raise RuntimeError(f"{last_error}; mongosh reset path also failed: {exc}") from exc
+
+
+def clear_mongo_results_via_pymongo(uri: str, database: str, collection: str, timeout_seconds: float) -> None:
+    try:
+        from pymongo import MongoClient
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("pymongo is not installed") from exc
+
+    client = MongoClient(uri, serverSelectionTimeoutMS=max(int(timeout_seconds * 1000), 100))
+    try:
+        deleted = client[database][collection].delete_many({}).deleted_count
+    finally:
+        client.close()
+    log("info", f"deleted {deleted} MongoDB RCA result documents from {database}.{collection} via pymongo")
+
+
+def clear_mongo_results_via_mongosh(uri: str, database: str, collection: str, timeout_seconds: float) -> None:
+    mongosh = resolve_executable("mongosh", "mongosh.exe")
+    query = (
+        f"const coll = db.getSiblingDB({json.dumps(database)}).getCollection({json.dumps(collection)});"
+        "const result = coll.deleteMany({});"
+        "print(JSON.stringify({deletedCount: result.deletedCount || 0}));"
+    )
+    completed = subprocess.run(
+        [mongosh, uri, "--quiet", "--eval", query],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=max(timeout_seconds, 1.0),
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip()
+        raise RuntimeError(stderr or f"mongosh exited with code {completed.returncode}")
+    stdout = completed.stdout.strip()
+    if not stdout:
+        raise RuntimeError("mongosh returned an empty response")
+    try:
+        payload = json.loads(stdout.splitlines()[-1])
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"mongosh returned invalid JSON: {stdout}") from exc
+    deleted = int(payload.get("deletedCount") or 0)
+    log("info", f"deleted {deleted} MongoDB RCA result documents from {database}.{collection} via mongosh")
+
+
 def run_command(command: list[str], cwd: Path, ignore_failure: bool = False) -> int:
     completed = subprocess.run(command, cwd=str(cwd), check=False)
     if completed.returncode != 0 and not ignore_failure:
@@ -359,6 +441,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-redis", action="store_true")
     parser.add_argument("--skip-elasticsearch", action="store_true")
     parser.add_argument("--skip-local-files", action="store_true")
+    parser.add_argument("--skip-mongo", action="store_true")
+    parser.add_argument("--yes-mongo-results", action="store_true")
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
@@ -402,6 +486,12 @@ def main() -> int:
         rca_config,
         read_yaml_section_value(rca_config, "storage", "checkpoint_file"),
     )
+    mongo_enabled = parse_bool(read_yaml_section_value(rca_config, "mongo_sync", "enabled"))
+    mongo_uri = read_yaml_section_value(rca_config, "mongo_sync", "uri")
+    mongo_database = read_yaml_section_value(rca_config, "mongo_sync", "database")
+    mongo_results_collection = read_yaml_section_value(rca_config, "mongo_sync", "results_collection") or "rca_results"
+    mongo_timeout_seconds = parse_duration_seconds(read_yaml_section_value(rca_config, "mongo_sync", "timeout"), 5.0)
+    mongo_configured = mongo_enabled and bool(mongo_uri and mongo_database and mongo_results_collection)
 
     redis_pattern = f"{redis_key_prefix.rstrip(':')}:*"
     elastic_patterns: set[str] = set()
@@ -425,6 +515,8 @@ def main() -> int:
             targets.append(f"Local path {rca_checkpoint_file}")
         if rca_results_file:
             targets.append(f"Local path {rca_results_file}")
+    if not args.skip_mongo and mongo_configured:
+        targets.append(f"MongoDB collection {mongo_database}.{mongo_results_collection}")
 
     log("info", "planned RCA reset targets:")
     for target in targets:
@@ -493,6 +585,28 @@ def main() -> int:
                     log("warn", f"failed to clear file {rca_results_file}: {exc}")
 
         runner.run_phase("local-reset", local_phase)
+
+    if not args.skip_mongo and mongo_configured:
+        mongo_confirmed = args.yes_mongo_results
+        if not mongo_confirmed:
+            answer = input(
+                f"Also delete MongoDB RCA results from {mongo_database}.{mongo_results_collection}? [y/N]: "
+            ).strip().lower()
+            mongo_confirmed = answer in {"y", "yes"}
+        if mongo_confirmed:
+            runner.run_phase(
+                "mongo-results-reset",
+                lambda: clear_mongo_results(
+                    mongo_uri,
+                    mongo_database,
+                    mongo_results_collection,
+                    mongo_timeout_seconds,
+                ),
+            )
+        else:
+            log("info", "skipped MongoDB RCA results reset")
+    elif not args.skip_mongo and mongo_enabled:
+        log("warn", "MongoDB RCA results reset skipped because mongo_sync configuration is incomplete")
 
     if args.rebuild:
         runner.run_phase("rebuild", lambda: invoke_rebuild(repo_root, args.profile, args.run_tests, args.skip_clean))

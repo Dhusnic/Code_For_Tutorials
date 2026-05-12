@@ -6,6 +6,373 @@
         "host.name",
         "service.name"
       ],
+      "window": "30s"
+    },
+    "description": "Simulator confirmed scenario: MongoDB auth failures followed by disconnect and host unreachable. How to replicate: run write_rca_test_logs_linux.py --scenario mongo_auth_chain_confirmed.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_9XK2_MONGO_AUTH_CHAIN",
+    "is_enabled": true,
+    "max_gap_between_steps": "",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 3,
+        "signal_key": "mongodb_auth_failed",
+        "within": "5m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_interrupted_client_disconnected",
+        "within": "3m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_host_unreachable",
+        "within": "3m"
+      }
+    ],
+    "topology_ids": [
+      "local_topology",
+      "simulator_topology",
+      "topology_current"
+    ],
+    "window": "15m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "30s"
+    },
+    "description": "Simulator confirmed scenario: MongoDB auth failures escalate into client disconnects, nginx 502 burst, then MongoDB host unreachable. How to replicate: run write_rca_test_logs_linux.py --scenario nginx_mongodb_auth_outage_confirmed.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_B7M4_NGINX_MONGO_AUTH_OUTAGE",
+    "is_enabled": true,
+    "max_gap_between_steps": "",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 3,
+        "signal_key": "mongodb_auth_failed",
+        "within": "5m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_interrupted_client_disconnected",
+        "within": "3m"
+      },
+      {
+        "min_count": 3,
+        "signal_key": "nginx_access_502_bad_gateway",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_host_unreachable",
+        "within": "3m"
+      }
+    ],
+    "topology_ids": [
+      "local_topology",
+      "simulator_topology",
+      "topology_current"
+    ],
+    "window": "20m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "2m"
+    },
+    "description": "Detects Kafka broker shutdown/unavailability with user-facing impact. How to replicate: stop Kafka broker or block broker port, then trigger API operations depending on Kafka and observe nginx 5xx.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_DOWN_KAFKA_TO_EDGE_IMPACT",
+    "is_enabled": true,
+    "max_gap_between_steps": "4m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 1,
+        "signal_key": "kafka_service_shutdown",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "kafka_broker_not_available",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_5xx_any",
+        "within": "6m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "15m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "2m"
+    },
+    "description": "Detects MongoDB down/unreachable states propagating to edge failures. How to replicate: stop mongod or block MongoDB port from API host, then hit API endpoints that query DB and watch nginx 5xx.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_DOWN_MONGODB_TO_EDGE_IMPACT",
+    "is_enabled": true,
+    "max_gap_between_steps": "4m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_service_shutting_down",
+        "within": "5m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_host_unreachable",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_5xx_any",
+        "within": "6m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "15m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "2m"
+    },
+    "description": "Detects nginx service-down conditions that impact users. How to replicate: stop nginx service (or force failed unit), then send HTTP traffic and observe 5xx responses.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_DOWN_NGINX_UNIT_TO_EDGE_IMPACT",
+    "is_enabled": true,
+    "max_gap_between_steps": "3m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 1,
+        "signal_key": "systemd_unit_failed",
+        "within": "3m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_service_manager_failure",
+        "within": "3m"
+      },
+      {
+        "min_count": 2,
+        "signal_key": "nginx_access_5xx_any",
+        "within": "6m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "12m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "2m"
+    },
+    "description": "Detects RabbitMQ broker-down behavior affecting API/edge path. How to replicate: stop rabbitmq-server or break AMQP listener, then execute message-producing API calls and observe gateway/service unavailable errors.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_DOWN_RABBITMQ_TO_EDGE_IMPACT",
+    "is_enabled": true,
+    "max_gap_between_steps": "4m",
+    "not_sequence": [
+      {
+        "signal_key": "rabbitmq_alarm_cleared"
+      }
+    ],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 1,
+        "signal_key": "rabbitmq_service_manager_failure",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "rabbitmq_heartbeat_missed",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_503_unavailable",
+        "within": "6m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "15m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name"
+      ],
+      "window": "3m"
+    },
+    "description": "Detects host/network link-down cascades across messaging, database, and edge layers. How to replicate: flap NIC or apply network drop/route blackhole, then run normal API traffic to induce timeouts.",
+    "group_by": [
+      "event.organization"
+    ],
+    "id": "CORR_NETWORK_LINK_DOWN_CASCADE",
+    "is_enabled": true,
+    "max_gap_between_steps": "5m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 1,
+        "signal_key": "system_network_link_down",
+        "within": "5m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "rabbitmq_cluster_peer_unreachable",
+        "within": "5m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_host_unreachable",
+        "within": "5m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_504_timeout",
+        "within": "5m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "20m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "30s"
+    },
+    "description": "Detects local-topology MongoDB authentication failures cascading into client disconnects, repeated nginx 502 responses, and final host-unreachable state. How to replicate: generate mongodb_auth_failed 3 times from /var/log/mongodb/mongod.log, then mongodb_interrupted_client_disconnected once, then nginx_access_502_bad_gateway 3 times from /var/log/nginx/access.log, and finally mongodb_host_unreachable once.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_OPENAI_LOCAL_MONGODB_AUTH_CASCADE",
+    "is_enabled": true,
+    "max_gap_between_steps": "",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 3,
+        "signal_key": "mongodb_auth_failed",
+        "within": "5m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_interrupted_client_disconnected",
+        "within": "3m"
+      },
+      {
+        "min_count": 3,
+        "signal_key": "nginx_access_502_bad_gateway",
+        "within": "3m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_host_unreachable",
+        "within": "4m"
+      }
+    ],
+    "topology_ids": [
+      "local_topology",
+      "simulator_topology",
+      "topology_current"
+    ],
+    "window": "20m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
       "window": "0s"
     },
     "description": "Production RCA: instancegunicorn is deactivated and NGINX then times out connecting upstream, indicating the application backend stopped before edge impact surfaced.",
@@ -40026,6 +40393,470 @@
       ],
       "window": "0s"
     },
+    "description": "Realtime MongoDB-to-NGINX RCA rule: repeated MongoDB user-not-found authentication failures followed by NGINX 502 responses on the same host identity. How to replicate naturally: make three real MongoDB login attempts with a non-existent user, then break the upstream app/API behind NGINX or stop its backend so three HTTP requests through NGINX return 502.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_REALTIME_MONGO_USER_NOT_FOUND_TO_NGINX_502",
+    "is_enabled": true,
+    "max_gap_between_steps": "",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 3,
+        "signal_key": "mongodb_user_not_found",
+        "within": "3m"
+      },
+      {
+        "min_count": 3,
+        "signal_key": "nginx_access_502_bad_gateway",
+        "within": "3m"
+      }
+    ],
+    "topology_ids": [
+      "local_topology",
+      "simulator_topology",
+      "topology_current"
+    ],
+    "window": "10m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "1m"
+    },
+    "description": "Single-rule dependency-cause detector for data_collector downtime using explicit sequence blocks. Step 0 uses signal_keys so any one dependency fault can start the incident. Step 1 uses all_of so the rule confirms both a data_collector-down signal and a service-manager failure signal before raising the RCA. How to replicate: trigger one dependency fault on the kafka, mongodb, postgres, or network path; then stop or crash data_collector so both data_collector_service_down and either systemd_unit_failed or systemd_watchdog_timeout appear on the same host.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_SINGLE_DATA_COLLECTOR_DEPENDENCY_CAUSE",
+    "is_enabled": true,
+    "max_gap_between_steps": "6m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "signal_keys": [
+          "kafka_broker_not_available",
+          "kafka_network_exception",
+          "kafka_request_timed_out",
+          "kafka_kraft_no_leader",
+          "mongodb_host_unreachable",
+          "mongodb_service_shutting_down",
+          "postgres_conn_failed",
+          "postgres_service_down",
+          "postgres_crash_shutdown",
+          "system_network_link_down"
+        ],
+        "within": "10m"
+      },
+      {
+        "all_of": [
+          {
+            "signal_key": "data_collector_service_down"
+          },
+          {
+            "signal_keys": [
+              "systemd_unit_failed",
+              "systemd_watchdog_timeout"
+            ]
+          }
+        ],
+        "within": "6m"
+      }
+    ],
+    "topology_ids": [
+      "data_collector_topology"
+    ],
+    "window": "20m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "30s"
+    },
+    "description": "Simulator confirmed web scenario: repeated nginx 502 access failures followed by nginx error spike. How to replicate: run write_rca_test_logs_linux.py --scenario nginx_failure_spike_confirmed.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_T7Q1_WEB_FAILURE_SPIKE",
+    "is_enabled": true,
+    "max_gap_between_steps": "",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 1,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 3,
+        "signal_key": "nginx_access_502_bad_gateway",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_worker_respawned",
+        "within": "3m"
+      }
+    ],
+    "topology_ids": [
+      "local_topology"
+    ],
+    "window": "12m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "2m"
+    },
+    "description": "Detects API to Kafka dependency break leading to gateway-path errors. How to replicate: disrupt broker connectivity or reduce ISR below write requirements, then trigger Kafka-backed API paths and monitor nginx gateway errors.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_DEP_API_KAFKA_BREAK",
+    "is_enabled": true,
+    "max_gap_between_steps": "4m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 2,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 1,
+        "signal_key": "kafka_network_exception",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "kafka_not_enough_replicas",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_gateway_path_errors",
+        "within": "5m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "15m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "2m"
+    },
+    "description": "Detects API to MongoDB dependency break with request timeout symptoms. How to replicate: firewall MongoDB from API node or force DB disconnects, then call DB-backed APIs and observe nginx 504 and operation interruptions.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_DEP_API_MONGODB_BREAK",
+    "is_enabled": true,
+    "max_gap_between_steps": "4m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 2,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_error_sending_response_to_client",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_interrupted_client_disconnected",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_504_timeout",
+        "within": "5m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "15m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "2m"
+    },
+    "description": "Detects API to RabbitMQ dependency break manifested at edge. How to replicate: block AMQP between API and RabbitMQ or force broker connection resets, then run API message workflows and observe 503/5xx responses.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_DEP_API_RABBITMQ_BREAK",
+    "is_enabled": true,
+    "max_gap_between_steps": "4m",
+    "not_sequence": [
+      {
+        "signal_key": "rabbitmq_alarm_cleared"
+      }
+    ],
+    "organization_id": "135098068173316952064",
+    "priority": 2,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 1,
+        "signal_key": "rabbitmq_connection_closed_unexpected",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "rabbitmq_connection_blocked",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_503_unavailable",
+        "within": "5m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "15m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "2m"
+    },
+    "description": "Detects high edge load that converges with MongoDB degradation and turns into user-visible failures. How to replicate: run high HTTP load while adding slow MongoDB queries; observe upstream timeout/read-header errors and 5xx.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_LOAD_EDGE_WITH_DB_BACKEND_FAULT",
+    "is_enabled": true,
+    "max_gap_between_steps": "3m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 2,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 3,
+        "signal_key": "nginx_access_high_request_time",
+        "within": "6m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_slow_command",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_upstream_timeout_read_header",
+        "within": "3m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_5xx_any",
+        "within": "3m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "15m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "3m"
+    },
+    "description": "Detects Kafka load/lag growth with replication or timeout faults and user-path slowdown. How to replicate: increase producer rate and/or throttle consumers to build lag, then induce broker stress and watch upstream latency.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_LOAD_KAFKA_PLUS_FAULT",
+    "is_enabled": true,
+    "max_gap_between_steps": "4m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 2,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 2,
+        "signal_key": "kafka_consumer_lag_high",
+        "within": "8m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "kafka_request_timed_out",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "kafka_under_replicated_partitions",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_high_upstream_time",
+        "within": "4m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "20m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "3m"
+    },
+    "description": "Detects MongoDB load increase followed by database faults and edge latency/errors. How to replicate: run heavy read/write load to trigger slow commands and lock waits, then hit API endpoints and observe upstream latency/5xx.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_LOAD_MONGODB_PLUS_FAULT",
+    "is_enabled": true,
+    "max_gap_between_steps": "4m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 2,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 2,
+        "signal_key": "mongodb_slow_command",
+        "within": "8m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_lock_timeout",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_high_upstream_time",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_5xx_any",
+        "within": "4m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "20m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "3m"
+    },
+    "description": "Detects RabbitMQ load pressure escalating into broker faults and API latency. How to replicate: flood queue producers so backlog/unacked grow, then continue traffic until heartbeat/blocking appears and nginx upstream latency rises.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_LOAD_RABBITMQ_PLUS_FAULT",
+    "is_enabled": true,
+    "max_gap_between_steps": "4m",
+    "not_sequence": [
+      {
+        "signal_key": "rabbitmq_alarm_cleared"
+      }
+    ],
+    "organization_id": "135098068173316952064",
+    "priority": 2,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 2,
+        "signal_key": "rabbitmq_queue_backlog_high",
+        "within": "8m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "rabbitmq_unacked_messages_high",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "rabbitmq_heartbeat_missed",
+        "within": "4m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_high_upstream_time",
+        "within": "4m"
+      }
+    ],
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "20m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
     "description": "Production RCA: Kafka replication health degrades and then requests time out.",
     "group_by": [
       "event.organization",
@@ -54336,6 +55167,122 @@
       "infraon_onprem_prod"
     ],
     "window": "15m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "0s"
+    },
+    "description": "Simulator scenario: MongoDB user-not-found errors followed by disconnect and host unreachable. How to replicate: run write_rca_test_logs_linux.py --scenario mongo_user_not_found_chain.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "Mongo_dhusnic_user_not_found_chain",
+    "is_enabled": true,
+    "max_gap_between_steps": "",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 2,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 3,
+        "signal_key": "mongodb_user_not_found",
+        "within": "5m"
+      }
+    ],
+    "topology_ids": [
+      "local_topology",
+      "simulator_topology",
+      "topology_current"
+    ],
+    "window": "15m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "30s"
+    },
+    "description": "Simulator sparse scenario: two MongoDB auth failures without full outage chain. How to replicate: run write_rca_test_logs_linux.py --scenario mongo_auth_chain_partial.",
+    "group_by": [
+      "event.organization",
+      "host.identity"
+    ],
+    "id": "CORR_H6D4_MONGO_AUTH_CHAIN_SPARSE",
+    "is_enabled": true,
+    "max_gap_between_steps": "",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 3,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 2,
+        "signal_key": "mongodb_auth_failed",
+        "within": "5m"
+      }
+    ],
+    "topology_ids": [
+      "local_topology"
+    ],
+    "window": "10m"
+  },
+  {
+    "deduplication": {
+      "key": [
+        "signal_key",
+        "host.name",
+        "service.name"
+      ],
+      "window": "3m"
+    },
+    "description": "Shadow validation rule for real-time RCA accuracy when multiple backend services degrade together. How to replicate: simultaneously create MongoDB slow ops, RabbitMQ backlog, and Kafka request timeouts while serving traffic; compare shadow match frequency with confirmed incidents.",
+    "group_by": [
+      "event.organization"
+    ],
+    "id": "CORR_MULTI_BACKEND_PRESSURE_REALTIME",
+    "is_enabled": true,
+    "max_gap_between_steps": "6m",
+    "not_sequence": [],
+    "organization_id": "135098068173316952064",
+    "priority": 3,
+    "rule_type": "ordered_signal_sequence",
+    "sequence": [
+      {
+        "min_count": 1,
+        "signal_key": "mongodb_slow_command",
+        "within": "6m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "rabbitmq_queue_backlog_high",
+        "within": "6m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "kafka_request_timed_out",
+        "within": "6m"
+      },
+      {
+        "min_count": 1,
+        "signal_key": "nginx_access_5xx_any",
+        "within": "6m"
+      }
+    ],
+    "shadow_mode": true,
+    "topology_ids": [
+      "topology_current"
+    ],
+    "window": "25m"
   },
   {
     "deduplication": {

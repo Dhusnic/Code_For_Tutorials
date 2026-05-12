@@ -20,6 +20,7 @@ type Event struct {
 	Signal         string    `json:"signal"`
 	LogLevel       string    `json:"log_level"`
 	TimeStamp      time.Time `json:"time_stamp"`
+	SignalizedAt   time.Time `json:"signalized_at,omitempty"`
 	SourceIndex    string    `json:"source_index,omitempty"`
 	SourceID       string    `json:"source_id,omitempty"`
 }

@@ -5,8 +5,8 @@ logging:
   format: json
 
 scheduler:
-  interval: 5s
-  run_timeout: 5s
+  interval: 35s
+  run_timeout: 31s
   organization_workers: 1
 
 autoscaling:
@@ -16,24 +16,27 @@ autoscaling:
   input_high_watermark: 100000
   scale_down_cooldown_cycles: 3
   scheduler:
-    min_interval: 10s
-    max_interval: 60s
+    min_interval: 35s
+    max_interval: 75s
     timeout_ratio: 0.9
     target_cycle_utilization: 0.8
     timeout_scale_up_multiplier: 1.5
   fetcher:
-    min_grouped_lookup_batch_size: 1000
-    max_grouped_lookup_batch_size: 10000
-    max_batches_per_cycle: 10
+    min_grouped_lookup_batch_size: 250
+    max_grouped_lookup_batch_size: 2500
+    max_batches_per_cycle: 5
 
 distributed:
-  enabled: false
+  enabled: true
   worker_id_env: RCA_WORKER_ID
   lease_ttl: 45s
   lease_heartbeat_interval: 15s
-  claim_limit_per_cycle: 32
+  claim_limit_per_cycle: 12
   stream_consumer_group: rca-correlation
-  prefetch_full_logs: true
+  single_stream_ingest_leader: true
+  prefetch_full_logs: false
+  prefetch_timeout: 5s
+  prefetch_max_doc_ids: 1000
   full_log_cache_ttl: 2h
 
 redis:
@@ -41,9 +44,9 @@ redis:
   username: ""
   password: "InfraonRedis321"
   db: 0
-  dial_timeout: 5s
-  read_timeout: 3s
-  write_timeout: 3s
+  dial_timeout: 50s
+  read_timeout: 30s
+  write_timeout: 30s
   key_prefix: Rca
   hash_field: signaled_logs
   result_list: correlated_events
@@ -51,7 +54,7 @@ redis:
   publish_results: false
   signal_stream_enabled: true
   signal_stream_key: Rca:signalized_log_events
-  signal_stream_batch_size: 1000
+  signal_stream_batch_size: 250
   signal_stream_consumed_retention: 30m
   signal_stream_unconsumed_retention: 2h
 
@@ -62,24 +65,27 @@ elasticsearch:
   password: "elastic"
   api_key: ""
   index: rca_correlated_events
+  write_history_index: false
   current_index: rca_correlated_incidents_current
-  request_timeout: 15s
+  request_timeout: 30s
   bulk_batch_size: 1000
 
 engine:
   rules_file: rules/rules.json
   hot_reload_interval: 30s
-  default_window: 30m
+  default_window: 2h
   default_max_gap: 5m
   incremental_lookback: 0s
-  incident_inactivity_ttl: 30m
+  incident_inactivity_ttl: 10m
   checkpoint_directory: data/checkpoints
   parallel_correlation:
     enabled: true
-    min_logs: 5000
-    target_logs_per_shard: 5000
-    max_workers: 4
-    distributed_target_shard_duration: 2s
+    min_logs: 3000
+    target_logs_per_shard: 2500
+    max_workers: 10
+    distributed_target_shard_duration: 750ms
+    distributed_shard_timeout: 5s
+    distributed_run_reserve: 3s
     distributed_min_shards_per_worker: 1
     distributed_max_shards_per_worker: 4
     shard_poll_interval: 20ms
@@ -93,7 +99,7 @@ mongo_sync:
   state_name: prod_rules_topology
   snapshot_collection: rca_config_snapshots
   snapshot_name: prod_rules_topology
-  use_snapshot: true
+  use_snapshot: false
   write_snapshot: false
   redis_notify:
     enabled: false
@@ -104,7 +110,7 @@ mongo_sync:
 fetcher:
   mode: elasticsearch
   index: "*"
-  request_timeout: 15s
-  grouped_lookup_batch_size: 250
+  request_timeout: 30s
+  grouped_lookup_batch_size: 150
   timestamp_field: "@timestamp"
   log_level_field: "log.level"

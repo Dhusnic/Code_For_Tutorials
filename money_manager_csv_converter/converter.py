@@ -388,6 +388,7 @@ def default_config() -> dict[str, Any]:
                 "PAYMENT",
                 "PAY",
                 "UPI",
+                "CARD",
                 "RAW",
                 "HDFC",
                 "ACCOUNT",

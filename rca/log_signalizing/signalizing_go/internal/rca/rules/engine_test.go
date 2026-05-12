@@ -114,3 +114,69 @@ func TestRuleEnginePrefersSpecificOverFallback(t *testing.T) {
 		t.Fatalf("expected specific signal, got %v", signals[0]["signal"])
 	}
 }
+
+func TestRuleEngineMatchesRawNginxAccessStatusMessage(t *testing.T) {
+	engine := NewRuleEngine(true)
+	ruleSet := &RuleSet{
+		Service: "nginx",
+		Rules: []SignalRule{
+			{
+				RuleID:      "NGINX_ACCESS_5XX_ANY",
+				SignalKey:   "nginx_access_5xx_any",
+				Level:       "warning",
+				Description: "Any 5xx response in access logs.",
+				Condition: RuleConditionGroup{
+					Op: "or",
+					Conditions: []ConditionNode{
+						RuleCondition{Field: "http.response.status_code", Op: "gte", Value: 500},
+						RuleCondition{Field: "status", Op: "gte", Value: 500},
+						RuleCondition{Field: "status_code", Op: "regex", Value: "^5[0-9]{2}$"},
+						RuleCondition{Field: "message", Op: "regex", Value: `(?:\s|")5[0-9]{2}(?:\s|")`},
+						RuleConditionGroup{
+							Op: "and",
+							Conditions: []ConditionNode{
+								RuleCondition{Field: "message", Op: "contains", Value: "rca_sim_nginx_access"},
+								RuleCondition{Field: "message", Op: "regex", Value: `status=5[0-9]{2}`},
+							},
+						},
+					},
+				},
+			},
+			{
+				RuleID:      "NGINX_ACCESS_502_BAD_GATEWAY",
+				SignalKey:   "nginx_access_502_bad_gateway",
+				Level:       "critical",
+				Description: "Upstream gateway failure surfaced as 502.",
+				Condition: RuleConditionGroup{
+					Op: "or",
+					Conditions: []ConditionNode{
+						RuleCondition{Field: "http.response.status_code", Op: "equals", Value: 502},
+						RuleCondition{Field: "status", Op: "equals", Value: 502},
+						RuleCondition{Field: "status_code", Op: "regex", Value: "^502$"},
+						RuleCondition{Field: "message", Op: "regex", Value: `(?:\s|")502(?:\s|")`},
+						RuleConditionGroup{
+							Op: "and",
+							Conditions: []ConditionNode{
+								RuleCondition{Field: "message", Op: "contains", Value: "rca_sim_nginx_access"},
+								RuleCondition{Field: "message", Op: "contains", Value: "status=502"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	event := map[string]any{
+		"message": `rca_sim_nginx_access ts="05/May/2026:10:55:51 +0530" client_ip=10.0.4.72 method=GET path=/api/orders status=502 bytes_sent=646 request_time=1.370 upstream_response_time=1.059`,
+		"tags":    []any{"_grokparsefailure"},
+	}
+
+	signals := engine.Evaluate(event, ruleSet, 0, false)
+	if len(signals) != 2 {
+		t.Fatalf("expected 2 signals for raw access message, got %d", len(signals))
+	}
+	if signals[0]["signal"] != "nginx_access_502_bad_gateway" {
+		t.Fatalf("expected 502 signal first, got %v", signals[0]["signal"])
+	}
+}

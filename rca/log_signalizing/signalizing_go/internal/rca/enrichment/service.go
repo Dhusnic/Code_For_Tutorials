@@ -254,34 +254,13 @@ func (s *SignalEnrichmentService) selectOwnedWorkUnits(allUnits []workUnit) []wo
 		return append([]workUnit{}, allUnits...)
 	}
 
-	serviceOwners := serviceOwnerMap(allUnits, workerCount)
 	owned := make([]workUnit, 0, (len(allUnits)+workerCount-1)/workerCount)
-	for _, unit := range allUnits {
-		if serviceOwners[unit.serviceConfig.Name] == s.config.Pipeline.WorkerID {
+	for index, unit := range allUnits {
+		if index%workerCount == s.config.Pipeline.WorkerID {
 			owned = append(owned, unit)
 		}
 	}
 	return owned
-}
-
-func serviceOwnerMap(units []workUnit, workerCount int) map[string]int {
-	serviceNames := make([]string, 0)
-	seen := make(map[string]struct{})
-	for _, unit := range units {
-		name := unit.serviceConfig.Name
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		serviceNames = append(serviceNames, name)
-	}
-	sort.Strings(serviceNames)
-
-	owners := make(map[string]int, len(serviceNames))
-	for index, serviceName := range serviceNames {
-		owners[serviceName] = index % workerCount
-	}
-	return owners
 }
 
 func (s *SignalEnrichmentService) logWorkUnitOwnership(totalUnits int, ownedUnits []workUnit) {
@@ -349,10 +328,6 @@ func (s *SignalEnrichmentService) processIndex(serviceConfig config.ServiceConfi
 		serviceConfig.Query,
 		true,
 	)
-	hits, err := reader.IterHits(checkpoint)
-	if err != nil {
-		return 0, 0, nil, err
-	}
 
 	batcher := writer.NewActionBatcher(effectiveBatchSize, maxInt(1, s.config.Pipeline.BulkMaxBatchBytes))
 	processed := 0
@@ -364,7 +339,7 @@ func (s *SignalEnrichmentService) processIndex(serviceConfig config.ServiceConfi
 	var latestEventAt *time.Time
 	destinationIndicesSeen := make(map[string]struct{})
 
-	for _, hit := range hits {
+	err = reader.IterateHits(checkpoint, func(hit map[string]any) error {
 		takenEvents++
 		if sortValues, ok := hit["sort"].([]any); ok {
 			latestSort = sortValues
@@ -376,7 +351,7 @@ func (s *SignalEnrichmentService) processIndex(serviceConfig config.ServiceConfi
 		}
 		if isAlreadySignaledDoc(sourceDoc) {
 			skippedAlreadySignaledEvents++
-			continue
+			return nil
 		}
 
 		eventTS := s.extractEventTimestamp(sourceDoc)
@@ -427,7 +402,7 @@ func (s *SignalEnrichmentService) processIndex(serviceConfig config.ServiceConfi
 				)
 				if flushed := batcher.Add(action); flushed != nil {
 					if err := s.enqueueActions(flushed); err != nil {
-						return processed, takenEvents, nil, err
+						return err
 					}
 				}
 				processed++
@@ -456,6 +431,10 @@ func (s *SignalEnrichmentService) processIndex(serviceConfig config.ServiceConfi
 		} else {
 			unmatchedEvents++
 		}
+		return nil
+	})
+	if err != nil {
+		return processed, takenEvents, nil, err
 	}
 
 	if remaining := batcher.FlushRemaining(); remaining != nil {
@@ -565,9 +544,26 @@ func (s *SignalEnrichmentService) buildSignalStreamEvent(
 		Signal:         strings.TrimSpace(fmt.Sprint(selectedSignal["signal"])),
 		LogLevel:       logLevel,
 		TimeStamp:      eventTime.UTC(),
+		SignalizedAt:   parseSelectedSignalMatchedAt(selectedSignal),
 		SourceIndex:    sourceIndex,
 		SourceID:       sourceID,
 	}, true
+}
+
+func parseSelectedSignalMatchedAt(selectedSignal map[string]any) time.Time {
+	raw := selectedSignal["matched_at"]
+	text := strings.TrimSpace(fmt.Sprint(raw))
+	if raw == nil || text == "" || text == "<nil>" {
+		return time.Now().UTC()
+	}
+	if strings.HasSuffix(text, "Z") {
+		text = text[:len(text)-1] + "+00:00"
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		return time.Now().UTC()
+	}
+	return parsed.UTC()
 }
 
 func resolveSignalStreamHostIdentity(sourceDoc map[string]any) string {
@@ -621,6 +617,14 @@ func (s *SignalEnrichmentService) resolveSourceIndices(serviceName string, sourc
 		}
 		concreteIndices := s.expandSourceIndexPattern(serviceName, sourceIndex)
 		for _, concreteIndex := range concreteIndices {
+			if isSystemIndex(concreteIndex) {
+				s.logger.Debug(
+					"Skipping system index during source index resolution",
+					logging.F("service", serviceName),
+					logging.F("source_index", concreteIndex),
+				)
+				continue
+			}
 			if _, ok := seen[concreteIndex]; ok {
 				continue
 			}
@@ -667,6 +671,10 @@ func (s *SignalEnrichmentService) expandSourceIndexPattern(serviceName string, s
 
 func isWildcardIndex(sourceIndex string) bool {
 	return strings.ContainsAny(sourceIndex, "*?[")
+}
+
+func isSystemIndex(sourceIndex string) bool {
+	return strings.HasPrefix(strings.TrimSpace(sourceIndex), ".")
 }
 
 func (s *SignalEnrichmentService) enqueueActions(actions []map[string]any) error {

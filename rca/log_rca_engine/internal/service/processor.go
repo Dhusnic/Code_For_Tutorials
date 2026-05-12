@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"sort"
 	"strings"
@@ -14,7 +15,7 @@ import (
 	"log_rca_engine/internal/utils"
 )
 
-const rcaRecordSchemaVersion = 6
+const rcaRecordSchemaVersion = 7
 
 type CorrelationEventReader interface {
 	ReadCorrelationEvents(ctx context.Context, checkpoint models.ReaderCheckpoint) ([]models.CorrelationEvent, models.ReaderCheckpoint, error)
@@ -65,6 +66,8 @@ type Dependencies struct {
 	NeighborhoodLogLimit int
 	NearbyLogTrigger     float64
 	ProbableCauseMin     float64
+	WorkerIndex          int
+	WorkerCount          int
 	Logger               *slog.Logger
 }
 
@@ -80,6 +83,8 @@ type Processor struct {
 	neighborhoodLogLimit int
 	nearbyLogTrigger     float64
 	probableCauseMin     float64
+	workerIndex          int
+	workerCount          int
 	logger               *slog.Logger
 	now                  func() time.Time
 }
@@ -120,6 +125,8 @@ func NewProcessor(deps Dependencies) *Processor {
 		neighborhoodLogLimit: deps.NeighborhoodLogLimit,
 		nearbyLogTrigger:     deps.NearbyLogTrigger,
 		probableCauseMin:     deps.ProbableCauseMin,
+		workerIndex:          deps.WorkerIndex,
+		workerCount:          deps.WorkerCount,
 		logger:               deps.Logger,
 		now:                  time.Now,
 	}
@@ -175,10 +182,24 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			if !p.ownsEvent(event) {
+				continue
+			}
 			summary.EventsRead++
 			incidentID := strings.TrimSpace(event.IncidentID)
 			if incidentID == "" {
 				summary.EventsSkipped++
+				queueSkippedEventForPublish(recordsPendingPublish, models.RCARecord{}, false, event, "", "skipped because incident_id was empty", nil, p.now().UTC())
+				if p.logger != nil {
+					p.logger.Debug(
+						"skipping event because incident_id was empty",
+						"organization_id", event.OrganizationID,
+						"rule_id", event.RuleID,
+						"status", event.Status,
+						"result_signature", event.ResultSignature,
+						"document_id", event.DocumentID,
+					)
+				}
 				continue
 			}
 
@@ -186,6 +207,18 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 			existing, hasExisting := recordsByIncident[incidentID]
 			if isDuplicateEvent(existing, normalizedStatus, event.ResultSignature) {
 				summary.EventsSkipped++
+				queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, existing.TopologyID, "duplicate replayed event", nil, p.now().UTC())
+				if p.logger != nil {
+					p.logger.Debug(
+						"skipping duplicate replayed event because incident_id and result_signature were already processed",
+						"incident_id", event.IncidentID,
+						"organization_id", event.OrganizationID,
+						"rule_id", event.RuleID,
+						"status", normalizedStatus,
+						"result_signature", event.ResultSignature,
+						"last_processed_result_signature", existing.LastProcessedResultSignature,
+					)
+				}
 				continue
 			}
 			enrichedEvent, err := p.enrichEventEvidence(ctx, event)
@@ -203,6 +236,7 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 			if normalizedStatus == "closed" && (!hasExisting || existing.SchemaVersion >= rcaRecordSchemaVersion) {
 				if !hasExisting {
 					summary.EventsSkipped++
+					queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, strings.TrimSpace(event.GroupByValues["topology_id"]), "closed event arrived before an RCA record was stored", nil, p.now().UTC())
 					if p.logger != nil {
 						p.logger.Debug(
 							"skipping closed event because no prior scored RCA record exists",
@@ -241,6 +275,7 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 			)
 			if !eligible {
 				summary.EventsSkipped++
+				queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, scopedTopologyID, "rule topology scope did not match any organization topology", nil, p.now().UTC())
 				if p.logger != nil {
 					p.logger.Debug(
 						"skipping event because rule topology scope did not match any organization topology",
@@ -273,6 +308,7 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 			}
 			if !p.shouldPersistProbableCause(score) {
 				summary.EventsSkipped++
+				queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, selection.TopologyID, "probable cause score was below the minimum threshold", &score, p.now().UTC())
 				if p.logger != nil {
 					p.logger.Debug(
 						"skipping probable cause below minimum threshold",
@@ -322,10 +358,10 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 		if err := p.results.Save(ctx, storage.FromIncidentMap(recordsByIncident)); err != nil {
 			return fmt.Errorf("save result store: %w", err)
 		}
-		if p.resultPublisher != nil && len(recordsPendingPublish) > 0 {
-			if err := p.resultPublisher.UpsertRecords(ctx, publishedRecords(recordsPendingPublish)); err != nil {
-				return fmt.Errorf("persist RCA results to MongoDB: %w", err)
-			}
+	}
+	if p.resultPublisher != nil && len(recordsPendingPublish) > 0 {
+		if err := p.resultPublisher.UpsertRecords(ctx, publishedRecords(recordsPendingPublish)); err != nil {
+			return fmt.Errorf("persist RCA results to MongoDB: %w", err)
 		}
 	}
 	nextCheckpoint.SearchAfter = nil
@@ -348,6 +384,58 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 		)
 	}
 	return nil
+}
+
+func (p *Processor) ownsEvent(event models.CorrelationEvent) bool {
+	if p.workerCount <= 1 {
+		return true
+	}
+	if p.workerIndex < 0 || p.workerIndex >= p.workerCount {
+		return false
+	}
+
+	key := ownershipKey(event)
+	if key == "" {
+		return p.workerIndex == 0
+	}
+
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(key))
+	return int(hasher.Sum32()%uint32(p.workerCount)) == p.workerIndex
+}
+
+func ownershipKey(event models.CorrelationEvent) string {
+	organizationID := strings.TrimSpace(event.OrganizationID)
+	incidentID := strings.TrimSpace(event.IncidentID)
+	if organizationID != "" || incidentID != "" {
+		return organizationID + "|" + incidentID
+	}
+
+	resultSignature := strings.TrimSpace(event.ResultSignature)
+	if resultSignature != "" {
+		return resultSignature
+	}
+
+	documentID := strings.TrimSpace(event.DocumentID)
+	if documentID != "" {
+		return documentID
+	}
+
+	if len(event.LogID) == 0 {
+		return strings.TrimSpace(event.RuleID)
+	}
+
+	ids := make([]string, 0, len(event.LogID))
+	for _, entry := range event.LogID {
+		if trimmed := strings.TrimSpace(entry.ID); trimmed != "" {
+			ids = append(ids, trimmed)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return strings.TrimSpace(event.RuleID)
+	}
+	return strings.TrimSpace(event.RuleID) + "|" + strings.Join(ids, ",")
 }
 
 func (p *Processor) explainIncident(
@@ -737,6 +825,7 @@ func correlationEventFromRecord(record models.RCARecord) models.CorrelationEvent
 		OrganizationID:  record.OrganizationID,
 		GroupByValues:   utils.CloneStringMap(record.GroupByValues),
 		MatchedAt:       record.MatchedAt,
+		CorrelatedAt:    record.CorrelatedAt,
 		ResultSignature: strings.TrimSpace(record.ResultSignature),
 		Audit:           cloneAudit(record.Audit),
 	}
@@ -761,6 +850,9 @@ func clampUnit(value float64) float64 {
 }
 
 func buildRecord(existing models.RCARecord, hasExisting bool, event models.CorrelationEvent, topologyID string, score models.ScoreResult, now time.Time) models.RCARecord {
+	matchedLogs := evidenceLogsForPersistence(existing.MatchedLogs, event.LogID)
+	correlatedAt := correlationTimeForPersistence(existing.CorrelatedAt, event.CorrelatedAt)
+
 	record := models.RCARecord{
 		SchemaVersion:                rcaRecordSchemaVersion,
 		CorrelationSchemaVersion:     event.SchemaVersion,
@@ -775,19 +867,86 @@ func buildRecord(existing models.RCARecord, hasExisting bool, event models.Corre
 		BelowThresholdReasons:        append([]string(nil), score.BelowThresholdReasons...),
 		InvolvedServices:             append([]string(nil), score.InvolvedServices...),
 		MatchedDocIDs:                append([]string(nil), score.MatchedDocIDs...),
-		MatchedLogs:                  cloneEvidenceLogs(event.LogID),
+		MatchedLogs:                  matchedLogs,
 		ContradictionEvidence:        cloneContradictionEvidence(score.ContradictionEvidence),
 		GroupByValues:                utils.CloneStringMap(event.GroupByValues),
 		MatchedAt:                    event.MatchedAt.UTC(),
+		CorrelatedAt:                 correlatedAt,
 		FirstSeen:                    cloneTimePtr(event.FirstSeen),
 		LastSeen:                     cloneTimePtr(event.LastSeen),
 		ResultSignature:              strings.TrimSpace(event.ResultSignature),
 		LastProcessedResultSignature: strings.TrimSpace(event.ResultSignature),
 		Audit:                        cloneAudit(event.Audit),
+		RCAGeneratedAt:               now,
 		UpdatedAt:                    now,
 	}
 	if hasExisting && record.FirstSeen == nil {
 		record.FirstSeen = cloneTimePtr(existing.FirstSeen)
+	}
+	return record
+}
+
+func buildSkippedPublishRecord(existing models.RCARecord, hasExisting bool, event models.CorrelationEvent, topologyID, reason string, score *models.ScoreResult, now time.Time) models.RCARecord {
+	record := existing
+	if score != nil {
+		record = buildRecord(existing, hasExisting, event, topologyID, *score, now)
+	} else {
+		if !hasExisting {
+			record = models.RCARecord{
+				SchemaVersion:            rcaRecordSchemaVersion,
+				Classification:           scoring.ClassificationProbable,
+				CorrelationSchemaVersion: event.SchemaVersion,
+			}
+		}
+		record.SchemaVersion = rcaRecordSchemaVersion
+		record.CorrelationSchemaVersion = event.SchemaVersion
+		record.IncidentID = publishIncidentID(event)
+		record.OrganizationID = event.OrganizationID
+		if strings.TrimSpace(record.TopologyID) == "" {
+			record.TopologyID = strings.TrimSpace(topologyID)
+		}
+		record.RuleID = event.RuleID
+		record.Status = normalizeStatus(event.Status)
+		record.GroupByValues = utils.CloneStringMap(event.GroupByValues)
+		record.MatchedLogs = evidenceLogsForPersistence(existing.MatchedLogs, event.LogID)
+		record.MatchedDocIDs = matchedDocIDsFromEvent(event)
+		record.ResultSignature = strings.TrimSpace(event.ResultSignature)
+		record.LastProcessedResultSignature = strings.TrimSpace(event.ResultSignature)
+		record.Audit = cloneAudit(event.Audit)
+		record.CorrelatedAt = correlationTimeForPersistence(existing.CorrelatedAt, event.CorrelatedAt)
+		record.RCAGeneratedAt = now
+		record.UpdatedAt = now
+		if !event.MatchedAt.IsZero() {
+			record.MatchedAt = event.MatchedAt.UTC()
+		}
+		if event.FirstSeen != nil {
+			record.FirstSeen = cloneTimePtr(event.FirstSeen)
+		} else if hasExisting && record.FirstSeen == nil {
+			record.FirstSeen = cloneTimePtr(existing.FirstSeen)
+		}
+		if event.LastSeen != nil {
+			record.LastSeen = cloneTimePtr(event.LastSeen)
+		} else if hasExisting && record.LastSeen == nil {
+			record.LastSeen = cloneTimePtr(existing.LastSeen)
+		}
+	}
+	if record.IncidentID == "" {
+		record.IncidentID = publishIncidentID(event)
+	}
+	if record.RuleID == "" {
+		record.RuleID = event.RuleID
+	}
+	if record.OrganizationID == "" {
+		record.OrganizationID = event.OrganizationID
+	}
+	if strings.TrimSpace(record.TopologyID) == "" {
+		record.TopologyID = strings.TrimSpace(topologyID)
+	}
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = normalizeStatus(event.Status)
+	}
+	if reason != "" {
+		record.BelowThresholdReasons = appendReason(record.BelowThresholdReasons, reason)
 	}
 	return record
 }
@@ -814,11 +973,13 @@ func updateClosedRecord(existing models.RCARecord, hasExisting bool, event model
 	}
 	record.RuleID = event.RuleID
 	record.GroupByValues = utils.CloneStringMap(event.GroupByValues)
-	record.MatchedLogs = cloneEvidenceLogs(event.LogID)
+	record.MatchedLogs = evidenceLogsForPersistence(existing.MatchedLogs, event.LogID)
 	record.MatchedDocIDs = matchedDocIDsFromEvent(event)
 	record.ResultSignature = strings.TrimSpace(event.ResultSignature)
 	record.LastProcessedResultSignature = strings.TrimSpace(event.ResultSignature)
 	record.Audit = cloneAudit(event.Audit)
+	record.CorrelatedAt = correlationTimeForPersistence(existing.CorrelatedAt, event.CorrelatedAt)
+	record.RCAGeneratedAt = now
 	record.UpdatedAt = now
 	record.MatchedAt = event.MatchedAt.UTC()
 	if event.FirstSeen != nil {
@@ -910,6 +1071,68 @@ func cloneEvidenceLogs(input []models.EvidenceLog) []models.EvidenceLog {
 		}
 	}
 	return cloned
+}
+
+func evidenceLogsForPersistence(existing []models.EvidenceLog, incoming []models.EvidenceLog) []models.EvidenceLog {
+	if len(incoming) == 0 {
+		return normalizeEvidenceLogs(existing)
+	}
+
+	existingByID := make(map[string]models.EvidenceLog, len(existing))
+	for _, entry := range existing {
+		docID := strings.TrimSpace(entry.ID)
+		if docID == "" {
+			continue
+		}
+		existingByID[docID] = normalizeEvidenceLog(entry)
+	}
+
+	merged := make([]models.EvidenceLog, len(incoming))
+	for idx, entry := range incoming {
+		normalized := normalizeEvidenceLog(entry)
+		docID := strings.TrimSpace(normalized.ID)
+		if docID != "" {
+			if prior, ok := existingByID[docID]; ok {
+				if normalized.Timestamp.IsZero() {
+					normalized.Timestamp = prior.Timestamp.UTC()
+				}
+				if normalized.SignalizedAt.IsZero() {
+					normalized.SignalizedAt = prior.SignalizedAt.UTC()
+				}
+			}
+		}
+		merged[idx] = normalized
+	}
+	return merged
+}
+
+func normalizeEvidenceLogs(input []models.EvidenceLog) []models.EvidenceLog {
+	cloned := cloneEvidenceLogs(input)
+	for idx := range cloned {
+		cloned[idx] = normalizeEvidenceLog(cloned[idx])
+	}
+	return cloned
+}
+
+func normalizeEvidenceLog(entry models.EvidenceLog) models.EvidenceLog {
+	normalized := entry
+	if !normalized.Timestamp.IsZero() {
+		normalized.Timestamp = normalized.Timestamp.UTC()
+	}
+	if !normalized.SignalizedAt.IsZero() {
+		normalized.SignalizedAt = normalized.SignalizedAt.UTC()
+	}
+	return normalized
+}
+
+func correlationTimeForPersistence(existing time.Time, incoming time.Time) time.Time {
+	if !incoming.IsZero() {
+		return incoming.UTC()
+	}
+	if !existing.IsZero() {
+		return existing.UTC()
+	}
+	return time.Time{}
 }
 
 func cloneContradictionEvidence(input []models.ContradictionEvidence) []models.ContradictionEvidence {
@@ -1042,4 +1265,46 @@ func resultPublishKey(record models.RCARecord) string {
 		return incidentID
 	}
 	return incidentID + "|" + resultSignature
+}
+
+func queueSkippedEventForPublish(
+	destination map[string]models.RCARecord,
+	existing models.RCARecord,
+	hasExisting bool,
+	event models.CorrelationEvent,
+	topologyID, reason string,
+	score *models.ScoreResult,
+	now time.Time,
+) {
+	if destination == nil {
+		return
+	}
+	record := buildSkippedPublishRecord(existing, hasExisting, event, topologyID, reason, score, now)
+	if strings.TrimSpace(record.IncidentID) == "" {
+		return
+	}
+	queueRecordsForPublish(destination, record)
+}
+
+func publishIncidentID(event models.CorrelationEvent) string {
+	if trimmed := strings.TrimSpace(event.IncidentID); trimmed != "" {
+		return trimmed
+	}
+	if trimmed := strings.TrimSpace(event.DocumentID); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(event.ResultSignature)
+}
+
+func appendReason(reasons []string, reason string) []string {
+	trimmed := strings.TrimSpace(reason)
+	if trimmed == "" {
+		return reasons
+	}
+	for _, existing := range reasons {
+		if strings.EqualFold(strings.TrimSpace(existing), trimmed) {
+			return reasons
+		}
+	}
+	return append(reasons, trimmed)
 }

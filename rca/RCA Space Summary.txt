@@ -1,36 +1,36 @@
 RCA Space Summary
 =================
-Generated at (UTC)     : 2026-04-30 11:01:48
+Generated at (UTC)     : 2026-05-05 09:22:45
 
 Effective summary
 -----------------
-Observed RCA-owned total : 525.62 MB
-MongoDB collections      : 956.00 KB across 5 collection(s)
-Elasticsearch indices    : 611.12 KB across 2 index(es)
-Redis selected DB        : 524.09 MB in db 0
+Observed RCA-owned total : 224.93 MB
+MongoDB collections      : 948.00 KB across 5 collection(s)
+Elasticsearch indices    : 247.29 KB across 2 index(es)
+Redis selected DB        : 223.76 MB in db 0
 Note                     : MongoDB and Elasticsearch totals are RCA-owned. Redis is reported at selected-DB level, with RCA key count shown separately.
 
 Database-wise storage
 ---------------------
-S/N  Store          DB / Scope       What Was Counted                             Used     
----  -------------  ---------------  -------------------------------------------  ---------
-1    MongoDB        dhusnic_test_db  RCA collections                              956.00 KB
-2    Redis          db 0             Selected DB memory (66281 RCA keys matched)  524.09 MB
-3    Elasticsearch  -                RCA indices                                  611.12 KB
-4    TOTAL          -                All observed RCA storage                     525.62 MB
+S/N  Store          DB / Scope       What Was Counted                         Used     
+---  -------------  ---------------  ---------------------------------------  ---------
+1    MongoDB        dhusnic_test_db  RCA collections                          948.00 KB
+2    Redis          db 0             Selected DB memory (5 RCA keys matched)  223.76 MB
+3    Elasticsearch  -                RCA indices                              247.29 KB
+4    TOTAL          -                All observed RCA storage                 224.93 MB
 
 MongoDB
 -------
 Database                : dhusnic_test_db
-Database data size      : 2.50 MB
-Database storage size   : 480.00 KB
+Database data size      : 2.45 MB
+Database storage size   : 472.00 KB
 Database index size     : 476.00 KB
 
 Collection            Exists  Docs   Data      Storage    Indexes    Total    
 --------------------  ------  -----  --------  ---------  ---------  ---------
 correlation_rules     yes     1,039  1.20 MB   208.00 KB  128.00 KB  336.00 KB
 topology_data         yes     6      41.96 KB  44.00 KB   108.00 KB  152.00 KB
-rca_results           yes     30     89.39 KB  60.00 KB   180.00 KB  240.00 KB
+rca_results           yes     9      30.31 KB  52.00 KB   180.00 KB  232.00 KB
 rca_config_state      yes     1      90 B      36.00 KB   40.00 KB   76.00 KB 
 rca_config_snapshots  yes     1      1.17 MB   132.00 KB  20.00 KB   152.00 KB
 
@@ -38,32 +38,27 @@ Elasticsearch
 -------------
 Address                 : http://10.0.4.132:9200
 RCA index count         : 2
-RCA total store size    : 611.12 KB
+RCA total store size    : 247.29 KB
 
 Index                             Docs  Store    
 --------------------------------  ----  ---------
-rca_correlated_events             66    400.74 KB
-rca_correlated_incidents_current  8     210.38 KB
+rca_correlated_events             4     133.43 KB
+rca_correlated_incidents_current  2     113.86 KB
 
 Redis
 -----
 Address                 : 10.0.5.97:6379
 Database                : 0
 Key pattern             : Rca*
-Total DB keys           : 66282
-Matched RCA keys        : 66281
-Selected DB memory      : 524.09 MB
+Total DB keys           : 5
+Matched RCA keys        : 5
+Selected DB memory      : 223.76 MB
 Connection note         : Redis accepted an unauthenticated connection, so the configured AUTH step was skipped.
 
-S/N  Sample RCA Key                                
----  ----------------------------------------------
-1    Rca:full_log_cache:cmxIWDNaMEJYa1A4QkNnUGFMbTE
-2    Rca:full_log_cache:TmxuWjNaMEJYa1A4QkNnUG02NUM
-3    Rca:full_log_cache:YlZMWDNaMEJYa1A4QkNnUGdSUms
-4    Rca:full_log_cache:OXFMMzNaMEJYa1A4QkNnUGtuaW0
-5    Rca:full_log_cache:aDFMWDNaMEJYa1A4QkNnUG5YelY
-6    Rca:full_log_cache:aUZMWDNaMEJYa1A4QkNnUHdlUW8
-7    Rca:full_log_cache:ZjFQWDNaMEJYa1A4QkNnUDB5V2E
-8    Rca:full_log_cache:WVZuWjNaMEJYa1A4QkNnUGlXMWY
-9    Rca:full_log_cache:Q1VfVzNaMEJYa1A4QkNnUDBVUks
-10   Rca:full_log_cache:bGxmWjNaMEJYa1A4QkNnUEM0UFY
+S/N  Sample RCA Key                                         
+---  -------------------------------------------------------
+1    Rca:signalized_log_events                              
+2    Rca:135098068173316952064                              
+3    Rca:active_organizations                               
+4    Rca:135098068173316952064:active_incident_states       
+5    Rca:135098068173316952064:active_incidents_by_last_seen

@@ -25,6 +25,7 @@ import (
 	"log_rca_engine/internal/scoring"
 	"log_rca_engine/internal/service"
 	"log_rca_engine/internal/storage"
+	"log_rca_engine/internal/worker"
 )
 
 func main() {
@@ -40,8 +41,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	workerRuntime, err := worker.Resolve()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "CRITICAL: failed to resolve worker runtime: %v\n", err)
+		os.Exit(1)
+	}
+	cfg.Storage.ResultsFile = workerRuntime.ScopedPath(cfg.Storage.ResultsFile)
+	cfg.Storage.CheckpointFile = workerRuntime.ScopedPath(cfg.Storage.CheckpointFile)
+
 	log := logger.New(cfg.Logging).With("service", cfg.ServiceName)
-	log.Info("service starting", "config_file", *configPath, "run_once", *runOnce)
+	log.Info(
+		"service starting",
+		"config_file", *configPath,
+		"run_once", *runOnce,
+		"worker_index", workerRuntime.Index,
+		"worker_count", workerRuntime.Count,
+		"results_file", cfg.Storage.ResultsFile,
+		"checkpoint_file", cfg.Storage.CheckpointFile,
+	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -119,11 +136,18 @@ func main() {
 		NeighborhoodLogLimit: cfg.OpenAI.NeighborhoodLogLimit,
 		NearbyLogTrigger:     cfg.Scoring.NearbyLogTriggerThreshold,
 		ProbableCauseMin:     cfg.Scoring.ProbableCauseMinThreshold,
+		WorkerIndex:          workerRuntime.Index,
+		WorkerCount:          workerRuntime.Count,
 		Logger:               log.With("component", "processor"),
 	})
 
+	var jobSyncer rcaSyncer
+	if syncer != nil {
+		jobSyncer = syncer
+	}
+
 	job := syncingJob{
-		syncer:    syncer,
+		syncer:    jobSyncer,
 		reloaders: []configReloader{rulesCache, topologyCache},
 		watchers:  []configFileWatcher{rulesCache, topologyCache},
 		next:      processor,

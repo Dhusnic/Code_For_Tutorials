@@ -185,6 +185,53 @@ func TestSelectOwnedWorkUnitsChangesByWorkerID(t *testing.T) {
 	}
 }
 
+func TestSelectOwnedWorkUnitsSplitsSameServiceAcrossWorkers(t *testing.T) {
+	cfg := buildServiceConfig()
+	cfg.Pipeline.WorkerCount = 2
+
+	store0 := checkpoints.NewFileStore(t.TempDir() + "\\checkpoints.json")
+	store1 := checkpoints.NewFileStore(t.TempDir() + "\\checkpoints.json")
+	cfg.Pipeline.WorkerID = 0
+	service0, err := NewSignalEnrichmentService(struct{}{}, cfg, store0)
+	if err != nil {
+		t.Fatalf("create service0: %v", err)
+	}
+	defer service0.Shutdown()
+
+	cfg.Pipeline.WorkerID = 1
+	service1, err := NewSignalEnrichmentService(struct{}{}, cfg, store1)
+	if err != nil {
+		t.Fatalf("create service1: %v", err)
+	}
+	defer service1.Shutdown()
+
+	allUnits := []workUnit{
+		{serviceConfig: config.ServiceConfig{Name: "nginx"}, indexName: "logs-nginx-a"},
+		{serviceConfig: config.ServiceConfig{Name: "nginx"}, indexName: "logs-nginx-b"},
+		{serviceConfig: config.ServiceConfig{Name: "nginx"}, indexName: "logs-nginx-c"},
+		{serviceConfig: config.ServiceConfig{Name: "nginx"}, indexName: "logs-nginx-d"},
+	}
+
+	owned0 := service0.selectOwnedWorkUnits(append([]workUnit{}, allUnits...))
+	owned1 := service1.selectOwnedWorkUnits(append([]workUnit{}, allUnits...))
+	if len(owned0) != 2 || len(owned1) != 2 {
+		t.Fatalf("expected two units per worker, got %d and %d", len(owned0), len(owned1))
+	}
+	for _, unit := range owned0 {
+		if unit.serviceConfig.Name != "nginx" {
+			t.Fatalf("expected nginx-only assignment, got %#v", owned0)
+		}
+	}
+	for _, unit := range owned1 {
+		if unit.serviceConfig.Name != "nginx" {
+			t.Fatalf("expected nginx-only assignment, got %#v", owned1)
+		}
+	}
+	if owned0[0].indexName == owned1[0].indexName && owned0[1].indexName == owned1[1].indexName {
+		t.Fatalf("expected workers to own different nginx indices, got %#v and %#v", owned0, owned1)
+	}
+}
+
 func TestSelectOwnedWorkUnitsBalancesEvenlyAcrossFourWorkers(t *testing.T) {
 	cfg := buildServiceConfig()
 	cfg.Pipeline.WorkerCount = 4
@@ -233,6 +280,23 @@ func TestResolveSourceIndicesExpandsWildcards(t *testing.T) {
 	resolved := service.resolveSourceIndices("nginx", []string{"logs-*", "logs-2026.02.23"})
 	if len(resolved) != 2 || resolved[0] != "logs-2026.02.22" || resolved[1] != "logs-2026.02.23" {
 		t.Fatalf("unexpected resolved indices: %#v", resolved)
+	}
+}
+
+func TestResolveSourceIndicesSkipsSystemIndices(t *testing.T) {
+	cfg := buildServiceConfig()
+	store := checkpoints.NewFileStore(t.TempDir() + "\\checkpoints.json")
+	service, err := NewSignalEnrichmentService(&stubIndicesClient{patterns: map[string][]string{
+		"logs-*": []string{".internal-alerts", "logs-2026.02.22", ".security-7", "logs-2026.02.23"},
+	}}, cfg, store)
+	if err != nil {
+		t.Fatalf("create service: %v", err)
+	}
+	defer service.Shutdown()
+
+	resolved := service.resolveSourceIndices("nginx", []string{"logs-*", ".kibana", "logs-2026.02.23"})
+	if len(resolved) != 2 || resolved[0] != "logs-2026.02.22" || resolved[1] != "logs-2026.02.23" {
+		t.Fatalf("expected only non-system indices, got %#v", resolved)
 	}
 }
 

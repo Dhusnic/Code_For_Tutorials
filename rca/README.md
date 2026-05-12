@@ -116,11 +116,17 @@ mongo_sync:
   state_name: prod_rules_topology
   snapshot_collection: rca_config_snapshots
   snapshot_name: prod_rules_topology
-  use_snapshot: true
-  write_snapshot: true
+  use_snapshot: false
+  write_snapshot: false
 ```
 
-For the lowest production load, let `log-config-syncer` own Mongo-to-JSON/snapshot writes. The engines can then run from JSON and reload when files change.
+For the lowest production load, let `log-config-syncer` own Mongo-to-JSON writes. Keep the main signal path on direct stream:
+
+```text
+log_signalizing -> Redis stream -> log_correlation_engine
+```
+
+Run `signaled-logs-collector` only as an optional fallback during migration or troubleshooting.
 
 ## Redis Notifications
 

@@ -469,15 +469,16 @@ func extractResultLogs(logs []models.FullLog) []models.ResultLog {
 	for _, log := range logs {
 		hostIPs := utils.ExtractIPAddresses(log.Metadata, "host.ip")
 		result = append(result, models.ResultLog{
-			ID:          log.DocID,
-			Severity:    log.LogLevel,
-			SourceIndex: utils.ExtractGroupByValue(log.Metadata, "source_index"),
-			Signal:      log.Signal,
-			Timestamp:   log.Timestamp.UTC(),
-			ServiceName: resolveServiceName(log.Metadata),
-			HostName:    utils.ExtractGroupByValue(log.Metadata, "host.name"),
-			HostIP:      firstIP(hostIPs),
-			HostIPs:     append([]string(nil), hostIPs...),
+			ID:           log.DocID,
+			Severity:     log.LogLevel,
+			SourceIndex:  utils.ExtractGroupByValue(log.Metadata, "source_index"),
+			Signal:       log.Signal,
+			Timestamp:    log.Timestamp.UTC(),
+			SignalizedAt: log.SignalizedAt.UTC(),
+			ServiceName:  resolveServiceName(log.Metadata),
+			HostName:     utils.ExtractGroupByValue(log.Metadata, "host.name"),
+			HostIP:       firstIP(hostIPs),
+			HostIPs:      append([]string(nil), hostIPs...),
 		})
 	}
 	return result

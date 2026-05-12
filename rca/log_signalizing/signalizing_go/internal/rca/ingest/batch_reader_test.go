@@ -66,3 +66,57 @@ func TestBatchReaderIgnoresLegacySingleValueCheckpointSort(t *testing.T) {
 		t.Fatal("expected legacy single-value search_after to be omitted")
 	}
 }
+
+func TestBatchReaderIterateHitsStreamsAcrossPages(t *testing.T) {
+	client := &stubSearchClient{
+		responses: []map[string]any{
+			{
+				"hits": map[string]any{
+					"hits": []any{
+						map[string]any{
+							"_id":   "doc-1",
+							"sort":  []any{"2026-05-05T06:20:00Z", 1},
+							"_source": map[string]any{"message": "first"},
+						},
+					},
+				},
+			},
+			{
+				"hits": map[string]any{
+					"hits": []any{
+						map[string]any{
+							"_id":   "doc-2",
+							"sort":  []any{"2026-05-05T06:20:01Z", 2},
+							"_source": map[string]any{"message": "second"},
+						},
+					},
+				},
+			},
+			{"hits": map[string]any{"hits": []any{}}},
+		},
+	}
+	reader := NewBatchReader(client, "linux-*", 250, "@timestamp", "now-15m", nil, true)
+
+	seen := make([]string, 0, 2)
+	if err := reader.IterateHits(nil, func(hit map[string]any) error {
+		seen = append(seen, hit["_id"].(string))
+		return nil
+	}); err != nil {
+		t.Fatalf("iterate hits: %v", err)
+	}
+
+	if len(seen) != 2 || seen[0] != "doc-1" || seen[1] != "doc-2" {
+		t.Fatalf("unexpected streamed hits: %#v", seen)
+	}
+	if len(client.calls) != 3 {
+		t.Fatalf("expected 3 search calls, got %d", len(client.calls))
+	}
+	secondBody := client.calls[1]["body"].(map[string]any)
+	searchAfter, ok := secondBody["search_after"].([]any)
+	if !ok || len(searchAfter) != 2 {
+		t.Fatalf("expected search_after on second page, got %#v", secondBody["search_after"])
+	}
+	if searchAfter[0] != "2026-05-05T06:20:00Z" || searchAfter[1] != 1 {
+		t.Fatalf("unexpected search_after values: %#v", searchAfter)
+	}
+}

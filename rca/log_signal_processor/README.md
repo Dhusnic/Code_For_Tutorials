@@ -51,6 +51,14 @@ You can treat it as optional when both of these are enabled:
 
 In that direct-stream mode, `log_correlation_engine` ingests compact signal events first, refreshes the same `Rca:{organization}` `signaled_logs` hot state itself, and then runs the normal correlation flow. The existing Redis key structure and downstream RCA outputs do not change.
 
+To disable this legacy bridge path through configuration, set in [config.yml](./config.yml):
+
+```yaml
+enabled: false
+```
+
+When disabled, the process stays idle and does not connect to Elasticsearch or Redis.
+
 ## Redis Storage Contract
 
 Default Redis key:

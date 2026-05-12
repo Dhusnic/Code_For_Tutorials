@@ -21,8 +21,8 @@ money_manager:
   default_currency: INR
   default_expense_category: Other
   default_expense_subcategory: Others
-  default_income_category: "Dept return to Me \U0001f4b8\U0001f4b0"
-  default_income_subcategory: ""
+  default_income_category: "Others"
+  default_income_subcategory: "Others"
   transfer_in_strategy: income
   transfer_in_category: Savings ACC
   transfer_in_subcategory: ""
@@ -58,6 +58,8 @@ statement_sources:
     file_match:
       filename_contains:
         - HDFC_acc
+        - HDFC_acc_apr
+        - HDFC_acc_mar
         - HDFC_account
         - HDFC_statement
       extensions:
@@ -72,6 +74,8 @@ statement_sources:
     file_match:
       filename_contains:
         - HDFC_credit_card
+        - HDFC_credit_apr
+        - HDFC_credit_mar
         - credit_card
       extensions:
         - .xls
@@ -85,6 +89,8 @@ statement_sources:
     file_match:
       filename_contains:
         - SBI_acc
+        - SBI_acc_apr
+        - SBI_acc_mar
         - SBI_account
         - SBI_statement
       extensions:
@@ -398,4 +404,12 @@ rules:
     transaction_type: Expense
     category: "EMI"
     subcategory: "Mobile EMI"
+  
+  - name: Bank Charges
+    direction: debit
+    contains_any:
+      - PROCESSING FEE FOR LOAN ACC
+    transaction_type: Expense
+    category: "Other"
+    subcategory: "bank 🏦🏧 fee"
   

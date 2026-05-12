@@ -11,6 +11,7 @@ func TestLoadParsesDurationsAndDefaults(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yml")
 	contents := []byte(`
+enabled: true
 service_name: signaled-logs-collector
 logging:
   level: debug

@@ -16,6 +16,7 @@ type SignalLog struct {
 	LogLevel     string
 	DocID        string
 	TimeStamp    time.Time
+	SignalizedAt time.Time
 }
 
 type signalLogPayload struct {
@@ -24,6 +25,7 @@ type signalLogPayload struct {
 	LogLevel     string `json:"log_level"`
 	DocID        string `json:"doc_id"`
 	TimeStamp    string `json:"time_stamp"`
+	SignalizedAt string `json:"signalized_at,omitempty"`
 }
 
 func (s SignalLog) MarshalJSON() ([]byte, error) {
@@ -33,6 +35,7 @@ func (s SignalLog) MarshalJSON() ([]byte, error) {
 		LogLevel:     s.LogLevel,
 		DocID:        s.DocID,
 		TimeStamp:    s.TimeStamp.UTC().Format(time.RFC3339Nano),
+		SignalizedAt: formatOptionalTime(s.SignalizedAt),
 	})
 }
 
@@ -46,12 +49,17 @@ func (s *SignalLog) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("parse time_stamp %q: %w", payload.TimeStamp, err)
 	}
+	signalizedAt, err := parseOptionalTime(payload.SignalizedAt)
+	if err != nil {
+		return fmt.Errorf("parse signalized_at %q: %w", payload.SignalizedAt, err)
+	}
 
 	s.HostIdentity = payload.HostIdentity
 	s.Signal = payload.Signal
 	s.LogLevel = payload.LogLevel
 	s.DocID = payload.DocID
 	s.TimeStamp = parsed.UTC()
+	s.SignalizedAt = signalizedAt
 	return nil
 }
 
@@ -84,16 +92,18 @@ type SignalStreamEvent struct {
 	Signal         string    `json:"signal"`
 	LogLevel       string    `json:"log_level"`
 	TimeStamp      time.Time `json:"time_stamp"`
+	SignalizedAt   time.Time `json:"signalized_at,omitempty"`
 	SourceIndex    string    `json:"source_index,omitempty"`
 	SourceID       string    `json:"source_id,omitempty"`
 }
 
 type FullLog struct {
-	DocID     string         `json:"doc_id"`
-	Timestamp time.Time      `json:"timestamp"`
-	Signal    string         `json:"signal"`
-	LogLevel  string         `json:"log_level"`
-	Metadata  map[string]any `json:"metadata"`
+	DocID        string         `json:"doc_id"`
+	Timestamp    time.Time      `json:"timestamp"`
+	Signal       string         `json:"signal"`
+	LogLevel     string         `json:"log_level"`
+	SignalizedAt time.Time      `json:"signalized_at,omitempty"`
+	Metadata     map[string]any `json:"metadata"`
 }
 
 type Rule struct {
@@ -158,15 +168,16 @@ type Deduplication struct {
 }
 
 type ResultLog struct {
-	ID          string    `json:"id"`
-	Severity    string    `json:"severity"`
-	SourceIndex string    `json:"source_index,omitempty"`
-	Signal      string    `json:"signal,omitempty"`
-	Timestamp   time.Time `json:"timestamp,omitempty"`
-	ServiceName string    `json:"service_name,omitempty"`
-	HostName    string    `json:"host_name,omitempty"`
-	HostIP      string    `json:"host_ip,omitempty"`
-	HostIPs     []string  `json:"host_ips,omitempty"`
+	ID           string    `json:"id"`
+	Severity     string    `json:"severity"`
+	SourceIndex  string    `json:"source_index,omitempty"`
+	Signal       string    `json:"signal,omitempty"`
+	Timestamp    time.Time `json:"timestamp,omitempty"`
+	SignalizedAt time.Time `json:"signalized_at,omitempty"`
+	ServiceName  string    `json:"service_name,omitempty"`
+	HostName     string    `json:"host_name,omitempty"`
+	HostIP       string    `json:"host_ip,omitempty"`
+	HostIPs      []string  `json:"host_ips,omitempty"`
 }
 
 type MatchStepAudit struct {
@@ -206,6 +217,7 @@ type CorrelationResult struct {
 	OrganizationID  string            `json:"organization_id,omitempty"`
 	GroupByValues   map[string]string `json:"group_by_values,omitempty"`
 	MatchedAt       time.Time         `json:"matched_at,omitempty"`
+	CorrelatedAt    time.Time         `json:"correlated_at,omitempty"`
 	ResultSignature string            `json:"result_signature,omitempty"`
 	Audit           *MatchAudit       `json:"audit,omitempty"`
 
@@ -248,7 +260,27 @@ type IncidentSnapshot struct {
 	RuleCompletion float64     `json:"rule_completion,omitempty"`
 	SequenceMatch  float64     `json:"sequence_match,omitempty"`
 	MatchedAt      time.Time   `json:"matched_at,omitempty"`
+	CorrelatedAt   time.Time   `json:"correlated_at,omitempty"`
 	Audit          *MatchAudit `json:"audit,omitempty"`
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func parseOptionalTime(raw string) (time.Time, error) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed.UTC(), nil
 }
 
 type correlationResultIdentity struct {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -34,6 +35,14 @@ type correlationRunMetrics struct {
 	TotalShardDuration time.Duration
 	MaxShardDuration   time.Duration
 	MergeDuration      time.Duration
+}
+
+type distributedShardPlanDetails struct {
+	Plan                         autoscaling.DistributedShardPlan
+	RemainingRunBudget           time.Duration
+	ReservedRunBudget            time.Duration
+	AvailableCorrelationBudget   time.Duration
+	EffectiveTargetShardDuration time.Duration
 }
 
 func (p *Processor) correlateRuleBucket(
@@ -155,8 +164,11 @@ func (p *Processor) correlateRuleBucketDistributed(
 	}
 
 	overlap := p.lookbackWindow(rules)
-	shardPlan := p.resolveDistributedShardPlan(len(logs), activeWorkers)
-	shards := buildCorrelationShards(logs, shardPlan.TargetLogsPerShard, overlap)
+	shardPlanDetails, err := p.resolveDistributedShardPlan(ctx, len(logs), activeWorkers)
+	if err != nil {
+		return nil, correlationRunMetrics{}, fmt.Errorf("plan distributed shard correlation for workload %s mode %s: %w", scope.WorkloadKey, mode, err)
+	}
+	shards := buildCorrelationShards(logs, shardPlanDetails.Plan.TargetLogsPerShard, overlap)
 	if len(shards) <= 1 {
 		results, err := p.engine.Correlate(ctx, scope.OrganizationID, logs, rules)
 		return results, correlationRunMetrics{}, err
@@ -186,11 +198,15 @@ func (p *Processor) correlateRuleBucketDistributed(
 			"rules", len(rules),
 			"shards", len(payloads),
 			"active_workers", activeWorkers,
-			"queue_depth", shardPlan.QueueDepth,
+			"queue_depth", shardPlanDetails.Plan.QueueDepth,
 			"correlation_work_units", correlationWorkUnits,
 			"overlap", overlap.String(),
-			"target_logs_per_shard", shardPlan.TargetLogsPerShard,
-			"estimated_cluster_duration", shardPlan.EstimatedClusterDuration.String(),
+			"target_logs_per_shard", shardPlanDetails.Plan.TargetLogsPerShard,
+			"estimated_cluster_duration", shardPlanDetails.Plan.EstimatedClusterDuration.String(),
+			"remaining_run_budget", formatDurationOrUnbounded(shardPlanDetails.RemainingRunBudget),
+			"distributed_run_reserve", shardPlanDetails.ReservedRunBudget.String(),
+			"available_correlation_budget", formatDurationOrUnbounded(shardPlanDetails.AvailableCorrelationBudget),
+			"effective_target_shard_duration", shardPlanDetails.EffectiveTargetShardDuration.String(),
 			"distributed_parallelism", true,
 		)...,
 	)
@@ -205,7 +221,7 @@ func (p *Processor) correlateRuleBucketDistributed(
 		mode,
 		correlationRunMetrics{
 			ShardsPlanned:   len(payloads),
-			ShardQueueDepth: shardPlan.QueueDepth,
+			ShardQueueDepth: shardPlanDetails.Plan.QueueDepth,
 			CorrelationLogs: correlationWorkUnits,
 		},
 	)
@@ -244,6 +260,16 @@ func (p *Processor) processOneDistributedShard(ctx context.Context, run *distrib
 		return false, nil
 	}
 
+	if remainingBudget, ok := p.remainingRunBudget(ctx); ok && remainingBudget <= p.distributedRunReserve() {
+		p.logger.Debug(
+			"skipping distributed shard claim because remaining run budget is at or below reserve",
+			"worker_id", p.workerID,
+			"remaining_run_budget", remainingBudget.String(),
+			"distributed_run_reserve", p.distributedRunReserve().String(),
+		)
+		return false, nil
+	}
+
 	payload, lease, err := p.distributed.ClaimWorkloadShard(ctx, p.workerID, p.config.Distributed.LeaseTTL, run)
 	if err != nil {
 		return false, err
@@ -260,8 +286,34 @@ func (p *Processor) processOneDistributedShard(ctx context.Context, run *distrib
 		go p.runShardLeaseHeartbeat(heartbeatCtx, *lease, heartbeatErr)
 	}
 
+	shardTimeout, remainingBudget, budgetErr := p.distributedShardExecutionBudget(ctx)
+	if budgetErr != nil {
+		retryAfter := p.distributedShardRetryAfter()
+		if failErr := p.failDistributedShard(*lease, budgetErr, true, retryAfter); failErr != nil {
+			return true, fmt.Errorf("fail distributed shard %s: %w", lease.Contract.StateKey(), failErr)
+		}
+		p.logger.Warn(
+			"distributed shard skipped because execution budget is exhausted",
+			"workload", payload.Workload.DisplayKey(),
+			"run_id", payload.RunID,
+			"shard_id", payload.NormalizedShardID(),
+			"mode", payload.NormalizedMode(),
+			"log_count", len(payload.Logs),
+			"worker_id", p.workerID,
+			"remaining_run_budget", formatDurationOrUnbounded(remainingBudget),
+			"distributed_run_reserve", p.distributedRunReserve().String(),
+			"configured_shard_timeout", p.distributedShardTimeout().String(),
+			"retry_after", retryAfter.Format(time.RFC3339Nano),
+			"error", budgetErr,
+		)
+		return true, nil
+	}
+
+	shardCtx, shardCancel := context.WithTimeout(heartbeatCtx, shardTimeout)
+	defer shardCancel()
+
 	started := time.Now()
-	results, err := p.engine.Correlate(heartbeatCtx, payload.Workload.OrganizationID, payload.Logs, payload.Rules)
+	results, err := p.engine.Correlate(shardCtx, payload.Workload.OrganizationID, payload.Logs, payload.Rules)
 	cancel()
 	duration := time.Since(started)
 
@@ -274,14 +326,31 @@ func (p *Processor) processOneDistributedShard(ctx context.Context, run *distrib
 	}
 
 	if err != nil {
+		retryable := false
 		retryAfter := time.Time{}
-		if p.config.Distributed.LeaseHeartbeatInterval > 0 {
-			retryAfter = p.now().UTC().Add(p.config.Distributed.LeaseHeartbeatInterval)
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			retryable = true
+			retryAfter = p.distributedShardRetryAfter()
 		}
-		failCtx, failCancel := context.WithTimeout(context.Background(), p.config.Redis.WriteTimeout)
-		defer failCancel()
-		if failErr := p.distributed.FailWorkloadShard(failCtx, *lease, err.Error(), true, retryAfter, p.distributedMetadataTTL()); failErr != nil {
+		if failErr := p.failDistributedShard(*lease, err, true, retryAfter); failErr != nil {
 			return true, fmt.Errorf("fail distributed shard %s: %w", lease.Contract.StateKey(), failErr)
+		}
+		if retryable {
+			p.logger.Warn(
+				"distributed shard exceeded execution budget",
+				"workload", payload.Workload.DisplayKey(),
+				"run_id", payload.RunID,
+				"shard_id", payload.NormalizedShardID(),
+				"mode", payload.NormalizedMode(),
+				"log_count", len(payload.Logs),
+				"worker_id", p.workerID,
+				"shard_timeout", shardTimeout.String(),
+				"remaining_run_budget", formatDurationOrUnbounded(remainingBudget),
+				"distributed_run_reserve", p.distributedRunReserve().String(),
+				"retry_after", retryAfter.Format(time.RFC3339Nano),
+				"error", err,
+			)
+			return true, nil
 		}
 		return true, fmt.Errorf("correlate distributed shard %s: %w", lease.Contract.StateKey(), err)
 	}
@@ -455,49 +524,103 @@ func (p *Processor) activeDistributedWorkerCount(ctx context.Context) int {
 	return len(workers)
 }
 
-func (p *Processor) resolveDistributedShardPlan(logCount int, activeWorkers int) autoscaling.DistributedShardPlan {
-	hints := autoscaling.DistributedShardHints{
-		DefaultTargetLogsPerShard: p.config.Engine.ParallelCorrelation.TargetLogsPerShard,
-		MinShardsPerWorker:        p.config.Engine.ParallelCorrelation.DistributedMinShardsPerWorker,
-		MaxShardsPerWorker:        p.config.Engine.ParallelCorrelation.DistributedMaxShardsPerWorker,
-		TargetShardDuration:       p.config.Engine.ParallelCorrelation.DistributedTargetShardDuration,
-	}
-	if p.autoscaler != nil && p.autoscaler.Enabled() {
-		return p.autoscaler.ResolveDistributedShardPlan(logCount, activeWorkers, hints)
+func (p *Processor) resolveDistributedShardPlan(
+	ctx context.Context,
+	logCount int,
+	activeWorkers int,
+) (distributedShardPlanDetails, error) {
+	baselineTargetDuration := p.distributedTargetShardDuration()
+	details := distributedShardPlanDetails{
+		ReservedRunBudget:            p.distributedRunReserve(),
+		EffectiveTargetShardDuration: baselineTargetDuration,
 	}
 
-	targetLogsPerShard := maxInt(1, hints.DefaultTargetLogsPerShard)
-	if logCount <= 0 {
-		return autoscaling.DistributedShardPlan{
-			ActiveWorkers:      maxInt(1, activeWorkers),
-			DesiredShards:      0,
-			TargetLogsPerShard: targetLogsPerShard,
+	defaultTargetLogsPerShard := maxInt(1, p.config.Engine.ParallelCorrelation.TargetLogsPerShard)
+	if remaining, ok := p.remainingRunBudget(ctx); ok {
+		details.RemainingRunBudget = remaining
+		available := remaining - details.ReservedRunBudget
+		if available <= 0 {
+			return distributedShardPlanDetails{}, fmt.Errorf(
+				"insufficient remaining run budget for distributed shard correlation: remaining=%s reserve=%s",
+				remaining.String(),
+				details.ReservedRunBudget.String(),
+			)
+		}
+		details.AvailableCorrelationBudget = available
+
+		effectiveTarget := minDuration(baselineTargetDuration, available/2)
+		minTarget := maxDuration(500*time.Millisecond, baselineTargetDuration/4)
+		if effectiveTarget < minTarget {
+			effectiveTarget = minTarget
+		}
+		if effectiveTarget > available {
+			effectiveTarget = available
+		}
+		if effectiveTarget <= 0 {
+			return distributedShardPlanDetails{}, fmt.Errorf(
+				"insufficient remaining run budget for distributed shard correlation after reserve: remaining=%s reserve=%s",
+				remaining.String(),
+				details.ReservedRunBudget.String(),
+			)
+		}
+		details.EffectiveTargetShardDuration = effectiveTarget
+		defaultTargetLogsPerShard = scaleTargetLogsForDuration(defaultTargetLogsPerShard, baselineTargetDuration, effectiveTarget)
+	}
+
+	hints := autoscaling.DistributedShardHints{
+		DefaultTargetLogsPerShard: defaultTargetLogsPerShard,
+		MinShardsPerWorker:        p.config.Engine.ParallelCorrelation.DistributedMinShardsPerWorker,
+		MaxShardsPerWorker:        p.config.Engine.ParallelCorrelation.DistributedMaxShardsPerWorker,
+		TargetShardDuration:       details.EffectiveTargetShardDuration,
+	}
+
+	if p.autoscaler != nil && p.autoscaler.Enabled() {
+		details.Plan = p.autoscaler.ResolveDistributedShardPlan(logCount, activeWorkers, hints)
+	} else {
+		targetLogsPerShard := maxInt(1, hints.DefaultTargetLogsPerShard)
+		if logCount <= 0 {
+			details.Plan = autoscaling.DistributedShardPlan{
+				ActiveWorkers:      maxInt(1, activeWorkers),
+				DesiredShards:      0,
+				TargetLogsPerShard: targetLogsPerShard,
+			}
+		} else {
+			activeWorkers = maxInt(1, activeWorkers)
+			desiredShards := (logCount + targetLogsPerShard - 1) / targetLogsPerShard
+			minShards := activeWorkers * maxInt(1, hints.MinShardsPerWorker)
+			maxShards := activeWorkers * maxInt(maxInt(1, hints.MinShardsPerWorker), hints.MaxShardsPerWorker)
+			if desiredShards < minShards {
+				desiredShards = minShards
+			}
+			if desiredShards > maxShards {
+				desiredShards = maxShards
+			}
+			if desiredShards > logCount {
+				desiredShards = logCount
+			}
+			if desiredShards <= 0 {
+				desiredShards = 1
+			}
+			details.Plan = autoscaling.DistributedShardPlan{
+				ActiveWorkers:      activeWorkers,
+				DesiredShards:      desiredShards,
+				TargetLogsPerShard: (logCount + desiredShards - 1) / desiredShards,
+				QueueDepth:         maxInt(0, desiredShards-activeWorkers),
+			}
 		}
 	}
 
-	activeWorkers = maxInt(1, activeWorkers)
-	desiredShards := (logCount + targetLogsPerShard - 1) / targetLogsPerShard
-	minShards := activeWorkers * maxInt(1, hints.MinShardsPerWorker)
-	maxShards := activeWorkers * maxInt(maxInt(1, hints.MinShardsPerWorker), hints.MaxShardsPerWorker)
-	if desiredShards < minShards {
-		desiredShards = minShards
-	}
-	if desiredShards > maxShards {
-		desiredShards = maxShards
-	}
-	if desiredShards > logCount {
-		desiredShards = logCount
-	}
-	if desiredShards <= 0 {
-		desiredShards = 1
+	if details.AvailableCorrelationBudget > 0 &&
+		details.Plan.EstimatedClusterDuration > 0 &&
+		details.Plan.EstimatedClusterDuration > details.AvailableCorrelationBudget {
+		return distributedShardPlanDetails{}, fmt.Errorf(
+			"insufficient remaining run budget for distributed shard correlation: available=%s estimated=%s",
+			details.AvailableCorrelationBudget.String(),
+			details.Plan.EstimatedClusterDuration.String(),
+		)
 	}
 
-	return autoscaling.DistributedShardPlan{
-		ActiveWorkers:      activeWorkers,
-		DesiredShards:      desiredShards,
-		TargetLogsPerShard: (logCount + desiredShards - 1) / desiredShards,
-		QueueDepth:         maxInt(0, desiredShards-activeWorkers),
-	}
+	return details, nil
 }
 
 func (p *Processor) distributedShardPollInterval() time.Duration {
@@ -505,6 +628,120 @@ func (p *Processor) distributedShardPollInterval() time.Duration {
 		return p.config.Engine.ParallelCorrelation.ShardPollInterval
 	}
 	return 20 * time.Millisecond
+}
+
+func (p *Processor) distributedTargetShardDuration() time.Duration {
+	if p.config.Engine.ParallelCorrelation.DistributedTargetShardDuration > 0 {
+		return p.config.Engine.ParallelCorrelation.DistributedTargetShardDuration
+	}
+	return time.Second
+}
+
+func (p *Processor) distributedShardTimeout() time.Duration {
+	if p.config.Engine.ParallelCorrelation.DistributedShardTimeout > 0 {
+		return p.config.Engine.ParallelCorrelation.DistributedShardTimeout
+	}
+	return 5 * time.Second
+}
+
+func (p *Processor) distributedRunReserve() time.Duration {
+	if p.config.Engine.ParallelCorrelation.DistributedRunReserve > 0 {
+		return p.config.Engine.ParallelCorrelation.DistributedRunReserve
+	}
+	return 5 * time.Second
+}
+
+func (p *Processor) remainingRunBudget(ctx context.Context) (time.Duration, bool) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return 0, false
+	}
+	remaining := time.Until(deadline)
+	if remaining < 0 {
+		remaining = 0
+	}
+	return remaining, true
+}
+
+func (p *Processor) distributedShardExecutionBudget(ctx context.Context) (time.Duration, time.Duration, error) {
+	budget := p.distributedShardTimeout()
+	remaining, ok := p.remainingRunBudget(ctx)
+	if !ok {
+		return budget, 0, nil
+	}
+
+	available := remaining - p.distributedRunReserve()
+	if available <= 0 {
+		return 0, remaining, fmt.Errorf(
+			"insufficient remaining run budget for distributed shard execution: remaining=%s reserve=%s",
+			remaining.String(),
+			p.distributedRunReserve().String(),
+		)
+	}
+	if budget <= 0 || available < budget {
+		budget = available
+	}
+	if budget <= 0 {
+		return 0, remaining, fmt.Errorf(
+			"insufficient remaining run budget for distributed shard execution after reserve: remaining=%s reserve=%s",
+			remaining.String(),
+			p.distributedRunReserve().String(),
+		)
+	}
+	return budget, remaining, nil
+}
+
+func (p *Processor) distributedShardRetryAfter() time.Time {
+	retryDelay := p.distributedShardPollInterval()
+	if p.config.Distributed.LeaseHeartbeatInterval > 0 && p.config.Distributed.LeaseHeartbeatInterval > retryDelay {
+		retryDelay = p.config.Distributed.LeaseHeartbeatInterval
+	}
+	if retryDelay <= 0 {
+		retryDelay = time.Second
+	}
+	return p.now().UTC().Add(retryDelay)
+}
+
+func (p *Processor) failDistributedShard(lease distributed.ShardLease, execErr error, retryable bool, retryAfter time.Time) error {
+	failCtx, failCancel := context.WithTimeout(context.Background(), p.config.Redis.WriteTimeout)
+	defer failCancel()
+	return p.distributed.FailWorkloadShard(failCtx, lease, execErr.Error(), retryable, retryAfter, p.distributedMetadataTTL())
+}
+
+func scaleTargetLogsForDuration(defaultTarget int, baseline time.Duration, effective time.Duration) int {
+	defaultTarget = maxInt(1, defaultTarget)
+	if baseline <= 0 || effective <= 0 || effective >= baseline {
+		return defaultTarget
+	}
+	scaled := int(float64(defaultTarget)*float64(effective)/float64(baseline) + 0.5)
+	return maxInt(1, scaled)
+}
+
+func minDuration(left time.Duration, right time.Duration) time.Duration {
+	if left <= 0 {
+		return right
+	}
+	if right <= 0 {
+		return left
+	}
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func maxDuration(left time.Duration, right time.Duration) time.Duration {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func formatDurationOrUnbounded(value time.Duration) string {
+	if value <= 0 {
+		return "unbounded"
+	}
+	return value.String()
 }
 
 func buildCorrelationShards(logs []models.FullLog, targetLogsPerShard int, overlap time.Duration) []correlationShard {

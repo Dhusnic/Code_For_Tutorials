@@ -132,7 +132,10 @@ func (s *Store) ReadSignalStreamConsumerGroup(
 		Consumer: strings.TrimSpace(consumer),
 		Streams:  []string{s.signalStreamKey, ">"},
 		Count:    remaining,
-		Block:    0,
+		// Use a non-blocking poll here. In go-redis, Block=0 maps to Redis
+		// BLOCK 0 (wait forever), which can leave unread data on pooled
+		// connections when the scheduler cancels the cycle context.
+		Block: -1,
 	}).Result()
 	if errors.Is(err, goredis.Nil) {
 		return events, ids, nil
@@ -177,6 +180,7 @@ func (s *Store) MergeSignalLogs(
 	for attempt := 0; attempt < maxMergeSignalLogsRetries; attempt++ {
 		updated := false
 		deleted := false
+		indexed := false
 
 		err := s.client.Watch(ctx, func(tx *goredis.Tx) error {
 			payload, err := tx.HGet(ctx, orgKey, s.hashField).Result()
@@ -208,6 +212,7 @@ func (s *Store) MergeSignalLogs(
 			}
 
 			if signalLogsEqualRedis(existing, merged) {
+				indexed = len(merged) > 0
 				return nil
 			}
 
@@ -230,6 +235,11 @@ func (s *Store) MergeSignalLogs(
 
 		switch {
 		case err == nil:
+			if indexed && !updated && !deleted {
+				if err := s.indexActiveOrganization(ctx, organization); err != nil {
+					return false, false, err
+				}
+			}
 			if deleted {
 				if err := s.cleanupOrganizationHashIfEmpty(ctx, orgKey); err != nil {
 					return false, true, fmt.Errorf("cleanup redis key for organization %s: %w", organization, err)
@@ -705,12 +715,13 @@ func mergeSignalLogsRedis(existing []models.SignalLog, incoming []models.SignalL
 
 	for _, log := range combined {
 		docID := strings.TrimSpace(log.DocID)
-		if docID == "" || log.TimeStamp.IsZero() {
+		if docID == "" || (log.TimeStamp.IsZero() && log.SignalizedAt.IsZero()) {
 			continue
 		}
 		log.DocID = docID
 		log.TimeStamp = log.TimeStamp.UTC()
-		if !cutoff.IsZero() && log.TimeStamp.Before(cutoff) {
+		log.SignalizedAt = log.SignalizedAt.UTC()
+		if !cutoff.IsZero() && signalLogRetentionTimeRedis(log).Before(cutoff) {
 			continue
 		}
 
@@ -753,6 +764,9 @@ func signalLogsEqualRedis(left []models.SignalLog, right []models.SignalLog) boo
 		if !left[idx].TimeStamp.UTC().Equal(right[idx].TimeStamp.UTC()) {
 			return false
 		}
+		if !left[idx].SignalizedAt.UTC().Equal(right[idx].SignalizedAt.UTC()) {
+			return false
+		}
 	}
 	return true
 }
@@ -762,6 +776,12 @@ func shouldReplaceSignalLogRedis(current models.SignalLog, candidate models.Sign
 		return true
 	}
 	if candidate.TimeStamp.Before(current.TimeStamp) {
+		return false
+	}
+	if candidate.SignalizedAt.After(current.SignalizedAt) {
+		return true
+	}
+	if candidate.SignalizedAt.Before(current.SignalizedAt) {
 		return false
 	}
 	return signalLogCompletenessScoreRedis(candidate) >= signalLogCompletenessScoreRedis(current)
@@ -781,5 +801,15 @@ func signalLogCompletenessScoreRedis(log models.SignalLog) int {
 	if strings.TrimSpace(log.DocID) != "" {
 		score++
 	}
+	if !log.SignalizedAt.IsZero() {
+		score++
+	}
 	return score
+}
+
+func signalLogRetentionTimeRedis(log models.SignalLog) time.Time {
+	if log.SignalizedAt.After(log.TimeStamp) {
+		return log.SignalizedAt.UTC()
+	}
+	return log.TimeStamp.UTC()
 }

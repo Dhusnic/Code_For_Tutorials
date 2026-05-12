@@ -83,9 +83,17 @@ type ShardExecutionResult struct {
 	CompletedAt time.Time
 }
 
+const signalStreamIngestWorkloadID = "__signal_stream_ingest__"
+
 func OrganizationWorkload(organizationID string) Workload {
 	return Workload{
 		OrganizationID: strings.TrimSpace(organizationID),
+	}
+}
+
+func SignalStreamIngestWorkload() Workload {
+	return Workload{
+		OrganizationID: signalStreamIngestWorkloadID,
 	}
 }
 

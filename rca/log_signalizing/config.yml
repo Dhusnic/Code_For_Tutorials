@@ -200,7 +200,7 @@ pipeline:
       source_indices:
         - "*"
       # Elasticsearch DSL start time for this service only.
-      start_time: "now-60m"
+      start_time: "now-1m"
       # Elasticsearch query filter to scope service events.
       query:
         term:
@@ -211,7 +211,7 @@ pipeline:
       rule_file: "services/rabbitmq.yml"
       source_indices:
         - "*"
-      start_time: "now-60m"
+      start_time: "now-1m"
       query:
         term:
           event.module: "rabbitmq"
@@ -221,7 +221,7 @@ pipeline:
       rule_file: "services/mongodb.yml"
       source_indices:
         - "*"
-      start_time: "now-60m"
+      start_time: "now-1m"
       query:
         term:
           event.module: "mongodb"
@@ -231,7 +231,7 @@ pipeline:
       rule_file: "services/redis.yml"
       source_indices:
         - "*"
-      start_time: "now-60m"
+      start_time: "now-1m"
       query:
         term:
           event.module: "redis"
@@ -241,7 +241,7 @@ pipeline:
       rule_file: "services/kafka.yml"
       source_indices:
         - "*"
-      start_time: "now-60m"
+      start_time: "now-1m"
       query:
         term:
           event.module: "kafka"
@@ -251,7 +251,7 @@ pipeline:
       rule_file: "services/postgres.yml"
       source_indices:
         - "*"
-      start_time: "now-60m"
+      start_time: "now-1m"
       query:
         term:
           event.module: "postgresql"
@@ -261,7 +261,7 @@ pipeline:
       rule_file: "services/system.yml"
       source_indices:
         - "*"
-      start_time: "now-60m"
+      start_time: "now-1m"
       query:
         bool:
           should:
@@ -289,7 +289,7 @@ pipeline:
       rule_file: "services/auth.yml"
       source_indices:
         - "*"
-      start_time: "now-60m"
+      start_time: "now-1m"
       query:
         bool:
           should:
@@ -310,4 +310,4 @@ pipeline:
       rule_file: "services/network.yml"
       source_indices:
         - "network-*"
-      start_time: "now-60m"
+      start_time: "now-1m"

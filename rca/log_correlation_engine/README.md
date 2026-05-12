@@ -215,9 +215,18 @@ Key settings:
 - `redis.publish_results`: when `true`, publish correlation events to `redis.result_list`. Default `false`.
 - `redis.signal_stream_enabled`: when `true`, ingest compact signal events from Redis stream before each cycle. The checked-in config enables this path by default.
 - `redis.signal_stream_key`: Redis stream that carries compact signal events from signalizing. Default `Rca:signalized_log_events`.
-- `redis.signal_stream_batch_size`: maximum stream entries fetched per Redis round trip while catching up. Default `1000`.
+- `redis.signal_stream_batch_size`: maximum stream entries fetched per Redis round trip while catching up. Default `250`.
 - `redis.signal_stream_consumed_retention`: how long already-consumed stream entries are kept before they are trimmed. Default `30m`.
 - `redis.signal_stream_unconsumed_retention`: how long not-yet-consumed backlog can stay in the stream before it is trimmed. Default `2h`.
+- `distributed.single_stream_ingest_leader`: when `true`, only one distributed worker claims the Redis stream ingest lease and performs stream ingestion/merge in a given window. Default `true`.
+- `distributed.prefetch_full_logs`: when `true`, distributed stream ingestion tries to warm the shared full-log cache before workload processing. Default `false`.
+- `distributed.prefetch_timeout`: best-effort timeout used by asynchronous distributed full-log prefetch after stream entries are acknowledged. Default `5s`.
+- `distributed.prefetch_max_doc_ids`: skip asynchronous distributed prefetch when the acknowledged stream batch references more than this many unique document IDs. Default `1000`.
+- `autoscaling.fetcher.min_grouped_lookup_batch_size`: smallest grouped Elasticsearch lookup batch size the autoscaler will choose after warmup. Default `250`.
+- `autoscaling.fetcher.max_grouped_lookup_batch_size`: largest grouped Elasticsearch lookup batch size the autoscaler will choose after warmup. Default `2000`.
+- `autoscaling.fetcher.max_batches_per_cycle`: maximum grouped lookup batches the autoscaler budgets into one cycle for incremental enrichment. Default `4`.
+- `autoscaling.scheduler.min_interval`: lowest scheduler interval the autoscaler will shrink to under healthy load. Default `20s`.
+- `autoscaling.scheduler.max_interval`: highest scheduler interval the autoscaler will stretch to during timeouts or backlog pressure. Default `90s`.
 - `elasticsearch.addresses`: list of Elasticsearch hosts.
 - `elasticsearch.index`: destination index for correlation results.
 - `elasticsearch.request_timeout`: per-request timeout for Elasticsearch writes and health checks.
@@ -229,11 +238,35 @@ Key settings:
 - `engine.incremental_lookback`: additional minimum lookback added to the rule-derived incremental window. Default `0s`.
 - `engine.incident_inactivity_ttl`: how long an active incident can stay unmatched before it is auto-closed. Default `30m`.
 - `engine.checkpoint_directory`: directory that stores per-organization checkpoint JSON files. Default `data/checkpoints`.
+- `engine.parallel_correlation.target_logs_per_shard`: baseline shard size used when parallel correlation splits a workload. Default `1500`.
+- `engine.parallel_correlation.max_workers`: maximum number of local goroutines used when the engine parallelizes correlation inside a single process. Default `8`.
+- `engine.parallel_correlation.distributed_target_shard_duration`: target per-shard runtime hint used when planning distributed shard sizes. Default `750ms`.
+- `engine.parallel_correlation.distributed_shard_timeout`: hard upper bound for one distributed shard execution attempt before the shard is marked retryable. Default `5s`.
+- `engine.parallel_correlation.distributed_run_reserve`: scheduler time reserved for result collection, merging, and bookkeeping before the cycle deadline. Default `3s`.
+- `engine.parallel_correlation.distributed_max_shards_per_worker`: upper bound used by distributed shard planning so busy clusters can fan out into more, smaller shard units. Default `10`.
 - `fetcher.mode`: full-log fetcher implementation. Supported values are `mock` and `elasticsearch`.
 - `fetcher.index`: source Elasticsearch index or pattern used to look up full documents by `doc_id`.
+- `fetcher.grouped_lookup_batch_size`: baseline grouped Elasticsearch lookup batch size used before autoscaling warmup and whenever autoscaling is disabled. Default `100`.
 - `fetcher.timestamp_field`: source timestamp field used when the fetcher reads original documents. Default `@timestamp`.
 - `fetcher.log_level_field`: source log level field used when the fetcher reads original documents. Default `log.level`.
 - `logging.format`: `json` or `text`. Default `json`.
+
+Distributed stream ingestion behavior:
+
+- When `distributed.single_stream_ingest_leader` is enabled, workers compete for a dedicated stream-ingest lease and only the leader reads, merges, and acknowledges Redis signal stream entries for that cycle.
+- Redis stream entries are acknowledged before optional shared full-log cache prefetch runs, so best-effort cache warming no longer blocks the critical ingest/merge path.
+- When `distributed.prefetch_full_logs` is enabled, cache warming runs asynchronously with its own bounded timeout.
+- Very large acknowledged stream batches skip asynchronous prefetch entirely once they exceed `distributed.prefetch_max_doc_ids`.
+
+Distributed shard correlation behavior:
+
+- The default planner baseline now prefers more, smaller shards so a single slow shard is less likely to consume the whole scheduler run budget.
+- The planner now looks at the remaining scheduler run budget before launching distributed shard work.
+- If the remaining budget is tight, it shrinks the effective shard sizing target before building shard payloads.
+- Each claimed shard now runs under its own timeout budget: `min(remaining cycle budget after reserve, distributed_shard_timeout)`.
+- Workers now refuse to claim a fresh distributed shard once the remaining run budget falls to or below the reserve window, which prevents late-cycle Redis state transitions from timing out while marking a shard as running.
+- When a shard exceeds that per-shard budget, the worker records it as retryable and releases it instead of letting one slow shard consume the full owner cycle deadline.
+- If the remaining budget is already smaller than the configured reserve window, the engine fails fast instead of launching shard work that cannot finish before the cycle deadline.
 
 Phase 2 incident lifecycle behavior:
 

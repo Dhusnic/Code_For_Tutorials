@@ -124,6 +124,8 @@ type Processor struct {
 	workerID    string
 	consumer    string
 	now         func() time.Time
+	prefetchMu  sync.Mutex
+	prefetching bool
 }
 
 type CycleSummary struct {
@@ -447,16 +449,22 @@ func (p *Processor) ingestSignalStream(ctx context.Context, rules []models.Rule)
 	skipped := 0
 	for _, event := range events {
 		organizationID := strings.TrimSpace(event.OrganizationID)
-		if organizationID == "" || strings.TrimSpace(event.DocID) == "" || strings.TrimSpace(event.Signal) == "" || event.TimeStamp.IsZero() {
+		if organizationID == "" || strings.TrimSpace(event.DocID) == "" || strings.TrimSpace(event.Signal) == "" ||
+			(event.TimeStamp.IsZero() && event.SignalizedAt.IsZero()) {
 			skipped++
 			continue
+		}
+		eventTimestamp := event.TimeStamp
+		if eventTimestamp.IsZero() {
+			eventTimestamp = event.SignalizedAt
 		}
 		grouped[organizationID] = append(grouped[organizationID], models.SignalLog{
 			HostIdentity: strings.TrimSpace(event.HostIdentity),
 			Signal:       event.Signal,
 			LogLevel:     event.LogLevel,
 			DocID:        event.DocID,
-			TimeStamp:    event.TimeStamp.UTC(),
+			TimeStamp:    eventTimestamp.UTC(),
+			SignalizedAt: event.SignalizedAt.UTC(),
 		})
 	}
 
@@ -574,6 +582,9 @@ func (p *Processor) buildIncidentAction(organization string, result *models.Corr
 	}
 	if result.MatchedAt.IsZero() {
 		result.MatchedAt = p.now().UTC()
+	}
+	if result.CorrelatedAt.IsZero() {
+		result.CorrelatedAt = p.now().UTC()
 	}
 	if err := result.EnsureResultSignature(); err != nil {
 		return incidentAction{}, false, err
@@ -1033,6 +1044,13 @@ func (p *Processor) enrichSignalLogs(
 		enriched.Signal = signalLog.Signal
 		enriched.LogLevel = signalLog.LogLevel
 		enriched.Timestamp = signalLog.TimeStamp.UTC()
+		enriched.SignalizedAt = signalLog.SignalizedAt.UTC()
+		if !signalLog.SignalizedAt.IsZero() {
+			if enriched.Metadata == nil {
+				enriched.Metadata = make(map[string]any)
+			}
+			enriched.Metadata["signalized_at"] = signalLog.SignalizedAt.UTC().Format(time.RFC3339Nano)
+		}
 		workingFullLogs = append(workingFullLogs, enriched)
 		if _, ok := newDocIDs[signalLog.DocID]; ok {
 			newFullLogs = append(newFullLogs, enriched)
@@ -1447,11 +1465,15 @@ func buildClosedIncidentResult(state models.IncidentState, closedAt time.Time) m
 		OrganizationID:  state.OrganizationID,
 		GroupByValues:   cloneGroupByValues(state.GroupByValues),
 		MatchedAt:       state.Snapshot.MatchedAt.UTC(),
+		CorrelatedAt:    state.Snapshot.CorrelatedAt.UTC(),
 		ResultSignature: state.LastResultSignature,
 		Audit:           cloneMatchAudit(state.Snapshot.Audit),
 	}
 	if result.MatchedAt.IsZero() {
 		result.MatchedAt = state.LastSeen.UTC()
+	}
+	if result.CorrelatedAt.IsZero() {
+		result.CorrelatedAt = state.LastSeen.UTC()
 	}
 	firstSeen := state.FirstSeen.UTC()
 	lastSeen := closedAt.UTC()
@@ -1494,6 +1516,7 @@ func buildIncidentSnapshot(result *models.CorrelationResult) models.IncidentSnap
 		RuleCompletion: result.RuleCompletion,
 		SequenceMatch:  result.SequenceMatch,
 		MatchedAt:      result.MatchedAt.UTC(),
+		CorrelatedAt:   result.CorrelatedAt.UTC(),
 		Audit:          cloneMatchAudit(result.Audit),
 	}
 }
@@ -1751,11 +1774,12 @@ func mergeSignalLogs(existing []models.SignalLog, incoming []models.SignalLog, c
 	combined = append(combined, incoming...)
 
 	for _, log := range combined {
-		if strings.TrimSpace(log.DocID) == "" || log.TimeStamp.IsZero() {
+		if strings.TrimSpace(log.DocID) == "" || (log.TimeStamp.IsZero() && log.SignalizedAt.IsZero()) {
 			continue
 		}
 		log.TimeStamp = log.TimeStamp.UTC()
-		if log.TimeStamp.Before(cutoff.UTC()) {
+		log.SignalizedAt = log.SignalizedAt.UTC()
+		if signalLogRetentionTime(log).Before(cutoff.UTC()) {
 			continue
 		}
 
@@ -1785,6 +1809,12 @@ func shouldReplaceSignalLog(current models.SignalLog, candidate models.SignalLog
 	if candidate.TimeStamp.Before(current.TimeStamp) {
 		return false
 	}
+	if candidate.SignalizedAt.After(current.SignalizedAt) {
+		return true
+	}
+	if candidate.SignalizedAt.Before(current.SignalizedAt) {
+		return false
+	}
 	return signalLogCompletenessScore(candidate) >= signalLogCompletenessScore(current)
 }
 
@@ -1800,6 +1830,9 @@ func signalLogCompletenessScore(log models.SignalLog) int {
 		score++
 	}
 	if strings.TrimSpace(log.DocID) != "" {
+		score++
+	}
+	if !log.SignalizedAt.IsZero() {
 		score++
 	}
 	return score
@@ -1825,8 +1858,18 @@ func signalLogsEqual(left []models.SignalLog, right []models.SignalLog) bool {
 		if !left[idx].TimeStamp.UTC().Equal(right[idx].TimeStamp.UTC()) {
 			return false
 		}
+		if !left[idx].SignalizedAt.UTC().Equal(right[idx].SignalizedAt.UTC()) {
+			return false
+		}
 	}
 	return true
+}
+
+func signalLogRetentionTime(log models.SignalLog) time.Time {
+	if log.SignalizedAt.After(log.TimeStamp) {
+		return log.SignalizedAt.UTC()
+	}
+	return log.TimeStamp.UTC()
 }
 
 func rollbackIncidentActionState(activeByID map[string]models.IncidentState, action incidentAction) {

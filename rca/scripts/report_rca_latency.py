@@ -27,9 +27,8 @@ class LatencyRecord:
     last_log_at: datetime
     matched_at: datetime | None
     generated_at: datetime
-    latency_from_first: timedelta
-    latency_from_last: timedelta
-    latency_from_match: timedelta | None
+    total_latency_from_first: timedelta
+    total_latency_from_last: timedelta
 
 
 @dataclass
@@ -109,8 +108,9 @@ def default_rca_config() -> Path:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Print a readable RCA latency report from the local rca_results.json file. "
-            "Primary latency is measured from the last matched log timestamp to RCA updated_at."
+            "Print a readable RCA consumer latency report from RCA results. "
+            "This report uses persisted timestamps only and clearly distinguishes observable latency "
+            "from stage timings that are not stored by the current pipeline."
         )
     )
     parser.add_argument(
@@ -122,6 +122,16 @@ def parse_args() -> argparse.Namespace:
         "--status",
         default="",
         help="Optional comma-separated status filter, for example: open,updated,closed",
+    )
+    parser.add_argument(
+        "--incident-id",
+        default="",
+        help="Optional comma-separated incident_id filter.",
+    )
+    parser.add_argument(
+        "--doc-ids",
+        default="",
+        help="Optional comma-separated matched log doc IDs. Records must contain all listed IDs.",
     )
     parser.add_argument(
         "--limit",
@@ -261,6 +271,47 @@ def load_payload(path: Path) -> tuple[Any, str | None]:
     if len(extract_records(payload)) == 0:
         return payload, "Results file contains no RCA items."
     return payload, None
+
+
+def aggregate_worker_payloads(results_file: Path) -> tuple[Any, str] | None:
+    pattern = f"{results_file.stem}.worker-*.json"
+    worker_files = sorted(results_file.parent.glob(pattern))
+    if not worker_files:
+        return None
+
+    aggregated_items: list[dict[str, Any]] = []
+    latest_updated_at: datetime | None = None
+    used_files = 0
+
+    for worker_file in worker_files:
+        try:
+            payload, _ = load_payload(worker_file)
+        except (FileNotFoundError, ValueError):
+            continue
+
+        items = extract_records(payload)
+        if not items:
+            continue
+
+        aggregated_items.extend(items)
+        used_files += 1
+
+        if isinstance(payload, dict):
+            updated_at = parse_timestamp(payload.get("updated_at"))
+            if updated_at is not None and (latest_updated_at is None or updated_at > latest_updated_at):
+                latest_updated_at = updated_at
+
+    if not aggregated_items:
+        return None
+
+    aggregated_items.sort(
+        key=lambda item: parse_timestamp(item.get("updated_at")) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    aggregated_payload: dict[str, Any] = {"items": aggregated_items}
+    if latest_updated_at is not None:
+        aggregated_payload["updated_at"] = latest_updated_at.isoformat().replace("+00:00", "Z")
+    return aggregated_payload, f"Local worker result files ({used_files} file(s), pattern {pattern})"
 
 
 def extract_records(payload: Any) -> list[dict[str, Any]]:
@@ -496,6 +547,16 @@ def resolve_data_source(args: argparse.Namespace, results_file: Path) -> DataSou
     if local_message is None or args.no_mongo_fallback:
         return DataSource(label=f"Local file ({results_file})", payload=payload, local_file_message=local_message)
 
+    worker_payload = aggregate_worker_payloads(results_file)
+    if worker_payload is not None:
+        payload, label = worker_payload
+        return DataSource(
+            label=label,
+            payload=payload,
+            local_file_message=local_message,
+            mongo_message=f"Used local worker result files because primary results file was empty: {local_message}",
+        )
+
     mongo_settings = resolve_mongo_settings(args)
     mongo_payload, mongo_label = load_payload_from_mongo(mongo_settings)
     return DataSource(
@@ -627,9 +688,42 @@ def normalize_text(value: Any, fallback: str = "-") -> str:
     return text or fallback
 
 
+def parse_csv_filter(raw: str) -> set[str]:
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def record_doc_ids(record: dict[str, Any]) -> set[str]:
+    ids: set[str] = set()
+    for item in matched_log_entries(record):
+        doc_id = normalize_text(item.get("id"), "")
+        if doc_id:
+            ids.add(doc_id)
+    matched_doc_ids = record.get("matched_doc_ids")
+    if isinstance(matched_doc_ids, list):
+        for value in matched_doc_ids:
+            doc_id = normalize_text(value, "")
+            if doc_id:
+                ids.add(doc_id)
+    return ids
+
+
+def record_matches_filters(record: dict[str, Any], incident_ids: set[str], doc_ids: set[str]) -> bool:
+    if incident_ids:
+        incident_id = normalize_text(record.get("incident_id"), "")
+        if incident_id not in incident_ids:
+            return False
+    if doc_ids:
+        available_doc_ids = record_doc_ids(record)
+        if not doc_ids.issubset(available_doc_ids):
+            return False
+    return True
+
+
 def build_latency_records(
     records: list[dict[str, Any]],
     allowed_statuses: set[str],
+    incident_ids: set[str],
+    doc_ids: set[str],
     source_doc_timestamps: dict[tuple[str, str], datetime] | None = None,
     fallback_index: str = "*",
 ) -> tuple[list[LatencyRecord], list[SkipReason]]:
@@ -641,17 +735,13 @@ def build_latency_records(
         status = normalize_text(record.get("status"), "open").lower()
         if allowed_statuses and status not in allowed_statuses:
             continue
+        if not record_matches_filters(record, incident_ids, doc_ids):
+            continue
 
         if source_doc_timestamps is not None:
             log_timestamps = collect_resolved_log_timestamps(record, source_doc_timestamps, fallback_index)
             if not log_timestamps:
-                skipped.append(
-                    SkipReason(
-                        incident_id=incident_id,
-                        reason="could not resolve source log @timestamp from Elasticsearch for matched doc IDs",
-                    )
-                )
-                continue
+                log_timestamps = collect_log_timestamps(record)
         else:
             log_timestamps = collect_log_timestamps(record)
         if not log_timestamps:
@@ -678,13 +768,12 @@ def build_latency_records(
                 last_log_at=last_log_at,
                 matched_at=matched_at,
                 generated_at=generated_at,
-                latency_from_first=generated_at - first_log_at,
-                latency_from_last=generated_at - last_log_at,
-                latency_from_match=(generated_at - matched_at) if matched_at is not None else None,
+                total_latency_from_first=generated_at - first_log_at,
+                total_latency_from_last=generated_at - last_log_at,
             )
         )
 
-    analyzed.sort(key=lambda item: item.latency_from_last.total_seconds(), reverse=True)
+    analyzed.sort(key=lambda item: item.total_latency_from_last.total_seconds(), reverse=True)
     return analyzed, skipped
 
 
@@ -809,35 +898,33 @@ def print_report(
                 print(f"- ... and {len(skipped) - 10} more")
         return
 
-    avg_from_last = average_duration([item.latency_from_last for item in analyzed])
-    avg_from_first = average_duration([item.latency_from_first for item in analyzed])
-    median_from_last = median_duration([item.latency_from_last for item in analyzed])
-    avg_from_match = average_duration(
-        [item.latency_from_match for item in analyzed if item.latency_from_match is not None]
-    )
-    negative_latencies = [item for item in analyzed if item.latency_from_last.total_seconds() < 0]
-    fastest = min(analyzed, key=lambda item: item.latency_from_last.total_seconds())
-    slowest = max(analyzed, key=lambda item: item.latency_from_last.total_seconds())
+    avg_total_from_last = average_duration([item.total_latency_from_last for item in analyzed])
+    avg_total_from_first = average_duration([item.total_latency_from_first for item in analyzed])
+    median_total_from_last = median_duration([item.total_latency_from_last for item in analyzed])
+    negative_latencies = [item for item in analyzed if item.total_latency_from_last.total_seconds() < 0]
+    fastest = min(analyzed, key=lambda item: item.total_latency_from_last.total_seconds())
+    slowest = max(analyzed, key=lambda item: item.total_latency_from_last.total_seconds())
 
     print("Effective summary")
     print("-----------------")
-    print(f"Primary average latency : {format_duration(avg_from_last)}")
-    print(f"Median latency          : {format_duration(median_from_last)}")
-    print(f"Fastest RCA             : {fastest.incident_id} in {format_duration(fastest.latency_from_last)}")
-    print(f"Slowest RCA             : {slowest.incident_id} in {format_duration(slowest.latency_from_last)}")
+    print(f"Average end-to-end latency : {format_duration(avg_total_from_last)}")
+    print(f"Median end-to-end latency  : {format_duration(median_total_from_last)}")
+    print(f"Fastest RCA total          : {fastest.incident_id} in {format_duration(fastest.total_latency_from_last)}")
+    print(f"Slowest RCA total          : {slowest.incident_id} in {format_duration(slowest.total_latency_from_last)}")
     print(f"Status mix              : {count_by(analyzed, 'status')}")
     print(f"Classification mix      : {count_by(analyzed, 'classification')}")
     if negative_latencies:
         print(f"Clock skew warning      : {len(negative_latencies)} incident(s) had negative latency")
     print()
 
-    print("Average latency")
-    print("---------------")
-    print(f"Last matched log -> RCA generated : {format_duration(avg_from_last)}")
-    print(f"Median last log -> RCA generated  : {format_duration(median_from_last)}")
-    print(f"First matched log -> RCA generated: {format_duration(avg_from_first)}")
-    if avg_from_match is not None:
-        print(f"Correlation matched_at -> RCA write: {format_duration(avg_from_match)}")
+    print("Consumer-wise stage summary")
+    print("---------------------------")
+    print("Signalizing stage          : not measurable from persisted data")
+    print("Correlation stage          : not measurable from persisted data")
+    print("Note on matched_at         : stored as last matched log time, not correlation finish time")
+    print(f"Observable last log -> RCA : {format_duration(avg_total_from_last)} average")
+    print(f"Observable median          : {format_duration(median_total_from_last)}")
+    print(f"First log -> RCA average   : {format_duration(avg_total_from_first)}")
     print()
 
     visible = analyzed if limit == 0 else analyzed[: max(limit, 0)]
@@ -852,14 +939,15 @@ def print_report(
                 shorten(item.classification, 16),
                 str(item.log_count),
                 format_timestamp(item.last_log_at),
+                format_timestamp(item.matched_at),
                 format_timestamp(item.generated_at),
-                format_duration(item.latency_from_last),
-                format_duration(item.latency_from_first),
+                format_duration(item.total_latency_from_last),
+                format_duration(item.total_latency_from_first),
             ]
         )
 
-    print("Per-incident latency")
-    print("--------------------")
+    print("Per-incident observable latency")
+    print("-------------------------------")
     print(
         render_table(
             [
@@ -870,9 +958,10 @@ def print_report(
                 "Classification",
                 "Logs",
                 "Last Log (UTC)",
+                "Matched At (UTC)",
                 "RCA Generated (UTC)",
-                "Latency",
-                "From First",
+                "Last->RCA",
+                "First->RCA",
             ],
             rows,
         )
@@ -896,6 +985,8 @@ def main() -> int:
         for status in args.status.split(",")
         if status.strip()
     }
+    incident_ids = parse_csv_filter(args.incident_id)
+    doc_ids = parse_csv_filter(args.doc_ids)
 
     try:
         source = resolve_data_source(args, results_file)
@@ -919,14 +1010,16 @@ def main() -> int:
             analyzed, skipped = build_latency_records(
                 records,
                 allowed_statuses,
+                incident_ids,
+                doc_ids,
                 source_doc_timestamps=source_doc_timestamps,
                 fallback_index=str(es_settings.get("source_index_fallback") or "*"),
             )
         except RuntimeError as exc:
             print(f"Warning: Elasticsearch lookup failed, falling back to stored RCA timestamps. {exc}")
-            analyzed, skipped = build_latency_records(records, allowed_statuses)
+            analyzed, skipped = build_latency_records(records, allowed_statuses, incident_ids, doc_ids)
     else:
-        analyzed, skipped = build_latency_records(records, allowed_statuses)
+        analyzed, skipped = build_latency_records(records, allowed_statuses, incident_ids, doc_ids)
 
     print_report(results_file, source, payload, analyzed, skipped, args.limit, timestamp_basis)
     return 0

@@ -109,6 +109,9 @@ func (c *Client) Bulk(actions []map[string]any) (int, []map[string]any, error) {
 					"_id":    action["_id"],
 				},
 			}
+			if retryOnConflict, ok := action["retry_on_conflict"]; ok {
+				meta["update"].(map[string]any)["retry_on_conflict"] = retryOnConflict
+			}
 			body := map[string]any{
 				"doc":           action["doc"],
 				"doc_as_upsert": action["doc_as_upsert"],

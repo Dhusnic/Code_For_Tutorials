@@ -24,6 +24,7 @@ type WriterInterface interface {
 type Writer struct {
 	client         *esv8.Client
 	index          string
+	writeHistory   bool
 	currentIndex   string
 	requestTimeout time.Duration
 	bulkBatchSize  int
@@ -60,6 +61,7 @@ func NewWriter(cfg config.ElasticsearchConfig, logger *slog.Logger) (*Writer, er
 	writer := &Writer{
 		client:         client,
 		index:          cfg.Index,
+		writeHistory:   cfg.WriteHistory,
 		currentIndex:   cfg.CurrentIndex,
 		requestTimeout: cfg.RequestTimeout,
 		bulkBatchSize:  cfg.BulkBatchSize,
@@ -127,69 +129,71 @@ func (w *Writer) writeBatch(ctx context.Context, entries []bulkEntry) []error {
 		return result
 	}
 
-	requestCtx, cancel := w.requestContext(ctx)
-	defer cancel()
+	if w.writeHistory {
+		requestCtx, cancel := w.requestContext(ctx)
+		defer cancel()
 
-	var payload bytes.Buffer
-	encoder := json.NewEncoder(&payload)
-	for _, entry := range entries {
-		if err := encoder.Encode(map[string]map[string]string{
-			"index": {
-				"_id": entry.result.DocumentID,
-			},
-		}); err != nil {
-			return fillBatchErrors(len(entries), fmt.Errorf("encode bulk metadata: %w", err))
+		var payload bytes.Buffer
+		encoder := json.NewEncoder(&payload)
+		for _, entry := range entries {
+			if err := encoder.Encode(map[string]map[string]string{
+				"index": {
+					"_id": entry.result.DocumentID,
+				},
+			}); err != nil {
+				return fillBatchErrors(len(entries), fmt.Errorf("encode bulk metadata: %w", err))
+			}
+			if err := encoder.Encode(entry.result); err != nil {
+				return fillBatchErrors(len(entries), fmt.Errorf("encode bulk document: %w", err))
+			}
 		}
-		if err := encoder.Encode(entry.result); err != nil {
-			return fillBatchErrors(len(entries), fmt.Errorf("encode bulk document: %w", err))
-		}
-	}
 
-	response, err := w.client.Bulk(
-		bytes.NewReader(payload.Bytes()),
-		w.client.Bulk.WithContext(requestCtx),
-		w.client.Bulk.WithIndex(w.index),
-	)
-	if err != nil {
-		return fillBatchErrors(len(entries), fmt.Errorf("bulk index correlation results: %w", err))
-	}
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return fillBatchErrors(len(entries), fmt.Errorf("read bulk response: %w", err))
-	}
-
-	if response.IsError() {
-		return fillBatchErrors(len(entries), fmt.Errorf("elasticsearch bulk indexing failed with status %s: %s", response.Status(), string(body)))
-	}
-
-	var bulkResult bulkResponse
-	if err := json.Unmarshal(body, &bulkResult); err != nil {
-		return fillBatchErrors(len(entries), fmt.Errorf("decode bulk response: %w", err))
-	}
-	if len(bulkResult.Items) != len(entries) {
-		return fillBatchErrors(len(entries), fmt.Errorf("bulk response item count mismatch: got %d want %d", len(bulkResult.Items), len(entries)))
-	}
-
-	for idx, item := range bulkResult.Items {
-		indexResult, ok := item["index"]
-		if !ok {
-			result[idx] = fmt.Errorf("bulk response missing index item")
-			continue
-		}
-		if len(indexResult.Error) > 0 {
-			result[idx] = fmt.Errorf("bulk item failed for document %s with status %d: %s", indexResult.ID, indexResult.Status, string(indexResult.Error))
-		}
-	}
-
-	if w.logger != nil {
-		w.logger.Debug(
-			"bulk indexed correlation results",
-			"count", len(entries),
-			"index", w.index,
-			"errors", bulkResult.Errors,
+		response, err := w.client.Bulk(
+			bytes.NewReader(payload.Bytes()),
+			w.client.Bulk.WithContext(requestCtx),
+			w.client.Bulk.WithIndex(w.index),
 		)
+		if err != nil {
+			return fillBatchErrors(len(entries), fmt.Errorf("bulk index correlation results: %w", err))
+		}
+		defer response.Body.Close()
+
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			return fillBatchErrors(len(entries), fmt.Errorf("read bulk response: %w", err))
+		}
+
+		if response.IsError() {
+			return fillBatchErrors(len(entries), fmt.Errorf("elasticsearch bulk indexing failed with status %s: %s", response.Status(), string(body)))
+		}
+
+		var bulkResult bulkResponse
+		if err := json.Unmarshal(body, &bulkResult); err != nil {
+			return fillBatchErrors(len(entries), fmt.Errorf("decode bulk response: %w", err))
+		}
+		if len(bulkResult.Items) != len(entries) {
+			return fillBatchErrors(len(entries), fmt.Errorf("bulk response item count mismatch: got %d want %d", len(bulkResult.Items), len(entries)))
+		}
+
+		for idx, item := range bulkResult.Items {
+			indexResult, ok := item["index"]
+			if !ok {
+				result[idx] = fmt.Errorf("bulk response missing index item")
+				continue
+			}
+			if len(indexResult.Error) > 0 {
+				result[idx] = fmt.Errorf("bulk item failed for document %s with status %d: %s", indexResult.ID, indexResult.Status, string(indexResult.Error))
+			}
+		}
+
+		if w.logger != nil {
+			w.logger.Debug(
+				"bulk indexed correlation results",
+				"count", len(entries),
+				"index", w.index,
+				"errors", bulkResult.Errors,
+			)
+		}
 	}
 
 	if strings.TrimSpace(w.currentIndex) != "" && w.currentIndex != w.index {

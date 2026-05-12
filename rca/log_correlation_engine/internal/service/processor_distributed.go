@@ -32,7 +32,7 @@ func (p *Processor) runDistributedCycle(ctx context.Context, started time.Time, 
 	}
 
 	if p.config.Redis.SignalStreamEnabled {
-		if err := p.ingestSignalStreamDistributed(ctx, rules); err != nil {
+		if err := p.ingestSignalStreamDistributedAsLeader(ctx, rules); err != nil {
 			return fmt.Errorf("ingest distributed signal stream: %w", err)
 		}
 	}
@@ -438,6 +438,50 @@ func (p *Processor) loadAndProcessClaimedWorkload(
 	}, rules)
 }
 
+func (p *Processor) ingestSignalStreamDistributedAsLeader(ctx context.Context, rules []models.Rule) error {
+	if !p.config.Distributed.SingleStreamIngestLeader {
+		return p.ingestSignalStreamDistributed(ctx, rules)
+	}
+
+	lease, ok, err := p.tryClaimWorkload(ctx, distributed.SignalStreamIngestWorkload())
+	if err != nil {
+		return fmt.Errorf("claim stream ingest leader lease: %w", err)
+	}
+	if !ok {
+		p.logger.Debug(
+			"skipping distributed signal stream ingest because another worker owns the ingest lease",
+			"worker_id", p.workerID,
+		)
+		return nil
+	}
+
+	heartbeatCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	heartbeatErr := make(chan error, 1)
+	if p.config.Distributed.LeaseHeartbeatInterval > 0 {
+		go p.runLeaseHeartbeat(heartbeatCtx, lease, heartbeatErr)
+	}
+
+	err = p.ingestSignalStreamDistributed(heartbeatCtx, rules)
+	cancel()
+
+	select {
+	case hbErr := <-heartbeatErr:
+		if hbErr != nil && err == nil {
+			err = hbErr
+		}
+	default:
+	}
+
+	releaseCtx, releaseCancel := context.WithTimeout(context.Background(), p.config.Redis.WriteTimeout)
+	defer releaseCancel()
+	if releaseErr := p.distributed.ReleaseWorkloadLease(releaseCtx, lease); releaseErr != nil && err == nil {
+		err = releaseErr
+	}
+	return err
+}
+
 func (p *Processor) ingestSignalStreamDistributed(ctx context.Context, rules []models.Rule) error {
 	if err := p.distributed.EnsureSignalStreamConsumerGroup(ctx, p.config.Distributed.StreamConsumerGroup); err != nil {
 		return err
@@ -466,16 +510,22 @@ func (p *Processor) ingestSignalStreamDistributed(ctx context.Context, rules []m
 		organizationID := strings.TrimSpace(event.OrganizationID)
 		docID := strings.TrimSpace(event.DocID)
 		signal := strings.TrimSpace(event.Signal)
-		if organizationID == "" || docID == "" || signal == "" || event.TimeStamp.IsZero() {
+		if organizationID == "" || docID == "" || signal == "" ||
+			(event.TimeStamp.IsZero() && event.SignalizedAt.IsZero()) {
 			skipped++
 			continue
+		}
+		eventTimestamp := event.TimeStamp
+		if eventTimestamp.IsZero() {
+			eventTimestamp = event.SignalizedAt
 		}
 		grouped[organizationID] = append(grouped[organizationID], models.SignalLog{
 			HostIdentity: strings.TrimSpace(event.HostIdentity),
 			Signal:       event.Signal,
 			LogLevel:     event.LogLevel,
 			DocID:        docID,
-			TimeStamp:    event.TimeStamp.UTC(),
+			TimeStamp:    eventTimestamp.UTC(),
+			SignalizedAt: event.SignalizedAt.UTC(),
 		})
 		if _, ok := seenDocIDs[docID]; ok {
 			continue
@@ -483,8 +533,6 @@ func (p *Processor) ingestSignalStreamDistributed(ctx context.Context, rules []m
 		seenDocIDs[docID] = struct{}{}
 		uniqueDocIDs = append(uniqueDocIDs, docID)
 	}
-
-	p.prefetchDistributedFullLogs(ctx, uniqueDocIDs)
 
 	updatedOrganizations := 0
 	deletedOrganizations := 0
@@ -509,6 +557,8 @@ func (p *Processor) ingestSignalStreamDistributed(ctx context.Context, rules []m
 	}
 	p.trimDistributedSignalStream(ctx)
 
+	prefetchedDocIDs, skippedPrefetchDocIDs, prefetchStatus := p.scheduleDistributedFullLogPrefetch(uniqueDocIDs)
+
 	p.logger.Info(
 		"ingested compact signal stream",
 		"stream_key", p.config.Redis.SignalStreamKey,
@@ -517,7 +567,10 @@ func (p *Processor) ingestSignalStreamDistributed(ctx context.Context, rules []m
 		"organizations_updated", updatedOrganizations,
 		"organizations_deleted", deletedOrganizations,
 		"organizations_unchanged", unchangedOrganizations,
-		"prefetched_doc_ids", len(uniqueDocIDs),
+		"prefetch_candidate_doc_ids", len(uniqueDocIDs),
+		"prefetched_doc_ids", prefetchedDocIDs,
+		"prefetch_skipped_doc_ids", skippedPrefetchDocIDs,
+		"prefetch_status", prefetchStatus,
 		"distributed_mode", true,
 		"worker_id", p.workerID,
 		"consumer_group", p.config.Distributed.StreamConsumerGroup,
@@ -538,6 +591,72 @@ func (p *Processor) trimDistributedSignalStream(ctx context.Context) {
 			"error", err,
 		)
 	}
+}
+
+func (p *Processor) scheduleDistributedFullLogPrefetch(docIDs []string) (int, int, string) {
+	if p.distributed == nil || !p.config.Distributed.PrefetchFullLogs || len(docIDs) == 0 {
+		return 0, len(docIDs), "disabled"
+	}
+
+	maxDocIDs := p.distributedPrefetchMaxDocIDs()
+	if maxDocIDs > 0 && len(docIDs) > maxDocIDs {
+		p.logger.Info(
+			"skipping distributed full log prefetch because acknowledged stream batch is too large",
+			"candidate_doc_ids", len(docIDs),
+			"max_doc_ids", maxDocIDs,
+		)
+		return 0, len(docIDs), "max_doc_ids_exceeded"
+	}
+
+	if !p.tryStartDistributedPrefetch() {
+		p.logger.Debug(
+			"skipping distributed full log prefetch because a previous prefetch is still running",
+			"candidate_doc_ids", len(docIDs),
+		)
+		return 0, len(docIDs), "already_in_flight"
+	}
+
+	clonedDocIDs := append([]string(nil), docIDs...)
+	go func() {
+		defer p.finishDistributedPrefetch()
+
+		prefetchCtx, cancel := context.WithTimeout(context.Background(), p.distributedPrefetchTimeout())
+		defer cancel()
+
+		p.prefetchDistributedFullLogs(prefetchCtx, clonedDocIDs)
+	}()
+
+	return len(docIDs), 0, "scheduled"
+}
+
+func (p *Processor) tryStartDistributedPrefetch() bool {
+	p.prefetchMu.Lock()
+	defer p.prefetchMu.Unlock()
+	if p.prefetching {
+		return false
+	}
+	p.prefetching = true
+	return true
+}
+
+func (p *Processor) finishDistributedPrefetch() {
+	p.prefetchMu.Lock()
+	defer p.prefetchMu.Unlock()
+	p.prefetching = false
+}
+
+func (p *Processor) distributedPrefetchTimeout() time.Duration {
+	if p.config.Distributed.PrefetchTimeout > 0 {
+		return p.config.Distributed.PrefetchTimeout
+	}
+	return 5 * time.Second
+}
+
+func (p *Processor) distributedPrefetchMaxDocIDs() int {
+	if p.config.Distributed.PrefetchMaxDocIDs > 0 {
+		return p.config.Distributed.PrefetchMaxDocIDs
+	}
+	return 1000
 }
 
 func (p *Processor) prefetchDistributedFullLogs(ctx context.Context, docIDs []string) {

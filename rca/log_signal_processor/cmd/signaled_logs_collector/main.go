@@ -86,6 +86,7 @@ func main() {
 	log := logger.New(cfg.Logging).With("service", cfg.ServiceName)
 	log.Info("service starting",
 		"config_file", *configPath,
+		"enabled", cfg.Enabled,
 		"log_level", cfg.Logging.Level,
 		"log_format", cfg.Logging.Format,
 	)
@@ -93,6 +94,17 @@ func main() {
 	// Setup context with signal handling
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if !cfg.Enabled {
+		log.Warn("collector disabled by configuration; legacy Elasticsearch to Redis bridge is inactive")
+		if *runOnce {
+			log.Info("run-once requested while collector is disabled; exiting without work")
+			return
+		}
+		<-ctx.Done()
+		log.Info("service shutdown complete")
+		return
+	}
 
 	// Connect to Elasticsearch
 	log.Info("connecting to Elasticsearch",

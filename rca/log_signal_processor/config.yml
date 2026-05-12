@@ -1,6 +1,8 @@
 # Signaled logs collector configuration.
 # Environment variables with the SLP_ prefix can override the common fields.
 
+enabled: false
+
 service_name: signaled-logs-collector
 
 logging:

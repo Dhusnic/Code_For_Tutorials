@@ -270,6 +270,8 @@ func (s *testStore) ReleaseWorkloadLease(_ context.Context, lease distributed.Le
 }
 
 func (s *testStore) LoadCachedFullLogs(_ context.Context, docIDs []string) (map[string]*models.FullLog, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if len(docIDs) == 0 || len(s.fullLogCache) == 0 {
 		return nil, nil
 	}
@@ -284,6 +286,8 @@ func (s *testStore) LoadCachedFullLogs(_ context.Context, docIDs []string) (map[
 }
 
 func (s *testStore) SaveCachedFullLogs(_ context.Context, logs map[string]*models.FullLog, _ time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.fullLogCache == nil {
 		s.fullLogCache = make(map[string]*models.FullLog)
 	}
@@ -295,6 +299,12 @@ func (s *testStore) SaveCachedFullLogs(_ context.Context, logs map[string]*model
 		s.fullLogCache[docID] = &cloned
 	}
 	return nil
+}
+
+func (s *testStore) CachedFullLogCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.fullLogCache)
 }
 
 func (s *testStore) HeartbeatWorker(_ context.Context, worker distributed.WorkerHeartbeat, _ time.Duration) error {
@@ -441,6 +451,9 @@ func (s *testStore) ClaimWorkloadShard(_ context.Context, workerID string, _ tim
 			continue
 		}
 		if contract.State == distributed.ShardStateFailed && !contract.Retryable {
+			continue
+		}
+		if contract.State == distributed.ShardStateFailed && !contract.RetryAfter.IsZero() && contract.RetryAfter.After(time.Now().UTC()) {
 			continue
 		}
 		if s.shardLeases == nil {
@@ -590,6 +603,7 @@ func (f *testFetcher) FetchLog(_ context.Context, docID string) (*models.FullLog
 }
 
 type batchTestFetcher struct {
+	mu         sync.Mutex
 	batchCalls int
 	requests   []string
 	batchSizes []int
@@ -608,9 +622,11 @@ func (f *batchTestFetcher) FetchLogs(ctx context.Context, docIDs []string) (map[
 }
 
 func (f *batchTestFetcher) FetchLogsWithOptions(_ context.Context, docIDs []string, options fetch.BatchFetchOptions) (map[string]*models.FullLog, error) {
+	f.mu.Lock()
 	f.batchCalls++
 	f.requests = append(f.requests, docIDs...)
 	f.batchSizes = append(f.batchSizes, options.GroupedLookupBatchSize)
+	f.mu.Unlock()
 	result := make(map[string]*models.FullLog, len(docIDs))
 	for _, docID := range docIDs {
 		result[docID] = &models.FullLog{
@@ -620,6 +636,12 @@ func (f *batchTestFetcher) FetchLogsWithOptions(_ context.Context, docIDs []stri
 		}
 	}
 	return result, nil
+}
+
+func (f *batchTestFetcher) BatchCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.batchCalls
 }
 
 type testRules struct {
@@ -684,6 +706,7 @@ func baseTestConfig() config.Config {
 				TargetLogsPerShard:             5000,
 				MaxWorkers:                     4,
 				DistributedTargetShardDuration: 2 * time.Second,
+				DistributedShardTimeout:        5 * time.Second,
 				DistributedMinShardsPerWorker:  1,
 				DistributedMaxShardsPerWorker:  4,
 				ShardPollInterval:              20 * time.Millisecond,
@@ -844,6 +867,56 @@ func TestProcessorIngestsSignalStreamIntoRedisPayloadBeforeCorrelation(t *testin
 	)
 	if len(store.trimMinIDs) != 1 || store.trimMinIDs[0] != wantTrimID {
 		t.Fatalf("expected trim min id %q, got %#v", wantTrimID, store.trimMinIDs)
+	}
+}
+
+func TestProcessorIngestsSignalStreamUsingSignalizedAtWhenTimestampMissing(t *testing.T) {
+	base := time.Now().UTC()
+	store := &testStore{
+		logBatches:   make(map[string][][]models.SignalLog),
+		loadCalls:    make(map[string]int),
+		streamNextID: streamTimeToID(base),
+		streamEvents: []models.SignalStreamEvent{
+			{
+				OrganizationID: "org-1",
+				DocID:          "doc-1",
+				Signal:         "signal-a",
+				LogLevel:       "warning",
+				SignalizedAt:   base,
+			},
+		},
+	}
+
+	cfg := baseTestConfig()
+	cfg.Redis.SignalStreamEnabled = true
+	cfg.Redis.SignalStreamKey = "Rca:signalized_log_events"
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &testFetcher{},
+		Engine: CorrelatorFunc(func(_ context.Context, _ string, _ []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			return nil, nil
+		}),
+		Rules:  &testRules{rules: []models.Rule{{ID: "rule-1", OrganizationID: "org-1", Window: "10m"}}},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+	processor.now = func() time.Time {
+		return base.Add(5 * time.Minute)
+	}
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("cycle failed: %v", err)
+	}
+
+	gotPayload := store.logBatches["org-1"]
+	if len(gotPayload) != 1 || len(gotPayload[0]) != 1 {
+		t.Fatalf("expected signalized_at fallback payload, got %#v", gotPayload)
+	}
+	if !gotPayload[0][0].TimeStamp.Equal(base) {
+		t.Fatalf("expected missing timestamp to fall back to signalized_at %s, got %s", base, gotPayload[0][0].TimeStamp)
 	}
 }
 
@@ -1073,6 +1146,75 @@ func TestProcessorSeparatesIncrementalAndFullPayloadRuleScopes(t *testing.T) {
 	}
 }
 
+func TestProcessorBoundsFullPayloadReplayWhenAutoscalingCapsBacklog(t *testing.T) {
+	base := time.Now().UTC()
+	logs := []models.SignalLog{
+		{Signal: "signal-a", LogLevel: "warning", DocID: "doc-1", TimeStamp: base},
+		{Signal: "signal-b", LogLevel: "error", DocID: "doc-2", TimeStamp: base},
+		{Signal: "signal-c", LogLevel: "error", DocID: "doc-3", TimeStamp: base},
+		{Signal: "signal-d", LogLevel: "critical", DocID: "doc-4", TimeStamp: base},
+	}
+	store := &testStore{
+		organizations: []string{"org-1"},
+		loadCalls:     make(map[string]int),
+		logBatches: map[string][][]models.SignalLog{
+			"org-1": {logs},
+		},
+	}
+
+	cfg := baseTestConfig()
+	cfg.Fetcher.GroupedLookupBatchSize = 1
+	cfg.Autoscaling.Enabled = true
+	cfg.Autoscaling.InputBasis = "incremental_logs"
+	cfg.Autoscaling.InputLowWatermark = 1000
+	cfg.Autoscaling.InputHighWatermark = 100000
+	cfg.Autoscaling.ScaleDownCooldownCycles = 3
+	cfg.Autoscaling.Scheduler.MinInterval = 10 * time.Second
+	cfg.Autoscaling.Scheduler.MaxInterval = 60 * time.Second
+	cfg.Autoscaling.Scheduler.TimeoutRatio = 0.9
+	cfg.Autoscaling.Fetcher.MinGroupedLookupBatchSize = 1000
+	cfg.Autoscaling.Fetcher.MaxGroupedLookupBatchSize = 10000
+	cfg.Autoscaling.Fetcher.MaxBatchesPerCycle = 2
+
+	var correlatedDocIDs []string
+	engine := CorrelatorFunc(func(_ context.Context, orgID string, fullLogs []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+		correlatedDocIDs = correlatedDocIDs[:0]
+		for _, log := range fullLogs {
+			correlatedDocIDs = append(correlatedDocIDs, log.DocID)
+		}
+		return []models.CorrelationResult{resultFromLogs(orgID, "rule-full", fullLogs)}, nil
+	})
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &batchTestFetcher{},
+		Engine:      engine,
+		Rules: &testRules{rules: []models.Rule{
+			{ID: "rule-full", OrganizationID: "org-1", Window: "10m"},
+		}},
+		Writer:     &testWriter{},
+		Autoscaler: autoscaling.NewController(cfg.Autoscaling, autoscaling.SchedulerSettings{Interval: 5 * time.Second, RunTimeout: 5 * time.Second}, cfg.Fetcher.GroupedLookupBatchSize),
+		Logger:     slog.Default(),
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("cycle failed: %v", err)
+	}
+
+	if got := strings.Join(correlatedDocIDs, ","); got != "doc-1,doc-2" {
+		t.Fatalf("expected bounded full-payload replay to correlate doc-1/doc-2, got %s", got)
+	}
+	checkpoint := store.checkpoints["org-1"]
+	if checkpoint.CheckpointDocID != "doc-2" {
+		t.Fatalf("expected checkpoint doc id doc-2, got %q", checkpoint.CheckpointDocID)
+	}
+	if checkpoint.Checkpoint.IsZero() || !checkpoint.Checkpoint.Equal(base) {
+		t.Fatalf("expected checkpoint timestamp %s, got %s", base, checkpoint.Checkpoint)
+	}
+}
+
 func TestProcessorDoesNotWriteShadowModeMatches(t *testing.T) {
 	base := time.Now().UTC()
 	store := &testStore{
@@ -1292,6 +1434,32 @@ func TestProcessorClosesInactiveIncidentWhenPayloadUnchanged(t *testing.T) {
 	}
 	if writer.results[1].Status != "closed" {
 		t.Fatalf("expected closed status, got %s", writer.results[1].Status)
+	}
+}
+
+func TestMergeSignalLogsKeepsRecentlySignalizedDelayedEvents(t *testing.T) {
+	cutoff := time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC)
+	delayedEventTime := cutoff.Add(-1 * time.Hour)
+	recentSignalizedAt := cutoff.Add(5 * time.Minute)
+
+	merged := mergeSignalLogs(nil, []models.SignalLog{
+		{
+			Signal:       "signal-a",
+			LogLevel:     "warning",
+			DocID:        "doc-1",
+			TimeStamp:    delayedEventTime,
+			SignalizedAt: recentSignalizedAt,
+		},
+	}, cutoff)
+
+	if len(merged) != 1 {
+		t.Fatalf("expected delayed event to be retained when signalized recently, got %d entries", len(merged))
+	}
+	if !merged[0].TimeStamp.Equal(delayedEventTime) {
+		t.Fatalf("expected original event timestamp to be preserved, got %s", merged[0].TimeStamp)
+	}
+	if !merged[0].SignalizedAt.Equal(recentSignalizedAt) {
+		t.Fatalf("expected signalized_at to be preserved, got %s", merged[0].SignalizedAt)
 	}
 }
 
@@ -1751,7 +1919,7 @@ func (fn LogFetcherFunc) FetchLog(ctx context.Context, docID string) (*models.Fu
 	return fn(ctx, docID)
 }
 
-func TestProcessorDistributedIngestsSignalStreamIntoOrgPayloadAndPrefetchesFullLogs(t *testing.T) {
+func TestProcessorDistributedIngestsSignalStreamIntoOrgPayload(t *testing.T) {
 	base := time.Now().UTC()
 	store := &testStore{
 		streamEvents: []models.SignalStreamEvent{
@@ -1827,11 +1995,197 @@ func TestProcessorDistributedIngestsSignalStreamIntoOrgPayloadAndPrefetchesFullL
 	if correlatedLogCount != 2 {
 		t.Fatalf("expected one org-wide correlate call with 2 logs, got %d", correlatedLogCount)
 	}
-	if fetcher.batchCalls != 1 {
-		t.Fatalf("expected exactly one batch fetch during distributed prefetch, got %d", fetcher.batchCalls)
+	if fetcher.batchCalls == 0 {
+		t.Fatalf("expected full-log enrichment fetches for the claimed workload")
 	}
-	if len(store.fullLogCache) != 2 || store.fullLogCache["doc-1"] == nil || store.fullLogCache["doc-2"] == nil {
-		t.Fatalf("expected prefetched full logs to be cached, got %#v", store.fullLogCache)
+	if _, ok := store.leases[distributed.SignalStreamIngestWorkload().LeaseKey()]; ok {
+		t.Fatalf("expected distributed stream ingest leader lease to be released, got %#v", store.leases)
+	}
+}
+
+func TestProcessorDistributedIngestsSignalStreamUsingSignalizedAtWhenTimestampMissing(t *testing.T) {
+	base := time.Now().UTC()
+	store := &testStore{
+		streamEvents: []models.SignalStreamEvent{
+			{
+				OrganizationID: "org-1",
+				HostIdentity:   "10.0.0.1",
+				DocID:          "doc-1",
+				Signal:         "signal-a",
+				LogLevel:       "warning",
+				SignalizedAt:   base,
+			},
+		},
+		loadCalls: make(map[string]int),
+	}
+
+	cfg := baseTestConfig()
+	cfg.Redis.SignalStreamEnabled = true
+	cfg.Redis.SignalStreamKey = "Rca:signalized_log_events"
+	cfg.Distributed.Enabled = true
+	cfg.Distributed.StreamConsumerGroup = "rca-correlation"
+	cfg.Distributed.LeaseTTL = 45 * time.Second
+	cfg.Distributed.LeaseHeartbeatInterval = 15 * time.Second
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &batchTestFetcher{},
+		Engine: CorrelatorFunc(func(_ context.Context, _ string, _ []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			return nil, nil
+		}),
+		Rules:  &testRules{rules: []models.Rule{{ID: "rule-1", OrganizationID: "org-1", Window: "10m"}}},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+	processor.now = func() time.Time {
+		return base.Add(5 * time.Minute)
+	}
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("distributed cycle failed: %v", err)
+	}
+
+	gotPayload := store.logBatches["org-1"]
+	if len(gotPayload) != 1 || len(gotPayload[0]) != 1 {
+		t.Fatalf("expected org payload to be hydrated from signalized_at fallback, got %#v", gotPayload)
+	}
+	if !gotPayload[0][0].TimeStamp.Equal(base) {
+		t.Fatalf("expected missing timestamp to fall back to signalized_at %s, got %s", base, gotPayload[0][0].TimeStamp)
+	}
+}
+
+func TestProcessorDistributedSkipsSignalStreamIngestWithoutLeaderLease(t *testing.T) {
+	base := time.Now().UTC()
+	store := &testStore{
+		streamEvents: []models.SignalStreamEvent{
+			{
+				OrganizationID: "org-1",
+				HostIdentity:   "10.0.0.1",
+				DocID:          "doc-1",
+				Signal:         "signal-a",
+				LogLevel:       "warning",
+				TimeStamp:      base,
+			},
+		},
+		loadCalls: make(map[string]int),
+		leases: map[string]string{
+			distributed.SignalStreamIngestWorkload().LeaseKey(): "other-worker",
+		},
+	}
+
+	cfg := baseTestConfig()
+	cfg.Redis.SignalStreamEnabled = true
+	cfg.Redis.SignalStreamKey = "Rca:signalized_log_events"
+	cfg.Distributed.Enabled = true
+	cfg.Distributed.StreamConsumerGroup = "rca-correlation"
+	cfg.Distributed.LeaseTTL = 45 * time.Second
+	cfg.Distributed.LeaseHeartbeatInterval = 15 * time.Second
+	cfg.Distributed.ClaimLimitPerCycle = 10
+	cfg.Distributed.SingleStreamIngestLeader = true
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &batchTestFetcher{},
+		Engine: CorrelatorFunc(func(_ context.Context, _ string, _ []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			return nil, nil
+		}),
+		Rules:  &testRules{},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("distributed cycle without ingest leadership failed: %v", err)
+	}
+	if len(store.ackedStreamGroups) != 0 {
+		t.Fatalf("expected non-leader worker to leave stream entries unacked, got %#v", store.ackedStreamGroups)
+	}
+	if len(store.logBatches) != 0 {
+		t.Fatalf("expected non-leader worker to skip signal payload merge, got %#v", store.logBatches)
+	}
+	if len(store.consumerGroups) != 0 {
+		t.Fatalf("expected non-leader worker to skip stream consumer-group operations, got %#v", store.consumerGroups)
+	}
+	if len(store.streamEvents) != 1 {
+		t.Fatalf("expected stream events to remain untouched for the leader, got %#v", store.streamEvents)
+	}
+}
+
+func TestProcessorDistributedPrefetchSchedulesBackgroundCacheWarmup(t *testing.T) {
+	store := &testStore{}
+	fetcher := &batchTestFetcher{}
+
+	cfg := baseTestConfig()
+	cfg.Distributed.Enabled = true
+	cfg.Distributed.PrefetchFullLogs = true
+	cfg.Distributed.PrefetchTimeout = time.Second
+	cfg.Distributed.PrefetchMaxDocIDs = 10
+	cfg.Distributed.FullLogCacheTTL = time.Minute
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     fetcher,
+		Engine: CorrelatorFunc(func(_ context.Context, _ string, _ []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			return nil, nil
+		}),
+		Rules:  &testRules{},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+
+	scheduled, skipped, status := processor.scheduleDistributedFullLogPrefetch([]string{"doc-1", "doc-2"})
+	if scheduled != 2 || skipped != 0 || status != "scheduled" {
+		t.Fatalf("expected scheduled background prefetch, got scheduled=%d skipped=%d status=%q", scheduled, skipped, status)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if fetcher.BatchCalls() == 1 && store.CachedFullLogCount() == 2 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("expected asynchronous prefetch to warm cache, got batch_calls=%d cache_count=%d", fetcher.BatchCalls(), store.CachedFullLogCount())
+}
+
+func TestProcessorDistributedPrefetchSkipsLargeBatches(t *testing.T) {
+	store := &testStore{}
+	fetcher := &batchTestFetcher{}
+
+	cfg := baseTestConfig()
+	cfg.Distributed.Enabled = true
+	cfg.Distributed.PrefetchFullLogs = true
+	cfg.Distributed.PrefetchTimeout = time.Second
+	cfg.Distributed.PrefetchMaxDocIDs = 1
+	cfg.Distributed.FullLogCacheTTL = time.Minute
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     fetcher,
+		Engine: CorrelatorFunc(func(_ context.Context, _ string, _ []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			return nil, nil
+		}),
+		Rules:  &testRules{},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+
+	scheduled, skipped, status := processor.scheduleDistributedFullLogPrefetch([]string{"doc-1", "doc-2"})
+	if scheduled != 0 || skipped != 2 || status != "max_doc_ids_exceeded" {
+		t.Fatalf("expected oversized prefetch batch to be skipped, got scheduled=%d skipped=%d status=%q", scheduled, skipped, status)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if fetcher.BatchCalls() != 0 {
+		t.Fatalf("expected no batch fetches when prefetch is skipped, got %d", fetcher.BatchCalls())
 	}
 }
 
@@ -2122,6 +2476,347 @@ func TestProcessorDistributedRunFinalizationBlocksCommit(t *testing.T) {
 	}
 }
 
+func TestProcessorResolveDistributedShardPlanShrinksTargetLogsWithRemainingBudget(t *testing.T) {
+	cfg := baseTestConfig()
+	cfg.Engine.ParallelCorrelation.Enabled = true
+	cfg.Engine.ParallelCorrelation.TargetLogsPerShard = 5000
+	cfg.Engine.ParallelCorrelation.DistributedTargetShardDuration = 2 * time.Second
+	cfg.Engine.ParallelCorrelation.DistributedRunReserve = 3 * time.Second
+
+	processor := NewProcessor(Dependencies{
+		Config: cfg,
+		Logger: slog.Default(),
+	})
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(6*time.Second))
+	defer cancel()
+
+	plan, err := processor.resolveDistributedShardPlan(ctx, 20000, 4)
+	if err != nil {
+		t.Fatalf("expected shard plan to succeed, got %v", err)
+	}
+	if plan.EffectiveTargetShardDuration >= cfg.Engine.ParallelCorrelation.DistributedTargetShardDuration {
+		t.Fatalf(
+			"expected effective target shard duration to shrink below %s, got %s",
+			cfg.Engine.ParallelCorrelation.DistributedTargetShardDuration,
+			plan.EffectiveTargetShardDuration,
+		)
+	}
+	if plan.Plan.TargetLogsPerShard >= cfg.Engine.ParallelCorrelation.TargetLogsPerShard {
+		t.Fatalf(
+			"expected target logs per shard to shrink below %d, got %d",
+			cfg.Engine.ParallelCorrelation.TargetLogsPerShard,
+			plan.Plan.TargetLogsPerShard,
+		)
+	}
+	if plan.AvailableCorrelationBudget <= 0 {
+		t.Fatalf("expected a positive available correlation budget, got %s", plan.AvailableCorrelationBudget)
+	}
+}
+
+func TestProcessorDistributedCorrelationFailsFastWhenRemainingBudgetIsTooSmall(t *testing.T) {
+	base := time.Now().UTC()
+	store := &testStore{
+		organizations: []string{"org-1"},
+		loadCalls:     make(map[string]int),
+		logBatches: map[string][][]models.SignalLog{
+			"org-1": {
+				{
+					{Signal: "signal-a", LogLevel: "warning", DocID: "doc-1", TimeStamp: base},
+					{Signal: "signal-b", LogLevel: "error", DocID: "doc-2", TimeStamp: base.Add(time.Second)},
+					{Signal: "signal-c", LogLevel: "error", DocID: "doc-3", TimeStamp: base.Add(2 * time.Second)},
+					{Signal: "signal-d", LogLevel: "critical", DocID: "doc-4", TimeStamp: base.Add(3 * time.Second)},
+				},
+			},
+		},
+		workerHeartbeats: map[string]distributed.WorkerHeartbeat{
+			"owner-worker":  {WorkerID: "owner-worker", UpdatedAt: base},
+			"helper-worker": {WorkerID: "helper-worker", UpdatedAt: base},
+		},
+	}
+
+	cfg := baseTestConfig()
+	cfg.Distributed.Enabled = true
+	cfg.Distributed.StreamConsumerGroup = "rca-correlation"
+	cfg.Distributed.LeaseTTL = 45 * time.Second
+	cfg.Distributed.LeaseHeartbeatInterval = 15 * time.Second
+	cfg.Distributed.ClaimLimitPerCycle = 10
+	cfg.Engine.ParallelCorrelation.Enabled = true
+	cfg.Engine.ParallelCorrelation.MinLogs = 3
+	cfg.Engine.ParallelCorrelation.TargetLogsPerShard = 2
+	cfg.Engine.ParallelCorrelation.MaxWorkers = 4
+	cfg.Engine.ParallelCorrelation.DistributedTargetShardDuration = 2 * time.Second
+	cfg.Engine.ParallelCorrelation.DistributedRunReserve = 3 * time.Second
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &testFetcher{},
+		Engine: CorrelatorFunc(func(_ context.Context, orgID string, logs []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			return []models.CorrelationResult{resultFromLogs(orgID, "rule-1", logs)}, nil
+		}),
+		Rules: &testRules{rules: []models.Rule{
+			{ID: "rule-1", OrganizationID: "org-1", Window: "10m", MaxGapBetweenSteps: "5m"},
+		}},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+	processor.workerID = "owner-worker"
+	processor.consumer = "owner-worker"
+	processor.now = func() time.Time { return base }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	defer cancel()
+
+	err := processor.RunCycle(ctx)
+	if err == nil {
+		t.Fatalf("expected distributed cycle to fail fast when remaining budget is too small")
+	}
+	if !strings.Contains(err.Error(), "insufficient remaining run budget for distributed shard correlation") {
+		t.Fatalf("expected remaining budget error, got %v", err)
+	}
+	if len(store.shardPayloads) != 0 {
+		t.Fatalf("expected no distributed shard payloads to be stored, got %#v", store.shardPayloads)
+	}
+}
+
+func TestProcessorProcessOneDistributedShardDoesNotClaimWhenBelowReserve(t *testing.T) {
+	base := time.Now().UTC()
+	run := distributed.NewWorkloadRunAt(distributed.OrganizationWorkload("org-1"), "owner-worker", base)
+	payload := distributed.ShardExecutionPayload{
+		Workload:     run.Workload,
+		RunID:        run.ID,
+		ShardID:      "incremental_live-0001",
+		Mode:         "incremental_live",
+		PrimaryStart: base,
+		PrimaryEnd:   base.Add(time.Second),
+		Logs: []models.FullLog{
+			{DocID: "doc-1", Timestamp: base},
+			{DocID: "doc-2", Timestamp: base.Add(time.Second)},
+		},
+		Rules: []models.Rule{
+			{ID: "rule-1", OrganizationID: "org-1", Window: "10m", MaxGapBetweenSteps: "5m"},
+		},
+	}
+	contract := payload.Contract(run.Owner)
+	key := shardStoreKey(contract)
+	store := &testStore{
+		shardContracts: map[string]distributed.ShardContract{
+			key: contract,
+		},
+		shardPayloads: map[string]distributed.ShardExecutionPayload{
+			key: payload,
+		},
+	}
+
+	cfg := baseTestConfig()
+	cfg.Distributed.Enabled = true
+	cfg.Distributed.LeaseTTL = 45 * time.Second
+	cfg.Engine.ParallelCorrelation.Enabled = true
+	cfg.Engine.ParallelCorrelation.DistributedRunReserve = 500 * time.Millisecond
+	cfg.Redis.WriteTimeout = time.Second
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &testFetcher{},
+		Engine: CorrelatorFunc(func(_ context.Context, _ string, _ []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			t.Fatalf("did not expect shard correlation to start when below reserve")
+			return nil, nil
+		}),
+		Rules:  &testRules{},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+	processor.workerID = "owner-worker"
+	processor.consumer = "owner-worker"
+	processor.now = func() time.Time { return base }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	claimed, err := processor.processOneDistributedShard(ctx, nil)
+	if claimed {
+		t.Fatalf("expected shard claim to be skipped when remaining budget is below reserve")
+	}
+	if err != nil {
+		t.Fatalf("expected no error when skipping shard claim below reserve, got %v", err)
+	}
+
+	updated := store.shardContracts[key]
+	if updated.State != distributed.ShardStatePending {
+		t.Fatalf("expected shard to remain pending when claim is skipped, got %s", updated.State)
+	}
+	if updated.Attempt != 0 {
+		t.Fatalf("expected shard attempt to remain zero when claim is skipped, got %d", updated.Attempt)
+	}
+	if len(store.shardLeases) != 0 {
+		t.Fatalf("expected no shard leases to be created when claim is skipped, got %#v", store.shardLeases)
+	}
+}
+
+func TestProcessorProcessOneDistributedShardMarksShardRetryableOnLocalTimeout(t *testing.T) {
+	base := time.Now().UTC()
+	run := distributed.NewWorkloadRunAt(distributed.OrganizationWorkload("org-1"), "owner-worker", base)
+	payload := distributed.ShardExecutionPayload{
+		Workload:     run.Workload,
+		RunID:        run.ID,
+		ShardID:      "incremental_live-0001",
+		Mode:         "incremental_live",
+		PrimaryStart: base,
+		PrimaryEnd:   base.Add(time.Second),
+		Logs: []models.FullLog{
+			{DocID: "doc-1", Timestamp: base},
+			{DocID: "doc-2", Timestamp: base.Add(time.Second)},
+		},
+		Rules: []models.Rule{
+			{ID: "rule-1", OrganizationID: "org-1", Window: "10m", MaxGapBetweenSteps: "5m"},
+		},
+	}
+	contract := payload.Contract(run.Owner)
+	key := shardStoreKey(contract)
+	store := &testStore{
+		shardContracts: map[string]distributed.ShardContract{
+			key: contract,
+		},
+		shardPayloads: map[string]distributed.ShardExecutionPayload{
+			key: payload,
+		},
+	}
+
+	cfg := baseTestConfig()
+	cfg.Distributed.Enabled = true
+	cfg.Distributed.LeaseTTL = 45 * time.Second
+	cfg.Engine.ParallelCorrelation.Enabled = true
+	cfg.Engine.ParallelCorrelation.DistributedShardTimeout = 25 * time.Millisecond
+	cfg.Engine.ParallelCorrelation.DistributedRunReserve = time.Second
+	cfg.Redis.WriteTimeout = time.Second
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &testFetcher{},
+		Engine: CorrelatorFunc(func(ctx context.Context, _ string, _ []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}),
+		Rules:  &testRules{},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+	processor.workerID = "owner-worker"
+	processor.consumer = "owner-worker"
+	processor.now = func() time.Time { return base }
+
+	claimed, err := processor.processOneDistributedShard(context.Background(), nil)
+	if !claimed {
+		t.Fatalf("expected shard claim to succeed")
+	}
+	if err != nil {
+		t.Fatalf("expected local shard timeout to be recorded as retryable without aborting the worker, got %v", err)
+	}
+
+	updated := store.shardContracts[key]
+	if updated.State != distributed.ShardStateFailed {
+		t.Fatalf("expected shard state failed after local timeout, got %s", updated.State)
+	}
+	if !updated.Retryable {
+		t.Fatalf("expected timed out shard to remain retryable")
+	}
+	if updated.RetryAfter.IsZero() {
+		t.Fatalf("expected timed out shard to carry retry_after")
+	}
+	if got := store.runMessages[key]; !strings.Contains(got, context.DeadlineExceeded.Error()) {
+		t.Fatalf("expected shard failure message to mention deadline exceeded, got %q", got)
+	}
+	if len(store.shardResults) != 0 {
+		t.Fatalf("expected no completed shard results after timeout, got %#v", store.shardResults)
+	}
+}
+
+func TestProcessorProcessOneDistributedShardPropagatesParentCancellation(t *testing.T) {
+	base := time.Now().UTC()
+	run := distributed.NewWorkloadRunAt(distributed.OrganizationWorkload("org-1"), "owner-worker", base)
+	payload := distributed.ShardExecutionPayload{
+		Workload:     run.Workload,
+		RunID:        run.ID,
+		ShardID:      "incremental_live-0001",
+		Mode:         "incremental_live",
+		PrimaryStart: base,
+		PrimaryEnd:   base.Add(time.Second),
+		Logs: []models.FullLog{
+			{DocID: "doc-1", Timestamp: base},
+			{DocID: "doc-2", Timestamp: base.Add(time.Second)},
+		},
+		Rules: []models.Rule{
+			{ID: "rule-1", OrganizationID: "org-1", Window: "10m", MaxGapBetweenSteps: "5m"},
+		},
+	}
+	contract := payload.Contract(run.Owner)
+	key := shardStoreKey(contract)
+	store := &testStore{
+		shardContracts: map[string]distributed.ShardContract{
+			key: contract,
+		},
+		shardPayloads: map[string]distributed.ShardExecutionPayload{
+			key: payload,
+		},
+	}
+
+	cfg := baseTestConfig()
+	cfg.Distributed.Enabled = true
+	cfg.Distributed.LeaseTTL = 45 * time.Second
+	cfg.Engine.ParallelCorrelation.Enabled = true
+	cfg.Engine.ParallelCorrelation.DistributedShardTimeout = time.Second
+	cfg.Engine.ParallelCorrelation.DistributedRunReserve = time.Millisecond
+	cfg.Redis.WriteTimeout = time.Second
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &testFetcher{},
+		Engine: CorrelatorFunc(func(ctx context.Context, _ string, _ []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}),
+		Rules:  &testRules{},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+	processor.workerID = "owner-worker"
+	processor.consumer = "owner-worker"
+	processor.now = func() time.Time { return base }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+
+	claimed, err := processor.processOneDistributedShard(ctx, nil)
+	if !claimed {
+		t.Fatalf("expected shard claim to succeed")
+	}
+	if err == nil {
+		t.Fatalf("expected parent cancellation to propagate as an error")
+	}
+	if !strings.Contains(err.Error(), "correlate distributed shard") {
+		t.Fatalf("expected correlate distributed shard error, got %v", err)
+	}
+
+	updated := store.shardContracts[key]
+	if updated.State != distributed.ShardStateFailed {
+		t.Fatalf("expected shard state failed after parent cancellation, got %s", updated.State)
+	}
+	if got := store.runMessages[key]; !strings.Contains(got, context.Canceled.Error()) {
+		t.Fatalf("expected shard failure message to mention cancellation, got %q", got)
+	}
+}
+
 func TestProcessorDistributedShardCorrelationUsesHelperWorker(t *testing.T) {
 	base := time.Now().UTC()
 	store := &testStore{
@@ -2153,6 +2848,7 @@ func TestProcessorDistributedShardCorrelationUsesHelperWorker(t *testing.T) {
 	cfg.Engine.ParallelCorrelation.MinLogs = 3
 	cfg.Engine.ParallelCorrelation.TargetLogsPerShard = 2
 	cfg.Engine.ParallelCorrelation.MaxWorkers = 4
+	cfg.Engine.ParallelCorrelation.DistributedRunReserve = time.Second
 
 	var (
 		mu          sync.Mutex

@@ -223,6 +223,7 @@ type PM2Config struct {
 // All fields are validated before use via the Validate() method.
 // Configuration can be overridden by environment variables (SLP_* prefix).
 type Config struct {
+	Enabled       bool                `yaml:"enabled"`       // Service enable switch
 	ServiceName   string              `yaml:"service_name"`  // Service identifier
 	Logging       LoggingConfig       `yaml:"logging"`       // Logging config
 	Scheduler     SchedulerConfig     `yaml:"scheduler"`     // Scheduler config
@@ -292,6 +293,7 @@ func Load(path string) (Config, error) {
 //   - Config: Fully populated default configuration
 func defaultConfig() Config {
 	return Config{
+		Enabled:     true,
 		ServiceName: "signaled-logs-collector",
 		Logging: LoggingConfig{
 			Level:  "info",
@@ -514,6 +516,7 @@ func (c Config) Validate() error {
 //
 // Logging: DEBUG level when overrides applied (via service logger)
 func applyEnvOverrides(cfg *Config) {
+	applyBoolEnv(&cfg.Enabled, "SLP_ENABLED")
 	applyStringEnv(&cfg.ServiceName, "SLP_SERVICE_NAME")
 	applyStringEnv(&cfg.Logging.Level, "SLP_LOG_LEVEL")
 	applyStringEnv(&cfg.Logging.Format, "SLP_LOG_FORMAT")

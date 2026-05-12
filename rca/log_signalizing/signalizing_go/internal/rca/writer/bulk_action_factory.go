@@ -30,6 +30,8 @@ var (
 	levelCompactPattern = regexp.MustCompile(`[\s._-]+`)
 )
 
+const defaultRetryOnConflict = 5
+
 // BulkActionFactory builds idempotent Elasticsearch bulk update actions.
 type BulkActionFactory struct{}
 
@@ -52,6 +54,9 @@ func (BulkActionFactory) Build(
 	payload["source_id"] = sourceID
 	payload["signal"] = selectedSignal["signal"]
 	payload["signal_present"] = true
+	if matchedAt, ok := selectedSignal["matched_at"]; ok {
+		payload["signalized_at"] = matchedAt
+	}
 
 	logObject, _ := payload["log"].(map[string]any)
 	currentLevel := any(nil)
@@ -73,11 +78,12 @@ func (BulkActionFactory) Build(
 	payload["log"] = newLogObject
 
 	return map[string]any{
-		"_op_type":      "update",
-		"_index":        targetIndex,
-		"_id":           targetID,
-		"doc":           payload,
-		"doc_as_upsert": true,
+		"_op_type":          "update",
+		"_index":            targetIndex,
+		"_id":               targetID,
+		"doc":               payload,
+		"doc_as_upsert":     true,
+		"retry_on_conflict": defaultRetryOnConflict,
 	}
 }
 
