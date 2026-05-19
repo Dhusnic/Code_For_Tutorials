@@ -1,0 +1,39 @@
+remote_host: 10.0.5.60
+user: root
+port: 22
+
+# Put the SSH password here if you want the script to use it automatically.
+password: "hanTZ123"
+
+# Optional private key path. Leave empty if you want password auth.
+identity_file: ""
+
+# Deployment mode: "signal" or "kafka". Leave empty to be prompted.
+deployment_mode: signal
+
+# Optional default zip mode: "old" or "new". Leave empty to be prompted.
+zip_mode: ""
+
+strict_host_key_checking: accept-new
+connect_timeout_seconds: 10
+ssh_retries: 2
+retry_delay_seconds: 2
+
+use_sudo: true
+skip_restart: false
+keep_remote_staging: false
+
+remote_scripts_dir: /etc/logstash/scripts
+remote_rules_dir: /etc/logstash/rules
+remote_rules_zip: /etc/logstash/rules.zip
+remote_pipeline_conf: /etc/logstash/conf.d/Linux_Pipeline_135098068173316952064_pl.conf
+remote_beats_pipeline_conf: /etc/logstash/conf.d/Beats_Pipeline_135098068173316952064_pl.conf
+remote_pipelines_yml: /etc/logstash/pipelines.yml
+remote_logstash_settings_dir: /etc/logstash
+remote_logstash_bin: /usr/share/logstash/bin/logstash
+remote_logstash_stdout: /var/log/logstash/manual-start.log
+remote_restart_script: /home/restart_logstash.sh
+
+# Optional Kafka truststore overrides. Leave empty to use values from the Kafka pipeline file.
+kafka_truststore_location: ""
+kafka_truststore_password: ""

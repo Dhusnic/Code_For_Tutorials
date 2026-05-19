@@ -16,6 +16,7 @@ import (
 type scoredMatch struct {
 	Severity     int
 	MatchedCount int
+	RuleID       string
 	Signal       map[string]any
 }
 
@@ -39,8 +40,12 @@ func (e *RuleEngine) Evaluate(event map[string]any, ruleSet *RuleSet, maxSignals
 		return []map[string]any{}
 	}
 
-	scoredMatches := make([]scoredMatch, 0)
-	vendorSnapshot := e.buildVendorSnapshot(event)
+	scoredMatches := make([]scoredMatch, 0, len(ruleSet.Rules))
+	vendorSnapshot := VendorAnchorSnapshot{}
+	if e.shouldBuildVendorSnapshot(ruleSet) {
+		vendorSnapshot = e.buildVendorSnapshot(event)
+	}
+	matchedAt := util.FormatUTCISO(time.Now().UTC())
 	for _, rule := range ruleSet.Rules {
 		matched, matchedCount := e.matchesRule(event, rule, vendorSnapshot)
 		if !matched {
@@ -49,6 +54,7 @@ func (e *RuleEngine) Evaluate(event map[string]any, ruleSet *RuleSet, maxSignals
 		scoredMatches = append(scoredMatches, scoredMatch{
 			Severity:     severityRank(rule.Level),
 			MatchedCount: matchedCount,
+			RuleID:       rule.RuleID,
 			Signal: map[string]any{
 				"rule_id":                 rule.RuleID,
 				"signal":                  rule.SignalKey,
@@ -56,7 +62,7 @@ func (e *RuleEngine) Evaluate(event map[string]any, ruleSet *RuleSet, maxSignals
 				"description":             rule.Description,
 				"service":                 ruleSet.Service,
 				"tags":                    append([]string{}, rule.Tags...),
-				"matched_at":              util.FormatUTCISO(time.Now().UTC()),
+				"matched_at":              matchedAt,
 				"matched_condition_count": matchedCount,
 			},
 		})
@@ -93,7 +99,7 @@ func (e *RuleEngine) Evaluate(event map[string]any, ruleSet *RuleSet, maxSignals
 		if left.MatchedCount != right.MatchedCount {
 			return left.MatchedCount > right.MatchedCount
 		}
-		return fmt.Sprint(left.Signal["rule_id"]) > fmt.Sprint(right.Signal["rule_id"])
+		return left.RuleID > right.RuleID
 	})
 
 	signals := make([]map[string]any, 0, len(scoredMatches))
@@ -117,6 +123,21 @@ func (e *RuleEngine) buildVendorSnapshot(event map[string]any) (snapshot VendorA
 		}
 	}()
 	return VendorAnchorSnapshotFromEvent(event)
+}
+
+func (e *RuleEngine) shouldBuildVendorSnapshot(ruleSet *RuleSet) bool {
+	if !e.vendorAnchorEnforcementEnabled || ruleSet == nil {
+		return false
+	}
+	if ruleSet.HasVendorAwareRules {
+		return true
+	}
+	for _, rule := range ruleSet.Rules {
+		if rule.Vendor != "" || InferRuleVendor(rule.Tags) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func preferSpecificMatches(scoredMatches []scoredMatch) []scoredMatch {
@@ -172,7 +193,10 @@ func containsFallbackTag(tags []string) bool {
 
 func (e *RuleEngine) matchesRule(event map[string]any, rule SignalRule, vendorSnapshot VendorAnchorSnapshot) (bool, int) {
 	if e.vendorAnchorEnforcementEnabled && vendorSnapshot.HasStrictHints() {
-		vendor := InferRuleVendor(rule.Tags)
+		vendor := rule.Vendor
+		if vendor == "" {
+			vendor = InferRuleVendor(rule.Tags)
+		}
 		if vendor != "" && !vendorSnapshot.MatchesVendor(vendor) {
 			return false, 0
 		}
@@ -189,6 +213,10 @@ func (e *RuleEngine) matchesNode(event map[string]any, node ConditionNode) (bool
 		return e.matchesGroup(event, typed)
 	case *RuleConditionGroup:
 		return e.matchesGroup(event, *typed)
+	case compiledConditionGroup:
+		return e.matchesCompiledGroup(event, typed)
+	case *compiledConditionGroup:
+		return e.matchesCompiledGroup(event, *typed)
 	case RuleCondition:
 		matched := matchesCondition(event, typed)
 		if matched {
@@ -201,49 +229,62 @@ func (e *RuleEngine) matchesNode(event map[string]any, node ConditionNode) (bool
 			return true, 1
 		}
 		return false, 0
+	case compiledCondition:
+		if typed.Matches(event) {
+			return true, 1
+		}
+		return false, 0
+	case *compiledCondition:
+		if typed.Matches(event) {
+			return true, 1
+		}
+		return false, 0
 	default:
 		return false, 0
 	}
 }
 
 func (e *RuleEngine) matchesGroup(event map[string]any, group RuleConditionGroup) (bool, int) {
-	if len(group.Conditions) == 0 {
+	return e.matchesGroupChildren(event, strings.ToLower(strings.TrimSpace(group.Op)), group.Conditions)
+}
+
+func (e *RuleEngine) matchesCompiledGroup(event map[string]any, group compiledConditionGroup) (bool, int) {
+	return e.matchesGroupChildren(event, group.Op, group.Conditions)
+}
+
+func (e *RuleEngine) matchesGroupChildren(event map[string]any, op string, children []ConditionNode) (bool, int) {
+	if len(children) == 0 {
 		return false, 0
 	}
 
-	outcomes := make([][2]int, 0, len(group.Conditions))
-	for _, child := range group.Conditions {
-		matched, count := e.matchesNode(event, child)
-		if matched {
-			outcomes = append(outcomes, [2]int{1, count})
-		} else {
-			outcomes = append(outcomes, [2]int{0, count})
-		}
-	}
-
-	if strings.EqualFold(group.Op, "or") {
-		maxCount := 0
-		hasMatch := false
-		for _, outcome := range outcomes {
-			if outcome[0] == 1 {
-				hasMatch = true
-				if outcome[1] > maxCount {
-					maxCount = outcome[1]
+	if op == "or" {
+		bestCount := 0
+		bestPossible := maxMatchCountForGroup(op, children)
+		for _, child := range children {
+			matched, count := e.matchesNode(event, child)
+			if !matched {
+				continue
+			}
+			if count > bestCount {
+				bestCount = count
+				if bestCount >= bestPossible {
+					return true, bestCount
 				}
 			}
 		}
-		if !hasMatch {
+		if bestCount == 0 {
 			return false, 0
 		}
-		return true, maxCount
+		return true, bestCount
 	}
 
 	total := 0
-	for _, outcome := range outcomes {
-		if outcome[0] != 1 {
+	for _, child := range children {
+		matched, count := e.matchesNode(event, child)
+		if !matched {
 			return false, 0
 		}
-		total += outcome[1]
+		total += count
 	}
 	return true, total
 }

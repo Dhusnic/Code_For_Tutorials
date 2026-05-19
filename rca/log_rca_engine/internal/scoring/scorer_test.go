@@ -449,10 +449,8 @@ func TestScoreIgnoresGenericSuccessMessageAsRecoveryContradiction(t *testing.T) 
 	}
 }
 
-func TestScoreKeepsWarningEvidenceProbableWhenRuleExpectedCritical(t *testing.T) {
-	scorer := NewScorer(defaultWeights(), 4, SignalSeverityCatalog{
-		"mongodb_host_unreachable": severityWeight("critical"),
-	})
+func TestScoreCanConfirmWarningEvidenceWhenOtherSignalsAreStrong(t *testing.T) {
+	scorer := NewScorer(defaultWeights(), 4)
 	now := time.Now().UTC()
 
 	result := scorer.Score(models.CorrelationEvent{
@@ -477,21 +475,19 @@ func TestScoreKeepsWarningEvidenceProbableWhenRuleExpectedCritical(t *testing.T)
 	if result.ConfidenceScore < 4 {
 		t.Fatalf("test expected numeric score above threshold, got %#v", result)
 	}
-	if result.Classification != ClassificationProbable {
-		t.Fatalf("expected below-expected severity evidence to remain probable, got %#v", result)
+	if result.Classification != ClassificationConfirmed {
+		t.Fatalf("expected warning evidence to confirm when topology and timing are strong, got %#v", result)
 	}
-	if result.Breakdown.ExpectedSignalSeverity != 1 {
-		t.Fatalf("expected critical rule severity, got %#v", result.Breakdown)
+	if result.Breakdown.ExpectedSignalSeverity != 0.6 {
+		t.Fatalf("expected effective severity to come from matched logs, got %#v", result.Breakdown)
 	}
-	if result.Breakdown.SeverityAlignment != 0.6 {
-		t.Fatalf("expected warning/critical severity alignment, got %#v", result.Breakdown)
+	if result.Breakdown.SeverityAlignment != 1 {
+		t.Fatalf("expected direct log-severity flow to keep alignment neutral, got %#v", result.Breakdown)
 	}
 }
 
-func TestScoreConfirmsWarningEvidenceWhenRuleExpectedWarning(t *testing.T) {
-	scorer := NewScorer(defaultWeights(), 4, SignalSeverityCatalog{
-		"mongodb_user_not_found": severityWeight("warning"),
-	})
+func TestScoreConfirmsWarningEvidenceWhenSeveritySupportsIt(t *testing.T) {
+	scorer := NewScorer(defaultWeights(), 4)
 	now := time.Now().UTC()
 
 	result := scorer.Score(models.CorrelationEvent{
@@ -516,18 +512,15 @@ func TestScoreConfirmsWarningEvidenceWhenRuleExpectedWarning(t *testing.T) {
 	}, nil)
 
 	if result.Classification != ClassificationConfirmed {
-		t.Fatalf("expected warning-aligned rule to confirm, got %#v", result)
+		t.Fatalf("expected warning evidence with strong topology and timing to confirm, got %#v", result)
 	}
 	if result.Breakdown.SignalSeverity != 0.6 || result.Breakdown.ExpectedSignalSeverity != 0.6 || result.Breakdown.SeverityAlignment != 1 {
-		t.Fatalf("expected perfect warning severity alignment, got %#v", result.Breakdown)
+		t.Fatalf("expected severity breakdown to come directly from matched logs, got %#v", result.Breakdown)
 	}
 }
 
 func TestScoreConfirmsHighCompletenessDespiteIncompleteFinalMinCount(t *testing.T) {
-	scorer := NewScorer(defaultWeights(), 4, SignalSeverityCatalog{
-		"mongodb_user_not_found":       severityWeight("warning"),
-		"nginx_access_502_bad_gateway": severityWeight("critical"),
-	})
+	scorer := NewScorer(defaultWeights(), 4)
 	now := time.Now().UTC()
 
 	result := scorer.Score(models.CorrelationEvent{

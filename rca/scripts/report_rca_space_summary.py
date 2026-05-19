@@ -2,27 +2,52 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import shutil
 import socket
 import subprocess
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover - optional dependency
+    yaml = None
+
+
+@dataclass
+class WorkflowDetails:
+    signalizing_input_source: str
+    kafka_topic: str
+    signalizing_checkpoint_provider: str
+    signalizing_checkpoint_index: str
+    signal_stream_enabled: bool
+    signal_stream_key: str
+    signal_stream_dedup_prefix: str
+    correlation_input_mode: str
+    correlation_current_index: str
+    correlation_write_history_index: bool
+    correlation_redis_prefix: str
+    correlation_signal_stream_key: str
+    rca_results_store: str
+    notes: list[str] = field(default_factory=list)
+
 
 @dataclass
 class MongoCollectionUsage:
     name: str
+    role: str
     count: int
     data_size: int
     storage_size: int
     index_size: int
     total_size: int
-    avg_obj_size: int
     indexes: int
     exists: bool
 
@@ -30,10 +55,13 @@ class MongoCollectionUsage:
 @dataclass
 class MongoSummary:
     database: str
-    data_size: int
-    storage_size: int
-    index_size: int
     collections: list[MongoCollectionUsage]
+
+
+@dataclass
+class ElasticsearchPattern:
+    label: str
+    pattern: str
 
 
 @dataclass
@@ -41,12 +69,20 @@ class ElasticsearchIndexUsage:
     name: str
     docs_count: int
     store_size: int
+    labels: list[str]
 
 
 @dataclass
 class ElasticsearchSummary:
     address: str
+    patterns: list[ElasticsearchPattern]
     indices: list[ElasticsearchIndexUsage]
+
+
+@dataclass
+class RedisPatternBreakdown:
+    pattern: str
+    matched_keys: int
 
 
 @dataclass
@@ -60,42 +96,61 @@ class RedisKeyUsage:
 class RedisSummary:
     address: str
     database: int
-    pattern: str
+    patterns: list[str]
+    pattern_breakdown: list[RedisPatternBreakdown]
     db_total_keys: int
+    db_used_memory: int
     matched_keys: int
-    total_memory: int
-    sample_keys: list[str]
+    matched_memory: int
+    top_keys: list[RedisKeyUsage]
     connection_note: str = ""
+
+
+@dataclass
+class LocalFileUsage:
+    path: Path
+    exists: bool
+    size: int
+    roles: list[str]
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def default_rca_config() -> Path:
-    return repo_root() / "log_rca_engine" / "config" / "config.yml"
+def default_signalizing_config() -> Path:
+    return repo_root() / "log_signalizing" / "config.yml"
 
 
 def default_correlation_config() -> Path:
     return repo_root() / "log_correlation_engine" / "config" / "config.yml"
 
 
+def default_rca_config() -> Path:
+    return repo_root() / "log_rca_engine" / "config" / "config.yml"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Print a readable RCA storage-space summary across MongoDB collections, "
-            "RCA-generated Elasticsearch indices, and the Redis RCA namespace."
+            "Print a config-aware RCA space summary for the current three-engine workflow: "
+            "signalizing -> Redis stream -> correlation -> RCA result persistence."
         )
     )
     parser.add_argument(
-        "--rca-config",
-        default=str(default_rca_config()),
-        help="Path to log_rca_engine config.yml.",
+        "--signalizing-config",
+        default=str(default_signalizing_config()),
+        help="Path to log_signalizing config.yml.",
     )
     parser.add_argument(
         "--correlation-config",
         default=str(default_correlation_config()),
-        help="Path to log_correlation_engine config.yml.",
+        help="Path to log_correlation_engine config/config.yml.",
+    )
+    parser.add_argument(
+        "--rca-config",
+        default=str(default_rca_config()),
+        help="Path to log_rca_engine config/config.yml.",
     )
     parser.add_argument(
         "--mongo-uri",
@@ -156,8 +211,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--redis-pattern",
-        default="",
-        help="Optional Redis key pattern override. Default is derived from redis.key_prefix.",
+        action="append",
+        default=[],
+        help=(
+            "Optional Redis key pattern override. Repeat this flag to add multiple patterns. "
+            "When omitted, patterns are derived from the current workflow config."
+        ),
     )
     parser.add_argument(
         "--top-redis-keys",
@@ -168,20 +227,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--redis-scan-count",
         type=int,
-        default=50,
+        default=200,
         help="Redis SCAN count hint used while walking RCA keys.",
     )
     parser.add_argument(
         "--timeout-seconds",
         type=float,
         default=20.0,
-        help="Network timeout for Elasticsearch and Redis calls.",
+        help="Network timeout for Elasticsearch and MongoDB calls.",
     )
     parser.add_argument(
         "--redis-timeout-seconds",
         type=float,
-        default=75.0,
-        help="Redis-specific timeout in seconds. Use this when Redis scans can take close to a minute.",
+        default=45.0,
+        help="Redis-specific timeout in seconds.",
     )
     parser.add_argument(
         "--no-mongo",
@@ -197,6 +256,11 @@ def parse_args() -> argparse.Namespace:
         "--no-redis",
         action="store_true",
         help="Skip Redis summary.",
+    )
+    parser.add_argument(
+        "--no-local-files",
+        action="store_true",
+        help="Skip local file mirror summary.",
     )
     return parser.parse_args()
 
@@ -226,7 +290,7 @@ def parse_scalar(raw: str) -> Any:
         return value
 
 
-def load_sectioned_yaml(path: Path) -> dict[str, Any]:
+def load_sectioned_yaml_fallback(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
 
@@ -258,23 +322,20 @@ def load_sectioned_yaml(path: Path) -> dict[str, Any]:
             key = key.strip()
             raw_value = raw_value.strip()
             if raw_value == "":
-                if key in {"addresses", "files"}:
-                    section[key] = []
-                    current_list_key = key
-                    current_subsection = None
-                else:
-                    section[key] = {}
-                    current_subsection = key
-                    current_list_key = None
+                section[key] = {}
+                current_subsection = key
+                current_list_key = None
             else:
-                if key == "addresses":
-                    section[key] = []
-                    current_list_key = key
-                    current_subsection = None
-                else:
-                    section[key] = parse_scalar(raw_value)
-                    current_subsection = None
-                    current_list_key = None
+                section[key] = parse_scalar(raw_value)
+                current_subsection = None
+                current_list_key = None
+            continue
+
+        if indent == 4 and stripped.endswith(":") and current_subsection:
+            subsection = section.get(current_subsection)
+            if isinstance(subsection, dict):
+                subsection[stripped[:-1]] = []
+                current_list_key = stripped[:-1]
             continue
 
         if indent == 4 and current_subsection and ":" in stripped:
@@ -284,12 +345,23 @@ def load_sectioned_yaml(path: Path) -> dict[str, Any]:
                 subsection[key.strip()] = parse_scalar(raw_value)
             continue
 
-        if indent >= 4 and stripped.startswith("- ") and current_list_key:
-            list_value = section.get(current_list_key)
-            if isinstance(list_value, list):
-                list_value.append(parse_scalar(stripped[2:]))
+        if indent >= 6 and stripped.startswith("- ") and current_subsection and current_list_key:
+            subsection = section.get(current_subsection)
+            if isinstance(subsection, dict):
+                values = subsection.get(current_list_key)
+                if isinstance(values, list):
+                    values.append(parse_scalar(stripped[2:]))
 
     return data
+
+
+def load_yaml_document(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    if yaml is not None:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    return load_sectioned_yaml_fallback(path)
 
 
 def normalize_text(value: Any, fallback: str = "-") -> str:
@@ -345,112 +417,369 @@ def render_table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
+def resolve_config_relative_path(config_path: Path, raw_value: Any) -> Path | None:
+    text = str(raw_value or "").strip()
+    if not text:
+        return None
+    candidate = Path(text)
+    if candidate.is_absolute():
+        return candidate
+    return (config_path.parent / candidate).resolve()
+
+
+def bool_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def ensure_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    return [value]
+
+
+def dedupe_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        trimmed = value.strip()
+        if not trimmed or trimmed in seen:
+            continue
+        seen.add(trimmed)
+        result.append(trimmed)
+    return result
+
+
+def load_workflow_details(
+    signalizing_config_path: Path,
+    correlation_config_path: Path,
+    rca_config_path: Path,
+) -> tuple[WorkflowDetails, dict[str, Any], dict[str, Any], dict[str, Any]]:
+    signalizing_cfg = load_yaml_document(signalizing_config_path)
+    correlation_cfg = load_yaml_document(correlation_config_path)
+    rca_cfg = load_yaml_document(rca_config_path)
+
+    signalizing_input = signalizing_cfg.get("input") if isinstance(signalizing_cfg.get("input"), dict) else {}
+    signalizing_kafka = signalizing_cfg.get("kafka") if isinstance(signalizing_cfg.get("kafka"), dict) else {}
+    signal_stream = signalizing_cfg.get("signal_stream") if isinstance(signalizing_cfg.get("signal_stream"), dict) else {}
+    checkpoints = signalizing_cfg.get("checkpoints") if isinstance(signalizing_cfg.get("checkpoints"), dict) else {}
+
+    correlation_engine = correlation_cfg.get("engine") if isinstance(correlation_cfg.get("engine"), dict) else {}
+    correlation_es = correlation_cfg.get("elasticsearch") if isinstance(correlation_cfg.get("elasticsearch"), dict) else {}
+    correlation_redis = correlation_cfg.get("redis") if isinstance(correlation_cfg.get("redis"), dict) else {}
+
+    rca_mongo = rca_cfg.get("mongo_sync") if isinstance(rca_cfg.get("mongo_sync"), dict) else {}
+    rca_storage = rca_cfg.get("storage") if isinstance(rca_cfg.get("storage"), dict) else {}
+
+    results_store_parts: list[str] = []
+    mongo_db = str(rca_mongo.get("database") or "").strip()
+    mongo_collection = str(rca_mongo.get("results_collection") or "").strip()
+    if mongo_db and mongo_collection:
+        results_store_parts.append(f"MongoDB {mongo_db}.{mongo_collection}")
+    elif mongo_collection:
+        results_store_parts.append(f"MongoDB collection {mongo_collection}")
+    results_file = str(rca_storage.get("results_file") or "").strip()
+    if results_file:
+        results_store_parts.append(f"file mirror {results_file}")
+
+    notes: list[str] = []
+    if bool_value(signal_stream.get("enabled")):
+        notes.append(
+            "Signalizing publishes compact signal events into Redis streams and correlation reads from Redis-stream mode."
+        )
+    if str(signalizing_input.get("source") or "").strip().lower() == "kafka":
+        notes.append("Signalizing source ingestion is Kafka-based, so source_indices/start_time do not drive the hot path.")
+    if bool_value(correlation_es.get("write_history_index")):
+        notes.append("Correlation history-index writes are enabled.")
+    else:
+        notes.append("Correlation keeps only the live current incident view in Elasticsearch.")
+    if str(checkpoints.get("provider") or "").strip().lower() == "elasticsearch":
+        notes.append("Signalizing checkpoints are stored in Elasticsearch, so checkpoint index size is part of the live footprint.")
+    if str(rca_storage.get("results_file") or "").strip():
+        notes.append("RCA also keeps local file mirrors/checkpoints in addition to MongoDB.")
+
+    workflow = WorkflowDetails(
+        signalizing_input_source=str(signalizing_input.get("source") or "unknown").strip() or "unknown",
+        kafka_topic=str(signalizing_kafka.get("topic") or "").strip(),
+        signalizing_checkpoint_provider=str(checkpoints.get("provider") or "").strip() or "unknown",
+        signalizing_checkpoint_index=str(checkpoints.get("elasticsearch_index") or "").strip(),
+        signal_stream_enabled=bool_value(signal_stream.get("enabled")),
+        signal_stream_key=str(signal_stream.get("stream_key") or "").strip(),
+        signal_stream_dedup_prefix=str(signal_stream.get("publish_dedup_key_prefix") or "").strip(),
+        correlation_input_mode=str(correlation_engine.get("input_mode") or "").strip() or "unknown",
+        correlation_current_index=str(correlation_es.get("current_index") or "").strip(),
+        correlation_write_history_index=bool_value(correlation_es.get("write_history_index")),
+        correlation_redis_prefix=str(correlation_redis.get("key_prefix") or "").strip() or "Rca",
+        correlation_signal_stream_key=str(correlation_redis.get("signal_stream_key") or "").strip(),
+        rca_results_store=", ".join(results_store_parts) if results_store_parts else "MongoDB / local file mirrors",
+        notes=notes,
+    )
+    return workflow, signalizing_cfg, correlation_cfg, rca_cfg
+
+
 def resolve_mongo_settings(args: argparse.Namespace, rca_cfg: dict[str, Any]) -> dict[str, Any]:
-    mongo = rca_cfg.get("mongo_sync", {})
+    mongo = rca_cfg.get("mongo_sync") if isinstance(rca_cfg.get("mongo_sync"), dict) else {}
+    collection_roles: list[tuple[str, str]] = []
+    mapping = [
+        ("rules_collection", "Correlation rules"),
+        ("topology_collection", "Topology data"),
+        ("results_collection", "RCA results"),
+        ("state_collection", "RCA config state"),
+        ("snapshot_collection", "RCA config snapshots"),
+    ]
+    for key, role in mapping:
+        name = str(mongo.get(key) or "").strip()
+        if name:
+            collection_roles.append((name, role))
     return {
+        "enabled": bool_value(mongo.get("enabled", True)),
         "uri": str(args.mongo_uri or mongo.get("uri") or "").strip(),
         "database": str(args.mongo_db or mongo.get("database") or "").strip(),
-        "collections": [
-            str(value).strip()
-            for value in [
-                mongo.get("rules_collection"),
-                mongo.get("topology_collection"),
-                mongo.get("results_collection"),
-                mongo.get("state_collection"),
-                mongo.get("snapshot_collection"),
-            ]
-            if str(value or "").strip()
-        ],
+        "collection_roles": collection_roles,
     }
+
+
+def collect_signalizing_source_patterns(signalizing_cfg: dict[str, Any]) -> list[str]:
+    pipeline = signalizing_cfg.get("pipeline") if isinstance(signalizing_cfg.get("pipeline"), dict) else {}
+    patterns: list[str] = []
+
+    for value in ensure_list(pipeline.get("source_indices")):
+        text = str(value or "").strip()
+        if text:
+            patterns.append(text)
+
+    services = pipeline.get("services")
+    if isinstance(services, list):
+        for service in services:
+            if not isinstance(service, dict):
+                continue
+            for value in ensure_list(service.get("source_indices")):
+                text = str(value or "").strip()
+                if text:
+                    patterns.append(text)
+
+    normalized: list[str] = []
+    for pattern in dedupe_strings(patterns):
+        if pattern in {"*", "_all"}:
+            continue
+        normalized.append(pattern)
+    return normalized
+
+
+def derive_suffix_index_patterns(signalizing_cfg: dict[str, Any], suffix: str) -> list[str]:
+    suffix = str(suffix or "").strip()
+    if not suffix:
+        return []
+    patterns: list[str] = []
+    for source_pattern in collect_signalizing_source_patterns(signalizing_cfg):
+        if source_pattern.endswith(suffix):
+            patterns.append(source_pattern)
+        else:
+            patterns.append(f"{source_pattern}{suffix}")
+    return dedupe_strings(patterns)
 
 
 def resolve_elasticsearch_settings(
     args: argparse.Namespace,
-    rca_cfg: dict[str, Any],
+    workflow: WorkflowDetails,
+    signalizing_cfg: dict[str, Any],
     correlation_cfg: dict[str, Any],
+    rca_cfg: dict[str, Any],
 ) -> dict[str, Any]:
-    correlation_es = correlation_cfg.get("elasticsearch", {})
-    rca_es = rca_cfg.get("elasticsearch", {})
-    addresses = correlation_es.get("addresses") or rca_es.get("addresses") or []
+    signalizing_es = signalizing_cfg.get("elasticsearch") if isinstance(signalizing_cfg.get("elasticsearch"), dict) else {}
+    correlation_es = correlation_cfg.get("elasticsearch") if isinstance(correlation_cfg.get("elasticsearch"), dict) else {}
+    rca_es = rca_cfg.get("elasticsearch") if isinstance(rca_cfg.get("elasticsearch"), dict) else {}
+    signalizing_pipeline = signalizing_cfg.get("pipeline") if isinstance(signalizing_cfg.get("pipeline"), dict) else {}
+
+    addresses: list[str] = []
+    for candidate in (
+        correlation_es.get("addresses"),
+        signalizing_es.get("addresses"),
+        signalizing_es.get("hosts"),
+        rca_es.get("addresses"),
+        rca_es.get("hosts"),
+    ):
+        if isinstance(candidate, list):
+            addresses.extend(str(value).strip() for value in candidate if str(value).strip())
     address = str(args.es_url or (addresses[0] if addresses else "")).strip()
-    index_patterns = []
-    for value in [correlation_es.get("index"), correlation_es.get("current_index")]:
-        pattern = str(value or "").strip()
-        if pattern:
-            if "*" not in pattern:
-                pattern = pattern + "*"
-            index_patterns.append(pattern)
+
+    patterns: list[ElasticsearchPattern] = []
+    if workflow.signalizing_checkpoint_provider.lower() == "elasticsearch" and workflow.signalizing_checkpoint_index:
+        patterns.append(
+            ElasticsearchPattern("Signalizing checkpoints", workflow.signalizing_checkpoint_index)
+        )
+    if workflow.correlation_current_index:
+        patterns.append(
+            ElasticsearchPattern("Correlation current incidents", workflow.correlation_current_index)
+        )
+
+    if bool_value(signalizing_pipeline.get("write_to_target_index")):
+        target_suffix = str(signalizing_pipeline.get("target_suffix") or "").strip()
+        for pattern in derive_suffix_index_patterns(signalizing_cfg, target_suffix):
+            patterns.append(ElasticsearchPattern("Signalizing target copies", pattern))
+
+    dead_letter_suffix = str(signalizing_pipeline.get("dead_letter_suffix") or "").strip()
+    for pattern in derive_suffix_index_patterns(signalizing_cfg, dead_letter_suffix):
+        patterns.append(ElasticsearchPattern("Signalizing dead-letter", pattern))
+
+    deduped_patterns: list[ElasticsearchPattern] = []
+    seen_patterns: set[tuple[str, str]] = set()
+    for item in patterns:
+        key = (item.label, item.pattern)
+        if item.pattern and key not in seen_patterns:
+            seen_patterns.add(key)
+            deduped_patterns.append(item)
+
     return {
         "address": address,
-        "username": str(args.es_username or correlation_es.get("username") or rca_es.get("username") or "").strip(),
-        "password": str(args.es_password or correlation_es.get("password") or rca_es.get("password") or "").strip(),
-        "api_key": str(args.es_api_key or correlation_es.get("api_key") or rca_es.get("api_key") or "").strip(),
-        "patterns": index_patterns,
+        "username": str(
+            args.es_username
+            or correlation_es.get("username")
+            or signalizing_es.get("username")
+            or rca_es.get("username")
+            or ""
+        ).strip(),
+        "password": str(
+            args.es_password
+            or correlation_es.get("password")
+            or signalizing_es.get("password")
+            or rca_es.get("password")
+            or ""
+        ).strip(),
+        "api_key": str(
+            args.es_api_key
+            or correlation_es.get("api_key")
+            or signalizing_es.get("api_key")
+            or rca_es.get("api_key")
+            or ""
+        ).strip(),
+        "patterns": deduped_patterns,
         "timeout_seconds": max(float(args.timeout_seconds), 0.1),
     }
 
 
-def resolve_redis_settings(args: argparse.Namespace, correlation_cfg: dict[str, Any]) -> dict[str, Any]:
-    redis_cfg = correlation_cfg.get("redis", {})
-    address = str(redis_cfg.get("address") or "").strip()
+def resolve_redis_settings(
+    args: argparse.Namespace,
+    workflow: WorkflowDetails,
+    signalizing_cfg: dict[str, Any],
+    correlation_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    signal_stream = signalizing_cfg.get("signal_stream") if isinstance(signalizing_cfg.get("signal_stream"), dict) else {}
+    correlation_redis = correlation_cfg.get("redis") if isinstance(correlation_cfg.get("redis"), dict) else {}
+
+    configured_address = str(correlation_redis.get("address") or signal_stream.get("address") or "").strip()
     host = str(args.redis_host or "").strip()
     port = int(args.redis_port or 0)
-    if not host and address:
-        if ":" in address:
-            host, raw_port = address.rsplit(":", 1)
+    if not host and configured_address:
+        if ":" in configured_address:
+            host, raw_port = configured_address.rsplit(":", 1)
             if not port:
                 try:
                     port = int(raw_port)
                 except ValueError:
                     port = 6379
         else:
-            host = address
+            host = configured_address
     if not port:
         port = 6379
 
-    key_prefix = str(redis_cfg.get("key_prefix") or "Rca").strip() or "Rca"
-    configured_pattern = str(args.redis_pattern or f"{key_prefix}*").strip()
-    patterns: list[str] = []
-    for candidate in [configured_pattern, configured_pattern.upper(), configured_pattern.lower()]:
-        candidate = candidate.strip()
-        if candidate and candidate not in patterns:
-            patterns.append(candidate)
+    patterns = [str(value).strip() for value in args.redis_pattern if str(value).strip()]
+    if not patterns:
+        key_prefix = workflow.correlation_redis_prefix or "Rca"
+        patterns.append(f"{key_prefix}*")
+        if workflow.signal_stream_key:
+            patterns.append(f"{workflow.signal_stream_key}*")
+        dedup_prefix = workflow.signal_stream_dedup_prefix
+        if dedup_prefix:
+            patterns.append(f"{dedup_prefix}*")
+    patterns = dedupe_strings(patterns)
+
     return {
         "host": host,
         "port": port,
-        "db": int(args.redis_db if args.redis_db else redis_cfg.get("db") or 0),
-        "username": str(args.redis_username or redis_cfg.get("username") or "").strip(),
-        "password": str(args.redis_password or redis_cfg.get("password") or "").strip(),
-        "pattern": configured_pattern,
+        "db": int(args.redis_db if args.redis_db else correlation_redis.get("db") or signal_stream.get("db") or 0),
+        "username": str(args.redis_username or correlation_redis.get("username") or signal_stream.get("username") or "").strip(),
+        "password": str(args.redis_password or correlation_redis.get("password") or signal_stream.get("password") or "").strip(),
         "patterns": patterns,
         "timeout_seconds": max(float(args.redis_timeout_seconds), 0.1),
         "scan_count": max(int(args.redis_scan_count), 1),
     }
 
 
+def resolve_local_file_settings(
+    signalizing_config_path: Path,
+    correlation_config_path: Path,
+    rca_config_path: Path,
+    signalizing_cfg: dict[str, Any],
+    correlation_cfg: dict[str, Any],
+    rca_cfg: dict[str, Any],
+) -> list[tuple[Path, str]]:
+    files: list[tuple[Path, str]] = []
+    correlation_root = correlation_config_path.parent.parent.resolve()
+
+    checkpoints = signalizing_cfg.get("checkpoints") if isinstance(signalizing_cfg.get("checkpoints"), dict) else {}
+    if str(checkpoints.get("provider") or "").strip().lower() == "file":
+        checkpoint_path = resolve_config_relative_path(signalizing_config_path, checkpoints.get("path"))
+        if checkpoint_path is not None:
+            files.append((checkpoint_path, "Signalizing file checkpoints"))
+
+    correlation_engine = correlation_cfg.get("engine") if isinstance(correlation_cfg.get("engine"), dict) else {}
+    raw_rules_file = str(correlation_engine.get("rules_file") or "").strip()
+    rules_file: Path | None = None
+    if raw_rules_file:
+        candidate = Path(raw_rules_file)
+        rules_file = candidate if candidate.is_absolute() else (correlation_root / candidate).resolve()
+    if rules_file is not None:
+        files.append((rules_file, "Correlation local rules mirror"))
+
+    rca_rules = rca_cfg.get("rules") if isinstance(rca_cfg.get("rules"), dict) else {}
+    rca_topology = rca_cfg.get("topology") if isinstance(rca_cfg.get("topology"), dict) else {}
+    rca_storage = rca_cfg.get("storage") if isinstance(rca_cfg.get("storage"), dict) else {}
+
+    for raw_value, role in [
+        (rca_rules.get("file"), "RCA rules input"),
+        (rca_topology.get("file"), "RCA topology mirror"),
+        (rca_storage.get("results_file"), "RCA local results mirror"),
+        (rca_storage.get("checkpoint_file"), "RCA local checkpoint file"),
+    ]:
+        path = resolve_config_relative_path(rca_config_path, raw_value)
+        if path is not None:
+            files.append((path, role))
+
+    return files
+
+
 def fetch_mongo_summary(settings: dict[str, Any]) -> MongoSummary:
+    if not settings.get("enabled", True):
+        raise RuntimeError("MongoDB sync is disabled in RCA config.")
+
     mongosh_path = shutil.which("mongosh")
     if not mongosh_path:
         raise RuntimeError("mongosh command not found in PATH.")
 
     uri = str(settings.get("uri") or "").strip()
     database = str(settings.get("database") or "").strip()
-    collections = [str(value).strip() for value in settings.get("collections") or [] if str(value).strip()]
+    collection_roles = list(settings.get("collection_roles") or [])
     if not uri:
         raise RuntimeError("MongoDB URI is missing.")
     if not database:
         raise RuntimeError("MongoDB database name is missing.")
-    if not collections:
+    if not collection_roles:
         raise RuntimeError("No MongoDB RCA collections were configured.")
 
+    names = [name for name, _ in collection_roles]
+    roles = {name: role for name, role in collection_roles}
     query = (
         f"const dbName = {json.dumps(database)};"
-        f"const collNames = {json.dumps(collections)};"
+        f"const collNames = {json.dumps(names)};"
         "const targetDb = db.getSiblingDB(dbName);"
         "const collStats = collNames.map((name) => {"
         "  const exists = targetDb.getCollectionInfos({name}).length > 0;"
         "  if (!exists) {"
-        "    return {name, exists:false, count:0, size:0, storageSize:0, totalIndexSize:0, avgObjSize:0, nindexes:0};"
+        "    return {name, exists:false, count:0, size:0, storageSize:0, totalIndexSize:0, nindexes:0};"
         "  }"
         "  const stats = targetDb.getCollection(name).stats();"
         "  return {"
@@ -460,18 +789,10 @@ def fetch_mongo_summary(settings: dict[str, Any]) -> MongoSummary:
         "    size:Number(stats.size || 0),"
         "    storageSize:Number(stats.storageSize || 0),"
         "    totalIndexSize:Number(stats.totalIndexSize || 0),"
-        "    avgObjSize:Number(stats.avgObjSize || 0),"
         "    nindexes:Number(stats.nindexes || 0)"
         "  };"
         "});"
-        "const dbStats = targetDb.stats();"
-        "print(JSON.stringify({"
-        "  database: dbName,"
-        "  dataSize: Number(dbStats.dataSize || 0),"
-        "  storageSize: Number(dbStats.storageSize || 0),"
-        "  indexSize: Number(dbStats.indexSize || 0),"
-        "  collections: collStats"
-        "}));"
+        "print(JSON.stringify({database: dbName, collections: collStats}));"
     )
 
     result = subprocess.run(
@@ -493,28 +814,31 @@ def fetch_mongo_summary(settings: dict[str, Any]) -> MongoSummary:
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"mongosh returned invalid JSON: {exc}") from exc
 
-    collections_summary: list[MongoCollectionUsage] = []
+    collections: list[MongoCollectionUsage] = []
     for item in payload.get("collections", []):
-        collections_summary.append(
+        name = normalize_text(item.get("name"), "")
+        if not name:
+            continue
+        storage_size = int(item.get("storageSize") or 0)
+        index_size = int(item.get("totalIndexSize") or 0)
+        collections.append(
             MongoCollectionUsage(
-                name=normalize_text(item.get("name")),
+                name=name,
+                role=roles.get(name, "Configured collection"),
                 count=int(item.get("count") or 0),
                 data_size=int(item.get("size") or 0),
-                storage_size=int(item.get("storageSize") or 0),
-                index_size=int(item.get("totalIndexSize") or 0),
-                total_size=int(item.get("storageSize") or 0) + int(item.get("totalIndexSize") or 0),
-                avg_obj_size=int(item.get("avgObjSize") or 0),
+                storage_size=storage_size,
+                index_size=index_size,
+                total_size=storage_size + index_size,
                 indexes=int(item.get("nindexes") or 0),
                 exists=bool(item.get("exists", True)),
             )
         )
 
+    collections.sort(key=lambda item: item.total_size, reverse=True)
     return MongoSummary(
         database=normalize_text(payload.get("database")),
-        data_size=int(payload.get("dataSize") or 0),
-        storage_size=int(payload.get("storageSize") or 0),
-        index_size=int(payload.get("indexSize") or 0),
-        collections=collections_summary,
+        collections=collections,
     )
 
 
@@ -534,8 +858,6 @@ class ElasticsearchHttpClient:
         if self.api_key:
             headers["Authorization"] = f"ApiKey {self.api_key}"
         elif self.username or self.password:
-            import base64
-
             token = base64.b64encode(f"{self.username}:{self.password}".encode("utf-8")).decode("ascii")
             headers["Authorization"] = f"Basic {token}"
         return headers
@@ -555,11 +877,11 @@ class ElasticsearchHttpClient:
 
 def fetch_elasticsearch_summary(settings: dict[str, Any]) -> ElasticsearchSummary:
     address = str(settings.get("address") or "").strip()
-    patterns = [str(value).strip() for value in settings.get("patterns") or [] if str(value).strip()]
+    patterns = list(settings.get("patterns") or [])
     if not address:
         raise RuntimeError("Elasticsearch address is missing.")
     if not patterns:
-        raise RuntimeError("No RCA Elasticsearch index patterns were configured.")
+        raise RuntimeError("No RCA Elasticsearch index patterns were derived from config.")
 
     client = ElasticsearchHttpClient(
         address=address,
@@ -571,7 +893,9 @@ def fetch_elasticsearch_summary(settings: dict[str, Any]) -> ElasticsearchSummar
 
     seen: dict[str, ElasticsearchIndexUsage] = {}
     for pattern in patterns:
-        encoded_pattern = parse.quote(pattern, safe="*,-,_")
+        if not isinstance(pattern, ElasticsearchPattern) or not pattern.pattern:
+            continue
+        encoded_pattern = parse.quote(pattern.pattern, safe="*,-,_")
         payload = client.request_json(
             "GET",
             f"/_cat/indices/{encoded_pattern}?format=json&bytes=b&h=index,docs.count,store.size",
@@ -584,13 +908,19 @@ def fetch_elasticsearch_summary(settings: dict[str, Any]) -> ElasticsearchSummar
             name = normalize_text(item.get("index"), "")
             if not name:
                 continue
-            seen[name] = ElasticsearchIndexUsage(
-                name=name,
-                docs_count=parse_intish(item.get("docs.count")),
-                store_size=parse_intish(item.get("store.size")),
-            )
+            existing = seen.get(name)
+            if existing is None:
+                seen[name] = ElasticsearchIndexUsage(
+                    name=name,
+                    docs_count=parse_intish(item.get("docs.count")),
+                    store_size=parse_intish(item.get("store.size")),
+                    labels=[pattern.label],
+                )
+            elif pattern.label not in existing.labels:
+                existing.labels.append(pattern.label)
 
-    return ElasticsearchSummary(address=address, indices=sorted(seen.values(), key=lambda item: item.store_size, reverse=True))
+    indices = sorted(seen.values(), key=lambda item: item.store_size, reverse=True)
+    return ElasticsearchSummary(address=address, patterns=patterns, indices=indices)
 
 
 class RedisRespClient:
@@ -632,7 +962,9 @@ class RedisRespClient:
                     self.command("AUTH", self.password)
             except RuntimeError as exc:
                 if self._is_optional_auth_error(str(exc)):
-                    self.connection_note = "Redis accepted an unauthenticated connection, so the configured AUTH step was skipped."
+                    self.connection_note = (
+                        "Redis accepted an unauthenticated connection, so the configured AUTH step was skipped."
+                    )
                 else:
                     raise
         if self.db:
@@ -702,8 +1034,11 @@ class RedisRespClient:
 def fetch_redis_summary(settings: dict[str, Any], top_limit: int) -> RedisSummary:
     host = str(settings.get("host") or "").strip()
     port = int(settings.get("port") or 0)
+    patterns = [str(value).strip() for value in settings.get("patterns") or [] if str(value).strip()]
     if not host or not port:
         raise RuntimeError("Redis host/port is missing.")
+    if not patterns:
+        raise RuntimeError("No Redis RCA key patterns were derived from config.")
 
     client = RedisRespClient(
         host=host,
@@ -714,145 +1049,169 @@ def fetch_redis_summary(settings: dict[str, Any], top_limit: int) -> RedisSummar
         timeout_seconds=float(settings.get("timeout_seconds") or 20.0),
     )
 
-    pattern = str(settings.get("pattern") or "Rca*")
-    patterns = [str(value).strip() for value in settings.get("patterns") or [pattern] if str(value).strip()]
-    scan_count = max(int(settings.get("scan_count") or 50), 1)
-    matched_keys = 0
-    sample_keys: list[str] = []
+    scan_count = max(int(settings.get("scan_count") or 200), 1)
     notes: list[str] = []
-    seen_keys: set[str] = set()
     try:
         client.connect()
-        used_memory = 0
+
+        db_used_memory = 0
         db_total_keys = 0
+        memory_info_raw = str(client.command("INFO", "memory") or "")
+        for line in memory_info_raw.splitlines():
+            if line.startswith("used_memory:"):
+                db_used_memory = parse_intish(line.split(":", 1)[1])
+                break
+        db_total_keys = int(client.command("DBSIZE") or 0)
 
-        try:
-            memory_info_raw = str(client.command("INFO", "memory") or "")
-            for line in memory_info_raw.splitlines():
-                if line.startswith("used_memory:"):
-                    used_memory = parse_intish(line.split(":", 1)[1])
-                    break
-        except Exception as exc:
-            notes.append(f"Could not read Redis memory info: {exc}")
-
-        try:
-            db_total_keys = int(client.command("DBSIZE") or 0)
-        except Exception as exc:
-            notes.append(f"Could not read Redis DBSIZE: {exc}")
-
-        for scan_pattern in patterns:
+        matched_by_pattern: dict[str, set[str]] = {pattern: set() for pattern in patterns}
+        all_keys: set[str] = set()
+        for pattern in patterns:
             cursor = "0"
             while True:
-                try:
-                    response = client.command("SCAN", cursor, "MATCH", scan_pattern, "COUNT", str(scan_count))
-                except Exception as exc:
-                    if matched_keys or sample_keys:
-                        notes.append(f"Redis scan stopped early after collecting {matched_keys} matched key(s): {exc}")
-                        cursor = "0"
-                        break
-                    raise
+                response = client.command("SCAN", cursor, "MATCH", pattern, "COUNT", str(scan_count))
                 if not isinstance(response, list) or len(response) != 2:
                     raise RuntimeError("Unexpected Redis SCAN response")
                 cursor = str(response[0])
                 keys = response[1] if isinstance(response[1], list) else []
                 for key in keys:
                     key_name = str(key)
-                    if key_name in seen_keys:
-                        continue
-                    seen_keys.add(key_name)
-                    matched_keys += 1
-                    if len(sample_keys) < max(top_limit, 0):
-                        sample_keys.append(key_name)
+                    matched_by_pattern[pattern].add(key_name)
+                    all_keys.add(key_name)
                 if cursor == "0":
                     break
 
-        if matched_keys == 0 and db_total_keys > 0:
-            notes.append(
-                f"No keys matched the configured Redis namespace patterns ({', '.join(patterns)}). "
-                "Showing DB-wide memory and a DB-wide key sample instead."
+        key_details: list[RedisKeyUsage] = []
+        matched_memory = 0
+        for key in sorted(all_keys):
+            try:
+                key_type = str(client.command("TYPE", key) or "unknown")
+            except Exception:
+                key_type = "unknown"
+            try:
+                memory_usage = parse_intish(client.command("MEMORY", "USAGE", key) or 0)
+            except Exception as exc:
+                notes.append(f"Could not read MEMORY USAGE for {key}: {exc}")
+                memory_usage = 0
+            matched_memory += memory_usage
+            key_details.append(
+                RedisKeyUsage(
+                    key=key,
+                    key_type=key_type,
+                    memory_usage=memory_usage,
+                )
             )
-            cursor = "0"
-            while len(sample_keys) < max(top_limit, 0):
-                response = client.command("SCAN", cursor, "COUNT", str(scan_count))
-                if not isinstance(response, list) or len(response) != 2:
-                    raise RuntimeError("Unexpected Redis SCAN response")
-                cursor = str(response[0])
-                keys = response[1] if isinstance(response[1], list) else []
-                for key in keys:
-                    key_name = str(key)
-                    if key_name in seen_keys:
-                        continue
-                    seen_keys.add(key_name)
-                    sample_keys.append(key_name)
-                    if len(sample_keys) >= max(top_limit, 0):
-                        break
-                if cursor == "0":
-                    break
     finally:
+        connection_note = client.connection_note
         client.close()
 
-    if client.connection_note:
-        notes.insert(0, client.connection_note)
+    key_details.sort(key=lambda item: item.memory_usage, reverse=True)
+    breakdown = [
+        RedisPatternBreakdown(pattern=pattern, matched_keys=len(keys))
+        for pattern, keys in matched_by_pattern.items()
+    ]
+    if connection_note:
+        notes.insert(0, connection_note)
 
     return RedisSummary(
         address=f"{host}:{port}",
         database=int(settings.get("db") or 0),
-        pattern=pattern,
+        patterns=patterns,
+        pattern_breakdown=breakdown,
         db_total_keys=db_total_keys,
-        matched_keys=matched_keys,
-        total_memory=used_memory,
-        sample_keys=sample_keys,
+        db_used_memory=db_used_memory,
+        matched_keys=len(all_keys),
+        matched_memory=matched_memory,
+        top_keys=key_details[: max(top_limit, 0)],
         connection_note=" ".join(note.strip() for note in notes if note.strip()),
     )
 
 
-def print_summary_header(mongo: MongoSummary | None, es: ElasticsearchSummary | None, redis: RedisSummary | None) -> None:
+def fetch_local_file_summary(file_roles: list[tuple[Path, str]]) -> list[LocalFileUsage]:
+    by_path: dict[Path, LocalFileUsage] = {}
+    for path, role in file_roles:
+        existing = by_path.get(path)
+        if existing is None:
+            exists = path.exists()
+            size = path.stat().st_size if exists and path.is_file() else 0
+            by_path[path] = LocalFileUsage(
+                path=path,
+                exists=exists,
+                size=size,
+                roles=[role],
+            )
+        elif role not in existing.roles:
+            existing.roles.append(role)
+
+    usages = list(by_path.values())
+    usages.sort(key=lambda item: item.size, reverse=True)
+    return usages
+
+
+def print_workflow_section(workflow: WorkflowDetails) -> None:
+    print("Workflow Summary")
+    print("----------------")
+    print(f"Signalizing input source : {workflow.signalizing_input_source}")
+    if workflow.kafka_topic:
+        print(f"Kafka topic              : {workflow.kafka_topic}")
+    print(f"Signal stream enabled    : {'yes' if workflow.signal_stream_enabled else 'no'}")
+    if workflow.signal_stream_key:
+        print(f"Signal stream key        : {workflow.signal_stream_key}")
+    if workflow.signal_stream_dedup_prefix:
+        print(f"Redis dedupe prefix      : {workflow.signal_stream_dedup_prefix}")
+    print(f"Signalizing checkpoints  : {workflow.signalizing_checkpoint_provider}")
+    if workflow.signalizing_checkpoint_index:
+        print(f"Checkpoint index         : {workflow.signalizing_checkpoint_index}")
+    print(f"Correlation input mode   : {workflow.correlation_input_mode}")
+    if workflow.correlation_current_index:
+        print(f"Current incident index   : {workflow.correlation_current_index}")
+    print(f"Correlation Redis prefix : {workflow.correlation_redis_prefix}")
+    print(f"RCA results store        : {workflow.rca_results_store}")
+    if workflow.notes:
+        print()
+        for note in workflow.notes:
+            print(f"- {note}")
+    print()
+
+
+def print_summary_header(
+    mongo: MongoSummary | None,
+    es: ElasticsearchSummary | None,
+    redis: RedisSummary | None,
+    local_files: list[LocalFileUsage] | None,
+) -> None:
     mongo_total = sum(item.total_size for item in mongo.collections) if mongo else 0
     es_total = sum(item.store_size for item in es.indices) if es else 0
-    redis_total = redis.total_memory if redis else 0
-    observed_total = mongo_total + es_total + redis_total
+    redis_total = redis.matched_memory if redis else 0
+    local_total = sum(item.size for item in local_files or []) if local_files else 0
+    observed_total = mongo_total + es_total + redis_total + local_total
 
     print("RCA Space Summary")
     print("=================")
-    print(f"Generated at (UTC)     : {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Generated at (UTC)       : {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
     print()
-    print("Effective summary")
+    print("Effective Summary")
     print("-----------------")
-    print(f"Observed RCA-owned total : {format_bytes(observed_total)}")
+    print(f"Observed configured total: {format_bytes(observed_total)}")
     if mongo:
         print(f"MongoDB collections      : {format_bytes(mongo_total)} across {len(mongo.collections)} collection(s)")
     if es:
         print(f"Elasticsearch indices    : {format_bytes(es_total)} across {len(es.indices)} index(es)")
     if redis:
-        print(f"Redis selected DB        : {format_bytes(redis_total)} in db {redis.database}")
-    print("Note                     : MongoDB and Elasticsearch totals are RCA-owned. Redis is reported at selected-DB level, with RCA key count shown separately.")
+        print(f"Redis RCA key footprint  : {format_bytes(redis_total)} across {redis.matched_keys} matched key(s)")
+    if local_files:
+        print(f"Local file mirrors       : {format_bytes(local_total)} across {len(local_files)} file(s)")
     print()
 
-    print("Database-wise storage")
-    print("---------------------")
     rows: list[list[str]] = []
     if mongo:
-        rows.append(
-            [
-                "1",
-                "MongoDB",
-                mongo.database,
-                "RCA collections",
-                format_bytes(mongo_total),
-            ]
-        )
+        rows.append(["1", "MongoDB", mongo.database, "Configured RCA collections", format_bytes(mongo_total)])
     if redis:
-        redis_scope = (
-            f"Selected DB memory ({redis.matched_keys} RCA keys matched)"
-            if redis.matched_keys > 0
-            else "Selected DB memory (DB-wide fallback)"
-        )
         rows.append(
             [
                 str(len(rows) + 1),
                 "Redis",
                 f"db {redis.database}",
-                redis_scope,
+                f"Matched RCA key patterns ({redis.matched_keys} key(s))",
                 format_bytes(redis_total),
             ]
         )
@@ -861,9 +1220,19 @@ def print_summary_header(mongo: MongoSummary | None, es: ElasticsearchSummary | 
             [
                 str(len(rows) + 1),
                 "Elasticsearch",
-                "-",
-                "RCA indices",
+                normalize_text(es.address, "-"),
+                "Derived RCA-owned indices",
                 format_bytes(es_total),
+            ]
+        )
+    if local_files:
+        rows.append(
+            [
+                str(len(rows) + 1),
+                "Local files",
+                repo_root().name,
+                "Configured mirrors/checkpoints/rules",
+                format_bytes(local_total),
             ]
         )
     rows.append(
@@ -871,11 +1240,11 @@ def print_summary_header(mongo: MongoSummary | None, es: ElasticsearchSummary | 
             str(len(rows) + 1),
             "TOTAL",
             "-",
-            "All observed RCA storage",
+            "All observed configured storage",
             format_bytes(observed_total),
         ]
     )
-    print(render_table(["S/N", "Store", "DB / Scope", "What Was Counted", "Used"], rows))
+    print(render_table(["S/N", "Store", "Scope", "What Was Counted", "Used"], rows))
     print()
 
 
@@ -883,31 +1252,24 @@ def print_mongo_section(summary: MongoSummary) -> None:
     print("MongoDB")
     print("-------")
     print(f"Database                : {summary.database}")
-    print(f"Database data size      : {format_bytes(summary.data_size)}")
-    print(f"Database storage size   : {format_bytes(summary.storage_size)}")
-    print(f"Database index size     : {format_bytes(summary.index_size)}")
+    print(f"Configured collections  : {len(summary.collections)}")
+    print(f"Observed total          : {format_bytes(sum(item.total_size for item in summary.collections))}")
     print()
 
-    rows: list[list[str]] = []
-    for item in summary.collections:
-        rows.append(
-            [
-                item.name,
-                "yes" if item.exists else "no",
-                format_int(item.count),
-                format_bytes(item.data_size),
-                format_bytes(item.storage_size),
-                format_bytes(item.index_size),
-                format_bytes(item.total_size),
-            ]
-        )
-
-    print(
-        render_table(
-            ["Collection", "Exists", "Docs", "Data", "Storage", "Indexes", "Total"],
-            rows,
-        )
-    )
+    rows = [
+        [
+            item.name,
+            item.role,
+            "yes" if item.exists else "no",
+            format_int(item.count),
+            format_bytes(item.data_size),
+            format_bytes(item.storage_size),
+            format_bytes(item.index_size),
+            format_bytes(item.total_size),
+        ]
+        for item in summary.collections
+    ]
+    print(render_table(["Collection", "Role", "Exists", "Docs", "Data", "Storage", "Indexes", "Total"], rows))
     print()
 
 
@@ -915,18 +1277,28 @@ def print_elasticsearch_section(summary: ElasticsearchSummary) -> None:
     print("Elasticsearch")
     print("-------------")
     print(f"Address                 : {summary.address}")
-    print(f"RCA index count         : {len(summary.indices)}")
-    print(f"RCA total store size    : {format_bytes(sum(item.store_size for item in summary.indices))}")
+    print(f"Configured patterns     : {len(summary.patterns)}")
+    print(f"Observed indices        : {len(summary.indices)}")
+    print(f"Observed total          : {format_bytes(sum(item.store_size for item in summary.indices))}")
     print()
 
-    rows = [
-        [item.name, format_int(item.docs_count), format_bytes(item.store_size)]
-        for item in summary.indices
-    ]
-    if rows:
-        print(render_table(["Index", "Docs", "Store"], rows))
+    pattern_rows = [[item.label, item.pattern] for item in summary.patterns]
+    print(render_table(["Label", "Pattern"], pattern_rows))
+    print()
+
+    if summary.indices:
+        rows = [
+            [
+                item.name,
+                ", ".join(item.labels),
+                format_int(item.docs_count),
+                format_bytes(item.store_size),
+            ]
+            for item in summary.indices
+        ]
+        print(render_table(["Index", "Matched As", "Docs", "Store"], rows))
     else:
-        print("No RCA Elasticsearch indices were found.")
+        print("No RCA-owned Elasticsearch indices matched the current config-derived patterns.")
     print()
 
 
@@ -935,32 +1307,73 @@ def print_redis_section(summary: RedisSummary) -> None:
     print("-----")
     print(f"Address                 : {summary.address}")
     print(f"Database                : {summary.database}")
-    print(f"Key pattern             : {summary.pattern}")
     print(f"Total DB keys           : {summary.db_total_keys}")
+    print(f"Total DB used_memory    : {format_bytes(summary.db_used_memory)}")
     print(f"Matched RCA keys        : {summary.matched_keys}")
-    print(f"Selected DB memory      : {format_bytes(summary.total_memory)}")
+    print(f"Matched RCA memory      : {format_bytes(summary.matched_memory)}")
     if summary.connection_note:
         print(f"Connection note         : {summary.connection_note}")
     print()
 
-    rows: list[list[str]] = []
-    for index, key in enumerate(summary.sample_keys, start=1):
-        rows.append([str(index), shorten(key, 72)])
-    if rows:
-        print(render_table(["S/N", "Sample RCA Key"], rows))
+    pattern_rows = [
+        [item.pattern, format_int(item.matched_keys)]
+        for item in summary.pattern_breakdown
+    ]
+    print(render_table(["Pattern", "Matched Keys"], pattern_rows))
+    print()
+
+    if summary.top_keys:
+        rows = [
+            [
+                shorten(item.key, 72),
+                item.key_type,
+                format_bytes(item.memory_usage),
+            ]
+            for item in summary.top_keys
+        ]
+        print(render_table(["Top Key", "Type", "Memory"], rows))
     else:
-        print("No Redis keys were available to sample.")
+        print("No Redis keys matched the current RCA patterns.")
+    print()
+
+
+def print_local_files_section(usages: list[LocalFileUsage]) -> None:
+    print("Local Files")
+    print("-----------")
+    print(f"Observed files          : {len(usages)}")
+    print(f"Observed total          : {format_bytes(sum(item.size for item in usages))}")
+    print()
+
+    rows = [
+        [
+            shorten(str(item.path), 88),
+            ", ".join(item.roles),
+            "yes" if item.exists else "no",
+            format_bytes(item.size),
+        ]
+        for item in usages
+    ]
+    print(render_table(["Path", "Role", "Exists", "Size"], rows))
     print()
 
 
 def main() -> int:
     args = parse_args()
-    rca_cfg = load_sectioned_yaml(Path(args.rca_config).expanduser().resolve())
-    correlation_cfg = load_sectioned_yaml(Path(args.correlation_config).expanduser().resolve())
+
+    signalizing_config_path = Path(args.signalizing_config).expanduser().resolve()
+    correlation_config_path = Path(args.correlation_config).expanduser().resolve()
+    rca_config_path = Path(args.rca_config).expanduser().resolve()
+
+    workflow, signalizing_cfg, correlation_cfg, rca_cfg = load_workflow_details(
+        signalizing_config_path,
+        correlation_config_path,
+        rca_config_path,
+    )
 
     mongo_summary: MongoSummary | None = None
     es_summary: ElasticsearchSummary | None = None
     redis_summary: RedisSummary | None = None
+    local_files_summary: list[LocalFileUsage] | None = None
     warnings: list[str] = []
 
     if not args.no_mongo:
@@ -971,17 +1384,38 @@ def main() -> int:
 
     if not args.no_elasticsearch:
         try:
-            es_summary = fetch_elasticsearch_summary(resolve_elasticsearch_settings(args, rca_cfg, correlation_cfg))
+            es_summary = fetch_elasticsearch_summary(
+                resolve_elasticsearch_settings(args, workflow, signalizing_cfg, correlation_cfg, rca_cfg)
+            )
         except Exception as exc:
             warnings.append(f"Elasticsearch summary skipped: {exc}")
 
     if not args.no_redis:
         try:
-            redis_summary = fetch_redis_summary(resolve_redis_settings(args, correlation_cfg), args.top_redis_keys)
+            redis_summary = fetch_redis_summary(
+                resolve_redis_settings(args, workflow, signalizing_cfg, correlation_cfg),
+                args.top_redis_keys,
+            )
         except Exception as exc:
             warnings.append(f"Redis summary skipped: {exc}")
 
-    print_summary_header(mongo_summary, es_summary, redis_summary)
+    if not args.no_local_files:
+        try:
+            local_files_summary = fetch_local_file_summary(
+                resolve_local_file_settings(
+                    signalizing_config_path,
+                    correlation_config_path,
+                    rca_config_path,
+                    signalizing_cfg,
+                    correlation_cfg,
+                    rca_cfg,
+                )
+            )
+        except Exception as exc:
+            warnings.append(f"Local file summary skipped: {exc}")
+
+    print_workflow_section(workflow)
+    print_summary_header(mongo_summary, es_summary, redis_summary, local_files_summary)
 
     if mongo_summary:
         print_mongo_section(mongo_summary)
@@ -989,6 +1423,8 @@ def main() -> int:
         print_elasticsearch_section(es_summary)
     if redis_summary:
         print_redis_section(redis_summary)
+    if local_files_summary is not None:
+        print_local_files_section(local_files_summary)
 
     if warnings:
         print("Warnings")
@@ -997,7 +1433,7 @@ def main() -> int:
             print(f"- {warning}")
         print()
 
-    if not mongo_summary and not es_summary and not redis_summary:
+    if not mongo_summary and not es_summary and not redis_summary and local_files_summary is None:
         print("No storage summaries could be collected.")
         return 1
     return 0

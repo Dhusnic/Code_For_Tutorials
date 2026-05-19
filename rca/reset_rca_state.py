@@ -5,6 +5,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -101,6 +102,29 @@ def resolve_executable(*candidates: str) -> str:
         if resolved:
             return resolved
     raise RuntimeError(f"executable not found: {', '.join(candidates)}")
+
+
+def resolve_kafka_consumer_groups_executable() -> str:
+    candidates = [
+        "kafka-consumer-groups",
+        "kafka-consumer-groups.bat",
+        "kafka-consumer-groups.cmd",
+        "kafka-consumer-groups.sh",
+    ]
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+
+    kafka_home = os.environ.get("KAFKA_HOME", "").strip()
+    if kafka_home:
+        bin_dir = Path(kafka_home) / "bin"
+        for candidate in candidates:
+            path = bin_dir / candidate
+            if path.exists():
+                return str(path.resolve())
+
+    raise RuntimeError("kafka-consumer-groups executable not found in PATH or KAFKA_HOME/bin")
 
 
 def parse_bool(value: str) -> bool:
@@ -219,7 +243,7 @@ class RedisClient:
         deleted = 0
         for batch in chunked(keys, 200):
             deleted += int(self.command("DEL", *batch))
-            return deleted
+        return deleted
 
 
 def is_redis_no_password_auth_error(message: str) -> bool:
@@ -342,6 +366,100 @@ def clear_mongo_results_via_mongosh(uri: str, database: str, collection: str, ti
     log("info", f"deleted {deleted} MongoDB RCA result documents from {database}.{collection} via mongosh")
 
 
+def classify_kafka_no_state(output: str) -> bool:
+    normalized = output.lower()
+    markers = [
+        "does not exist",
+        "group id not found",
+        "group not found",
+        "could not be deleted due to",
+        "not a consumer group",
+        "no offsets to reset",
+        "no topic-partitions to reset offsets for",
+    ]
+    return any(marker in normalized for marker in markers)
+
+
+def parse_kafka_group_state(output: str) -> str:
+    match = re.search(r"\b(state|group state)\s*[:=]\s*([A-Za-z_]+)", output, re.IGNORECASE)
+    if match:
+        return match.group(2).strip().lower()
+    return ""
+
+
+def run_kafka_command(command: list[str], timeout_seconds: float = 20.0) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=max(timeout_seconds, 1.0),
+    )
+
+
+def delete_kafka_consumer_group_state(brokers: list[str], group_id: str, topic: str, start_offset: str) -> None:
+    if not brokers:
+        log("info", "skipped Kafka state reset because no brokers are configured")
+        return
+    if not group_id.strip():
+        log("info", "skipped Kafka state reset because no Kafka group_id is configured")
+        return
+
+    executable = resolve_kafka_consumer_groups_executable()
+    bootstrap_servers = ",".join(brokers)
+    delete_command = [
+        executable,
+        "--bootstrap-server",
+        bootstrap_servers,
+        "--delete",
+        "--group",
+        group_id,
+    ]
+
+    completed = run_kafka_command(delete_command)
+    combined_output = "\n".join(part for part in [completed.stdout.strip(), completed.stderr.strip()] if part).strip()
+    if completed.returncode == 0:
+        log("info", f"deleted Kafka consumer group state for {group_id} on {bootstrap_servers}")
+        return
+    if classify_kafka_no_state(combined_output):
+        log("info", f"no Kafka consumer group state present for {group_id}")
+        return
+
+    lower_start_offset = start_offset.strip().lower()
+    reset_target = "earliest" if lower_start_offset == "earliest" else "latest"
+    reset_command = [
+        executable,
+        "--bootstrap-server",
+        bootstrap_servers,
+        "--group",
+        group_id,
+        "--reset-offsets",
+        f"--to-{reset_target}",
+        "--execute",
+    ]
+    if topic.strip():
+        reset_command.extend(["--topic", topic])
+    else:
+        reset_command.append("--all-topics")
+    reset_result = run_kafka_command(reset_command)
+    reset_output = "\n".join(part for part in [reset_result.stdout.strip(), reset_result.stderr.strip()] if part).strip()
+    if reset_result.returncode == 0:
+        log("info", f"reset Kafka consumer offsets for {group_id} to {reset_target}")
+        return
+    if classify_kafka_no_state(reset_output):
+        log("info", f"no Kafka consumer offsets present for {group_id}")
+        return
+
+    group_state = parse_kafka_group_state(combined_output + "\n" + reset_output)
+    if group_state in {"stable", "preparingrebalance", "completingrebalance"}:
+        raise RuntimeError(
+            f"Kafka consumer group {group_id} is active ({group_state}); stop consumers before resetting offsets"
+        )
+    raise RuntimeError(
+        f"failed to reset Kafka state for group {group_id}: {reset_output or combined_output or 'unknown error'}"
+    )
+
+
 def run_command(command: list[str], cwd: Path, ignore_failure: bool = False) -> int:
     completed = subprocess.run(command, cwd=str(cwd), check=False)
     if completed.returncode != 0 and not ignore_failure:
@@ -433,6 +551,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Reset RCA/correlation state and optionally rebuild/restart services.")
     parser.add_argument("--correlation-config", default="log_correlation_engine/config/config.yml")
     parser.add_argument("--rca-config", default="log_rca_engine/config/config.yml")
+    parser.add_argument("--signalizing-config", default="log_signalizing/config.yml")
     parser.add_argument("--profile", choices=["direct-stream", "compatibility", "all"], default="direct-stream")
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--restart-pm2", "--restart-pm", dest="restart_pm2", action="store_true")
@@ -440,6 +559,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-clean", action="store_true")
     parser.add_argument("--skip-redis", action="store_true")
     parser.add_argument("--skip-elasticsearch", action="store_true")
+    parser.add_argument("--skip-kafka", action="store_true")
     parser.add_argument("--skip-local-files", action="store_true")
     parser.add_argument("--skip-mongo", action="store_true")
     parser.add_argument("--yes-mongo-results", action="store_true")
@@ -452,11 +572,14 @@ def main() -> int:
     repo_root = Path.cwd()
     correlation_config = (repo_root / args.correlation_config).resolve()
     rca_config = (repo_root / args.rca_config).resolve()
+    signalizing_config = (repo_root / args.signalizing_config).resolve()
 
     if not correlation_config.exists():
         raise RuntimeError(f"correlation config not found at {correlation_config}")
     if not rca_config.exists():
         raise RuntimeError(f"RCA config not found at {rca_config}")
+    if not signalizing_config.exists():
+        raise RuntimeError(f"signalizing config not found at {signalizing_config}")
 
     redis_address = read_yaml_section_value(correlation_config, "redis", "address")
     redis_username = read_yaml_section_value(correlation_config, "redis", "username")
@@ -493,6 +616,13 @@ def main() -> int:
     mongo_timeout_seconds = parse_duration_seconds(read_yaml_section_value(rca_config, "mongo_sync", "timeout"), 5.0)
     mongo_configured = mongo_enabled and bool(mongo_uri and mongo_database and mongo_results_collection)
 
+    kafka_source = read_yaml_section_value(signalizing_config, "input", "source").strip().lower()
+    kafka_brokers = read_yaml_section_list(signalizing_config, "kafka", "brokers")
+    kafka_topic = read_yaml_section_value(signalizing_config, "kafka", "topic")
+    kafka_group_id = read_yaml_section_value(signalizing_config, "kafka", "group_id")
+    kafka_start_offset = read_yaml_section_value(signalizing_config, "kafka", "start_offset") or "latest"
+    kafka_reset_enabled = kafka_source == "kafka" and bool(kafka_brokers and kafka_group_id)
+
     redis_pattern = f"{redis_key_prefix.rstrip(':')}:*"
     elastic_patterns: set[str] = set()
     for value in (correlation_index, current_correlation_index, rca_correlation_index):
@@ -508,6 +638,11 @@ def main() -> int:
         targets.append(f"Redis keys matching {redis_pattern} on {redis_address} (db {redis_db})")
     if not args.skip_elasticsearch:
         targets.append(f"Elasticsearch index patterns: {', '.join(elastic_index_patterns)}")
+    if not args.skip_kafka and kafka_reset_enabled:
+        targets.append(
+            f"Kafka consumer group {kafka_group_id} on {', '.join(kafka_brokers)}"
+            + (f" for topic {kafka_topic}" if kafka_topic else "")
+        )
     if not args.skip_local_files:
         if correlation_checkpoint_directory:
             targets.append(f"Local path {correlation_checkpoint_directory}")
@@ -562,6 +697,16 @@ def main() -> int:
                         log("warn", f"failed to delete elasticsearch pattern {pattern} on {address}: {exc}")
 
         runner.run_phase("elasticsearch-reset", es_phase)
+
+    if not args.skip_kafka:
+        def kafka_phase() -> None:
+            log("info", "resetting Kafka consumer group state")
+            if not kafka_reset_enabled:
+                log("info", "no Kafka consumer group state configured for reset")
+                return
+            delete_kafka_consumer_group_state(kafka_brokers, kafka_group_id, kafka_topic, kafka_start_offset)
+
+        runner.run_phase("kafka-reset", kafka_phase)
 
     if not args.skip_local_files:
         def local_phase() -> None:

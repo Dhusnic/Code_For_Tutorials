@@ -35,6 +35,35 @@ const defaultRetryOnConflict = 5
 // BulkActionFactory builds idempotent Elasticsearch bulk update actions.
 type BulkActionFactory struct{}
 
+// BuildSourceUpsert returns an idempotent raw-document upsert for Kafka-origin events.
+func (BulkActionFactory) BuildSourceUpsert(
+	targetIndex string,
+	sourceID string,
+	sourceDoc map[string]any,
+) map[string]any {
+	return buildUpdateAction(targetIndex, sourceID, cloneMap(sourceDoc), true)
+}
+
+// BuildSourceUpdate returns an update-only action for an existing source document.
+func (BulkActionFactory) BuildSourceUpdate(
+	targetIndex string,
+	documentID string,
+	sourceDoc map[string]any,
+) map[string]any {
+	return buildUpdateAction(targetIndex, documentID, cloneMap(sourceDoc), false)
+}
+
+// BuildMatchedSourceUpdate returns an update-only action for an existing source document with signal fields.
+func (BulkActionFactory) BuildMatchedSourceUpdate(
+	sourceIndex string,
+	targetIndex string,
+	documentID string,
+	sourceDoc map[string]any,
+	selectedSignal map[string]any,
+) map[string]any {
+	return buildMatchedUpdateAction(sourceIndex, targetIndex, documentID, sourceDoc, selectedSignal, true, false)
+}
+
 // Build returns one update action using the source id or a derived target id.
 func (BulkActionFactory) Build(
 	sourceIndex string,
@@ -44,14 +73,37 @@ func (BulkActionFactory) Build(
 	selectedSignal map[string]any,
 	useSourceID bool,
 ) map[string]any {
-	targetID := sourceID
+	return buildMatchedUpdateAction(sourceIndex, targetIndex, sourceID, sourceDoc, selectedSignal, useSourceID, true)
+}
+
+func buildUpdateAction(targetIndex string, documentID string, payload map[string]any, docAsUpsert bool) map[string]any {
+	return map[string]any{
+		"_op_type":          "update",
+		"_index":            targetIndex,
+		"_id":               documentID,
+		"doc":               payload,
+		"doc_as_upsert":     docAsUpsert,
+		"retry_on_conflict": defaultRetryOnConflict,
+	}
+}
+
+func buildMatchedUpdateAction(
+	sourceIndex string,
+	targetIndex string,
+	documentID string,
+	sourceDoc map[string]any,
+	selectedSignal map[string]any,
+	useSourceID bool,
+	docAsUpsert bool,
+) map[string]any {
+	targetID := documentID
 	if !useSourceID {
-		targetID = targetIDFor(sourceIndex, sourceID)
+		targetID = targetIDFor(sourceIndex, documentID)
 	}
 
 	payload := cloneMap(sourceDoc)
 	payload["source_index"] = sourceIndex
-	payload["source_id"] = sourceID
+	payload["source_rca_id"] = firstNonEmptyString(sourceDoc["source_rca_id"], documentID)
 	payload["signal"] = selectedSignal["signal"]
 	payload["signal_present"] = true
 	if matchedAt, ok := selectedSignal["matched_at"]; ok {
@@ -82,9 +134,19 @@ func (BulkActionFactory) Build(
 		"_index":            targetIndex,
 		"_id":               targetID,
 		"doc":               payload,
-		"doc_as_upsert":     true,
+		"doc_as_upsert":     docAsUpsert,
 		"retry_on_conflict": defaultRetryOnConflict,
 	}
+}
+
+func firstNonEmptyString(values ...any) string {
+	for _, value := range values {
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text != "" && text != "<nil>" {
+			return text
+		}
+	}
+	return ""
 }
 
 func targetIDFor(sourceIndex string, sourceID string) string {

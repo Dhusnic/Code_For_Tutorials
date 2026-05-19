@@ -1,0 +1,27 @@
+remote_host: 10.0.5.60
+user: root
+port: 22
+
+# Leave empty to try key-based SSH only, or set the root password here for fallback.
+password: "hanTZ123"
+
+# Optional private key path. Leave empty for password-based or agent-based auth.
+identity_file: ""
+
+strict_host_key_checking: accept-new
+connect_timeout_seconds: 10
+ssh_retries: 2
+retry_delay_seconds: 2
+
+use_sudo: true
+
+bundle_name: rca_three_engines_bundle
+package_rebuild: false
+rebuild_profile: direct-stream
+
+remote_deploy_root: /opt/rca
+remote_backup_root: /opt/rca-backups
+
+keep_remote_staging: false
+keep_remote_backup: true
+skip_pm2_start: false

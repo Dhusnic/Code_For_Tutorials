@@ -23,6 +23,23 @@ type RuleConditionGroup struct {
 
 func (RuleConditionGroup) isConditionNode() {}
 
+type compiledCondition struct {
+	Field   string
+	Matches func(event map[string]any) bool
+	Cost    int
+}
+
+func (compiledCondition) isConditionNode() {}
+
+type compiledConditionGroup struct {
+	Op            string
+	Conditions    []ConditionNode
+	Cost          int
+	MaxMatchCount int
+}
+
+func (compiledConditionGroup) isConditionNode() {}
+
 // SignalRule is one in-memory rule.
 type SignalRule struct {
 	RuleID      string
@@ -31,10 +48,12 @@ type SignalRule struct {
 	Description string
 	Condition   ConditionNode
 	Tags        []string
+	Vendor      string
 }
 
 // RuleSet is the rule collection for one service.
 type RuleSet struct {
-	Service string
-	Rules   []SignalRule
+	Service             string
+	Rules               []SignalRule
+	HasVendorAwareRules bool
 }

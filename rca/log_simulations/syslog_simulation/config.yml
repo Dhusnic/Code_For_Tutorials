@@ -1,0 +1,262 @@
+syslog_simulator:
+  # Vendor/device allowlists.
+  # Remove these keys or set them to null to allow everything from defaults.json.
+  # Available vendors in defaults.json:
+  # - cisco_ios
+  # - juniper_srx
+  # - fortigate
+  # - paloalto
+  # - f5_bigip
+  # - checkpoint
+  # - arista_eos
+  # - hpe_aruba
+  # - huawei_vrp
+  # - dell_os10
+  # - crontab_cron
+  # - mikrotik_ros
+  enabled_vendors:
+    - "cisco_ios"
+    # - "juniper_srx"
+    # - "fortigate"
+    # - "paloalto"
+    # - "f5_bigip"
+    # - "checkpoint"
+    # - "arista_eos"
+    # - "hpe_aruba"
+    # - "huawei_vrp"
+    # - "dell_os10"
+    # - "crontab_cron"
+    # - "mikrotik_ros"
+
+  # Available devices in defaults.json:
+  # - cisco-switch-1        (vendor=cisco_ios, category=switch)
+  # - cisco-router-1        (vendor=cisco_ios, category=router)
+  # - juniper-srx-1         (vendor=juniper_srx, category=firewall)
+  # - fortigate-1           (vendor=fortigate, category=security-appliance)
+  # - paloalto-1            (vendor=paloalto, category=firewall)
+  # - f5-1                  (vendor=f5_bigip, category=loadbalancer)
+  # - checkpoint-1          (vendor=checkpoint, category=security-appliance)
+  # - arista-1              (vendor=arista_eos, category=switch)
+  # - huawei-ce-leaf-1      (vendor=huawei_vrp, category=switch)
+  # - huawei-ce-spine-1     (vendor=huawei_vrp, category=switch)
+  # - huawei-ne-edge-1      (vendor=huawei_vrp, category=router)
+  # - hpe-aruba-cx-leaf-1   (vendor=hpe_aruba, category=switch)
+  # - hpe-aruba-cx-spine-1  (vendor=hpe_aruba, category=switch)
+  # - hpe-aruba-aoss-edge-1 (vendor=hpe_aruba, category=router)
+  # - dell-os10-leaf-1      (vendor=dell_os10, category=switch)
+  # - dell-os10-spine-1     (vendor=dell_os10, category=switch)
+  # - dell-os10-border-1    (vendor=dell_os10, category=router)
+  # - dell-os10-cron-1      (vendor=crontab_cron, category=other)
+  # - dell-os10-cron-2      (vendor=crontab_cron, category=other)
+  # - mikrotik-1            (vendor=mikrotik_ros, category=router)
+  # - mikrotik-ap-1         (vendor=mikrotik_ros, category=wireless)
+  enabled_devices:
+    - "cisco-switch-1"
+    - "cisco-router-1"
+    # - "juniper-srx-1"
+    # - "fortigate-1"
+    # - "paloalto-1"
+    # - "f5-1"
+    # - "checkpoint-1"
+    # - "arista-1"
+    # - "huawei-ce-leaf-1"
+    # - "huawei-ce-spine-1"
+    # - "huawei-ne-edge-1"
+    # - "hpe-aruba-cx-leaf-1"
+    # - "hpe-aruba-cx-spine-1"
+    # - "hpe-aruba-aoss-edge-1"
+    # - "dell-os10-leaf-1"
+    # - "dell-os10-spine-1"
+    # - "dell-os10-border-1"
+    # - "dell-os10-cron-1"
+    # - "dell-os10-cron-2"
+    # - "mikrotik-1"
+    # - "mikrotik-ap-1"
+
+  # Uncomment anything under `overrides` to override values from defaults.json.
+  # The simulator merges this block over defaults.json before CLI flags are applied.
+  #
+  # Example commands:
+  # python .\log_simulations\syslog_simulation\syslog_simulator.py --dry-run
+  # python .\log_simulations\syslog_simulation\syslog_simulator.py --validate-only
+  # python .\log_simulations\syslog_simulation\syslog_simulator.py --print-effective-config --count 1
+  # python .\log_simulations\syslog_simulation\syslog_simulator.py --config .\log_simulations\syslog_simulation\config.yml --defaults .\log_simulations\syslog_simulation\defaults.json --dry-run
+  #
+  # overrides:
+  #   version: 1
+  #
+  #   target:
+  #     host: "10.0.4.133"
+  #     port: 5046
+  #     proto: "udp"                  # udp | tcp
+  #     tcp_framing: "newline"        # newline | octet-counting
+  #     connect_timeout_s: 5.0
+  #     reconnect_delay_s: 1.0
+  #
+  #   runtime:
+  #     rate: 100
+  #     batch_size: 25
+  #     count: 0                      # 0 = infinite
+  #     dry_run: false
+  #     include_pri: true
+  #     print_send_details: true
+  #     timestamp_timezone: "local"   # local | utc
+  #     random_seed: 42
+  #
+  #   categories:
+  #     switch: true
+  #     router: true
+  #     firewall: false
+  #     loadbalancer: false
+  #     security-appliance: false
+  #     wireless: false
+  #     other: false
+  #
+  #   defaults:
+  #     facility: 23
+  #
+  #   severity_weights:
+  #     critical: 0.30
+  #     error: 0.50
+  #     warning: 0.15
+  #     info: 0.05
+  #
+  #   seed:
+  #     private_ips:
+  #       - "10.0.0.10"
+  #       - "10.0.10.25"
+  #     public_ips:
+  #       - "1.1.1.1"
+  #       - "8.8.8.8"
+  #     usernames:
+  #       - "admin"
+  #       - "netops"
+  #     domains:
+  #       - "example.com"
+  #       - "corp.example"
+  #     zones:
+  #       - "trust"
+  #       - "untrust"
+  #     policies:
+  #       - "default-deny"
+  #       - "Allow-Internet"
+  #     apps:
+  #       - "ssl"
+  #       - "web-browsing"
+  #     messages:
+  #       - "test message from console"
+  #       - "authentication failed"
+  #     commands:
+  #       - "display current-configuration"
+  #       - "display interface brief"
+  #     cron_users:
+  #       - "root"
+  #       - "admin"
+  #     cron_commands:
+  #       - "/usr/local/bin/config-backup.sh"
+  #       - "/usr/sbin/logrotate /etc/logrotate.conf"
+  #     cron_files:
+  #       - "/etc/crontab"
+  #       - "/var/spool/cron/root"
+  #     hpe_aruba_models:
+  #       - "8360-48Y6C"
+  #     hpe_aruba_versions:
+  #       - "10.14.1000"
+  #     aruba_central_hosts:
+  #       - "device.arubanetworks.com:443"
+  #     dell_models:
+  #       - "S5248F-ON"
+  #     dell_os10_versions:
+  #       - "10.5.4.6"
+  #     interfaces:
+  #       cisco_ios:
+  #         - "GigabitEthernet0/1"
+  #         - "GigabitEthernet0/2"
+  #         - "Port-channel1"
+  #         - "Vlan1"
+  #       default:
+  #         - "eth0"
+  #         - "eth1"
+  #
+  #   devices:
+  #     - id: "cisco-switch-1"
+  #       vendor: "cisco_ios"
+  #       hostname: "C9300-EDGE"
+  #       device_id: "FOC1234A1BC"
+  #       serial: "FOC1234A1BC"
+  #       devicetype: "switch"
+  #       category: "switch"
+  #       facility: 23
+  #
+  #     - id: "cisco-router-1"
+  #       vendor: "cisco_ios"
+  #       hostname: "ISR-EDGE-1"
+  #       device_id: "FTX9876Z9XY"
+  #       serial: "FTX9876Z9XY"
+  #       devicetype: "router"
+  #       category: "router"
+  #       facility: 23
+  #
+  #   vendors:
+  #     cisco_ios:
+  #       display_name: "Cisco IOS/NX-OS style"
+  #       default_facility: 23
+  #       default_severity_weights:
+  #         critical: 0.20
+  #         error: 0.60
+  #         warning: 0.15
+  #         info: 0.05
+  #       templates:
+  #         - id: "link_updown"
+  #           envelope: "rfc3164"     # rfc3164 | rfc5424 | raw
+  #           severity: "error"       # critical | error | warning | info
+  #           categories:
+  #             - "switch"
+  #             - "router"
+  #           message: "%LINK-3-UPDOWN: Interface {{iface}}, changed state to {{state}}"
+  #           weight: 2.0
+  #
+  #         - id: "lineproto_updown"
+  #           envelope: "rfc3164"
+  #           severity: "warning"
+  #           categories:
+  #             - "switch"
+  #             - "router"
+  #           message: "%LINEPROTO-5-UPDOWN: Line protocol on Interface {{iface}}, changed state to {{state}}"
+  #           weight: 1.5
+  #
+  #         - id: "config_i"
+  #           envelope: "rfc3164"
+  #           severity: "info"
+  #           categories:
+  #             - "switch"
+  #             - "router"
+  #           message: "%SYS-5-CONFIG_I: Configured from console by {{username}} ({{src_ip}})"
+  #           weight: 0.8
+  #
+  #         - id: "mallocfail"
+  #           envelope: "rfc3164"
+  #           severity: "critical"
+  #           categories:
+  #             - "switch"
+  #             - "router"
+  #           message: "%SYS-2-MALLOCFAIL: Memory allocation of {{bytes}} bytes failed from 0x{{hex}}, alignment 0"
+  #           weight: 0.6
+  #
+  #     # Other vendor keys available in defaults.json:
+  #     # juniper_srx
+  #     # fortigate
+  #     # paloalto
+  #     # f5_bigip
+  #     # checkpoint
+  #     # arista_eos
+  #     # hpe_aruba
+  #     # huawei_vrp
+  #     # dell_os10
+  #     # crontab_cron
+  #     # mikrotik_ros
+  #
+  # Notes:
+  # - Any field from defaults.json can be placed under `overrides`.
+  # - Lists replace the original defaults.json lists; they do not append.
+  # - CLI flags still win over everything in this file.

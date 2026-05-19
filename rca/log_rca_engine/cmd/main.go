@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"syscall"
 
+	"log_rca_engine/internal/autoscaling"
 	"log_rca_engine/internal/checkpoint"
 	"log_rca_engine/internal/config"
 	"log_rca_engine/internal/configevents"
@@ -60,6 +61,32 @@ func main() {
 		"checkpoint_file", cfg.Storage.CheckpointFile,
 	)
 
+	autoscaler := autoscaling.NewController(
+		cfg.Autoscaling,
+		autoscaling.SchedulerSettings{
+			Interval:   cfg.Scheduler.Interval,
+			RunTimeout: cfg.Scheduler.RunTimeout,
+		},
+		autoscaling.ReaderSettings{
+			PageSize:         cfg.Elasticsearch.PageSize,
+			MaxPagesPerCycle: cfg.Autoscaling.Reader.MaxPagesPerCycle,
+		},
+	)
+	if autoscaler.Enabled() {
+		log.Info(
+			"runtime autoscaling enabled",
+			"input_basis", cfg.Autoscaling.InputBasis,
+			"reader_min_page_size", cfg.Autoscaling.Reader.MinPageSize,
+			"reader_max_page_size", cfg.Autoscaling.Reader.MaxPageSize,
+			"reader_max_pages_per_cycle", cfg.Autoscaling.Reader.MaxPagesPerCycle,
+			"scheduler_min_interval", cfg.Autoscaling.Scheduler.MinInterval.String(),
+			"scheduler_max_interval", cfg.Autoscaling.Scheduler.MaxInterval.String(),
+			"scheduler_timeout_ratio", cfg.Autoscaling.Scheduler.TimeoutRatio,
+			"scheduler_target_cycle_utilization", cfg.Autoscaling.Scheduler.TargetCycleUtilization,
+			"scheduler_timeout_scale_up_multiplier", cfg.Autoscaling.Scheduler.TimeoutScaleUpMultiplier,
+		)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -74,15 +101,9 @@ func main() {
 		}
 	}()
 
-	signalSeverityCatalog, err := scoring.LoadSignalSeverityCatalog(cfg.SignalCatalog.Files)
-	if err != nil {
-		log.Error("failed to load signal severity catalog", "error", err)
-		os.Exit(1)
-	}
-	log.Info("signal severity catalog loaded", "signals", len(signalSeverityCatalog))
-
 	var syncer *mongosync.Syncer
 	var resultPublisher *mongoresults.Store
+	resultsStore := service.ResultStore(storage.NewFileStore(cfg.Storage.ResultsFile, log.With("component", "results")))
 	if cfg.MongoSync.Enabled {
 		syncer = mongosync.New(cfg.MongoSync, cfg.Rules.File, cfg.Topology.File, log.With("component", "mongo_sync"))
 		defer func() {
@@ -98,6 +119,7 @@ func main() {
 	}
 	if cfg.MongoSync.URI != "" && cfg.MongoSync.Database != "" && cfg.MongoSync.ResultsCollection != "" {
 		resultPublisher = mongoresults.New(cfg.MongoSync, log.With("component", "mongo_results"))
+		resultsStore = resultPublisher
 		defer func() {
 			closeCtx, cancel := context.WithTimeout(context.Background(), cfg.MongoSync.Timeout)
 			defer cancel()
@@ -122,8 +144,8 @@ func main() {
 		Reader:          esClient,
 		Rules:           rulesCache,
 		Topology:        topologyCache,
-		Results:         storage.NewFileStore(cfg.Storage.ResultsFile, log.With("component", "results")),
-		ResultPublisher: resultPublisher,
+		Results:         resultsStore,
+		ResultPublisher: nil,
 		Checkpoints:     checkpoint.NewStore(cfg.Storage.CheckpointFile, log.With("component", "checkpoint")),
 		Scorer: scoring.NewScorer(models.ScoreWeights{
 			SequenceMatch:    cfg.Scoring.Weights.SequenceMatch,
@@ -131,13 +153,14 @@ func main() {
 			TimeProximity:    cfg.Scoring.Weights.TimeProximity,
 			SignalSeverity:   cfg.Scoring.Weights.SignalSeverity,
 			RuleCompleteness: cfg.Scoring.Weights.RuleCompleteness,
-		}, cfg.Scoring.ConfidenceThreshold, signalSeverityCatalog),
+		}, cfg.Scoring.ConfidenceThreshold),
 		Explainer:            llm.NewOpenAIConversationHandler(cfg.OpenAI, log.With("component", "openai")),
 		NeighborhoodLogLimit: cfg.OpenAI.NeighborhoodLogLimit,
 		NearbyLogTrigger:     cfg.Scoring.NearbyLogTriggerThreshold,
 		ProbableCauseMin:     cfg.Scoring.ProbableCauseMinThreshold,
 		WorkerIndex:          workerRuntime.Index,
 		WorkerCount:          workerRuntime.Count,
+		Autoscaler:           autoscaler,
 		Logger:               log.With("component", "processor"),
 	})
 
@@ -187,10 +210,11 @@ func main() {
 	}
 
 	runner := scheduler.NewRunner(scheduler.Config{
-		Interval:   cfg.Scheduler.Interval,
-		RunTimeout: cfg.Scheduler.RunTimeout,
-		Logger:     log.With("component", "scheduler"),
-		Job:        job,
+		Interval:         cfg.Scheduler.Interval,
+		RunTimeout:       cfg.Scheduler.RunTimeout,
+		Logger:           log.With("component", "scheduler"),
+		Job:              job,
+		SettingsProvider: autoscaler,
 	})
 	if err := runner.Run(ctx); err != nil {
 		log.Error("scheduler stopped with error", "error", err)

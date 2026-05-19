@@ -16,7 +16,7 @@ scheduler:
 
 elasticsearch:
   addresses:
-    - http://10.0.4.132:9200
+    - http://10.0.5.60:9200
   username: "elastic"
   password: "elastic"
   api_key: ""

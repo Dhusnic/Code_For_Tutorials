@@ -185,10 +185,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	logFetcher, err := buildFetcher(cfg, log)
-	if err != nil {
-		log.Error("failed to initialize log fetcher", "error", err)
-		os.Exit(1)
+	var logFetcher loader.LogFetcher
+	if cfg.Engine.InputMode != "redis_stream" {
+		logFetcher, err = buildFetcher(cfg, log)
+		if err != nil {
+			log.Error("failed to initialize log fetcher", "error", err)
+			os.Exit(1)
+		}
+	} else {
+		log.Info("redis stream correlation input enabled; skipping Elasticsearch log fetcher initialization")
 	}
 
 	processor := service.NewProcessor(service.Dependencies{

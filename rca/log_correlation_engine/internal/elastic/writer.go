@@ -47,6 +47,51 @@ type bulkItemResult struct {
 	Error  json.RawMessage `json:"error"`
 }
 
+type correlationResultDocument struct {
+	LogID           []resultLogDocument `json:"log_id"`
+	RuleCompletion  float64             `json:"rule_completion"`
+	RuleID          string              `json:"rule_id"`
+	SequenceMatch   float64             `json:"sequence_match"`
+	IncidentID      string              `json:"incident_id,omitempty"`
+	Status          string              `json:"status,omitempty"`
+	FirstSeen       *time.Time          `json:"first_seen,omitempty"`
+	LastSeen        *time.Time          `json:"last_seen,omitempty"`
+	OrganizationID  string              `json:"organization_id,omitempty"`
+	GroupByValues   map[string]string   `json:"group_by_values,omitempty"`
+	MatchedAt       time.Time           `json:"matched_at,omitempty"`
+	CorrelatedAt    time.Time           `json:"correlated_at,omitempty"`
+	IsProcessed     int                 `json:"is_processed"`
+	ResultSignature string              `json:"result_signature,omitempty"`
+	Audit           *matchAuditDocument `json:"audit,omitempty"`
+}
+
+type resultLogDocument struct {
+	ID          string    `json:"id"`
+	Severity    string    `json:"severity"`
+	SourceIndex string    `json:"source_index,omitempty"`
+	Signal      string    `json:"signal,omitempty"`
+	Timestamp   time.Time `json:"timestamp,omitempty"`
+	ServiceName string    `json:"service_name,omitempty"`
+	HostName    string    `json:"host_name,omitempty"`
+	HostIP      string    `json:"host_ip,omitempty"`
+	HostIPs     []string  `json:"host_ips,omitempty"`
+}
+
+type matchAuditDocument struct {
+	Window             string                   `json:"window"`
+	MaxGapBetweenSteps string                   `json:"max_gap_between_steps,omitempty"`
+	NegativeSignals    []string                 `json:"negative_signals,omitempty"`
+	Steps              []matchStepAuditDocument `json:"steps,omitempty"`
+	MatchedSignals     []string                 `json:"matched_signals,omitempty"`
+}
+
+type matchStepAuditDocument struct {
+	RequiredCount int      `json:"required_count"`
+	MatchedCount  int      `json:"matched_count"`
+	Within        string   `json:"within"`
+	MatchedLogIDs []string `json:"matched_log_ids,omitempty"`
+}
+
 func NewWriter(cfg config.ElasticsearchConfig, logger *slog.Logger) (*Writer, error) {
 	client, err := esv8.NewClient(esv8.Config{
 		Addresses: cfg.Addresses,
@@ -97,6 +142,7 @@ func (w *Writer) WriteResults(ctx context.Context, results []*models.Correlation
 			errorsByIndex[idx] = fmt.Errorf("result cannot be nil")
 			continue
 		}
+		result.IsProcessed = 0
 		if err := result.EnsureDocumentID(); err != nil {
 			errorsByIndex[idx] = fmt.Errorf("ensure result document id: %w", err)
 			continue
@@ -143,7 +189,7 @@ func (w *Writer) writeBatch(ctx context.Context, entries []bulkEntry) []error {
 			}); err != nil {
 				return fillBatchErrors(len(entries), fmt.Errorf("encode bulk metadata: %w", err))
 			}
-			if err := encoder.Encode(entry.result); err != nil {
+			if err := encoder.Encode(compactResultForWrite(entry.result)); err != nil {
 				return fillBatchErrors(len(entries), fmt.Errorf("encode bulk document: %w", err))
 			}
 		}
@@ -241,7 +287,7 @@ func (w *Writer) writeCurrentBatch(ctx context.Context, entries []bulkEntry) []e
 		}); err != nil {
 			return fillBatchErrors(len(entries), fmt.Errorf("encode current bulk metadata: %w", err))
 		}
-		if err := encoder.Encode(entry.result); err != nil {
+		if err := encoder.Encode(compactResultForWrite(entry.result)); err != nil {
 			return fillBatchErrors(len(entries), fmt.Errorf("encode current bulk document: %w", err))
 		}
 	}
@@ -315,4 +361,90 @@ func fillBatchErrors(length int, err error) []error {
 		result[idx] = err
 	}
 	return result
+}
+
+func compactResultForWrite(result *models.CorrelationResult) correlationResultDocument {
+	document := correlationResultDocument{
+		LogID:           compactResultLogs(result.LogID),
+		RuleCompletion:  result.RuleCompletion,
+		RuleID:          result.RuleID,
+		SequenceMatch:   result.SequenceMatch,
+		IncidentID:      result.IncidentID,
+		Status:          result.Status,
+		FirstSeen:       cloneTimePtr(result.FirstSeen),
+		LastSeen:        cloneTimePtr(result.LastSeen),
+		OrganizationID:  result.OrganizationID,
+		GroupByValues:   cloneStringMap(result.GroupByValues),
+		MatchedAt:       result.MatchedAt,
+		CorrelatedAt:    result.CorrelatedAt,
+		IsProcessed:     result.IsProcessed,
+		ResultSignature: result.ResultSignature,
+		Audit:           compactMatchAudit(result.Audit),
+	}
+	return document
+}
+
+func compactResultLogs(logs []models.ResultLog) []resultLogDocument {
+	if len(logs) == 0 {
+		return nil
+	}
+	result := make([]resultLogDocument, len(logs))
+	for idx, log := range logs {
+		result[idx] = resultLogDocument{
+			ID:          log.ID,
+			Severity:    log.Severity,
+			SourceIndex: log.SourceIndex,
+			Signal:      log.Signal,
+			Timestamp:   log.Timestamp,
+			ServiceName: log.ServiceName,
+			HostName:    log.HostName,
+			HostIP:      log.HostIP,
+			HostIPs:     append([]string(nil), log.HostIPs...),
+		}
+	}
+	return result
+}
+
+func compactMatchAudit(audit *models.MatchAudit) *matchAuditDocument {
+	if audit == nil {
+		return nil
+	}
+
+	document := &matchAuditDocument{
+		Window:             audit.Window,
+		MaxGapBetweenSteps: audit.MaxGapBetweenSteps,
+		NegativeSignals:    append([]string(nil), audit.NegativeSignals...),
+		MatchedSignals:     append([]string(nil), audit.MatchedSignals...),
+	}
+	if len(audit.Steps) > 0 {
+		document.Steps = make([]matchStepAuditDocument, len(audit.Steps))
+		for idx, step := range audit.Steps {
+			document.Steps[idx] = matchStepAuditDocument{
+				RequiredCount: step.RequiredCount,
+				MatchedCount:  step.MatchedCount,
+				Within:        step.Within,
+				MatchedLogIDs: append([]string(nil), step.MatchedLogIDs...),
+			}
+		}
+	}
+	return document
+}
+
+func cloneTimePtr(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	cloned := value.UTC()
+	return &cloned
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
 }

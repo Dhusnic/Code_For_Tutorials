@@ -1,10 +1,16 @@
 package elastic
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"log_rca_engine/internal/config"
 	"log_rca_engine/internal/models"
 )
 
@@ -29,8 +35,8 @@ func TestBuildCorrelationEventSearchBodyUsesSafeTiebreakers(t *testing.T) {
 		t.Fatalf("expected bool replay query, got %#v", query)
 	}
 	filters, ok := boolQuery["filter"].([]any)
-	if !ok || len(filters) != 1 {
-		t.Fatalf("expected one replay filter, got %#v", boolQuery["filter"])
+	if !ok || len(filters) != 2 {
+		t.Fatalf("expected unprocessed + replay filters, got %#v", boolQuery["filter"])
 	}
 
 	sorts, ok := body["sort"].([]map[string]any)
@@ -65,18 +71,88 @@ func TestBuildCorrelationEventSearchBodyUsesSafeTiebreakers(t *testing.T) {
 	}
 }
 
-func TestBuildCorrelationEventSearchBodyWithoutReplayWindowUsesMatchAll(t *testing.T) {
+func TestBuildCorrelationEventSearchBodyWithoutReplayWindowUsesUnprocessedFilter(t *testing.T) {
 	body := buildCorrelationEventSearchBody(10, nil, nil)
 
 	query, ok := body["query"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected query object, got %#v", body["query"])
 	}
-	if _, ok := query["match_all"]; !ok {
-		t.Fatalf("expected match_all query, got %#v", query)
+	boolQuery, ok := query["bool"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected bool query, got %#v", query)
+	}
+	filters, ok := boolQuery["filter"].([]any)
+	if !ok || len(filters) != 1 {
+		t.Fatalf("expected one unprocessed filter, got %#v", boolQuery["filter"])
 	}
 	if _, ok := body["search_after"]; ok {
 		t.Fatalf("did not expect search_after, got %#v", body["search_after"])
+	}
+}
+
+func TestMarkCorrelationEventsProcessedUsesConditionalBulkUpdate(t *testing.T) {
+	type bulkCall struct {
+		path string
+		body string
+	}
+
+	calls := make([]bulkCall, 0, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Elastic-Product", "Elasticsearch")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"version":{"number":"8.15.0"}}`))
+		case strings.HasSuffix(r.URL.Path, "/_bulk"):
+			payload, _ := io.ReadAll(r.Body)
+			calls = append(calls, bulkCall{
+				path: r.URL.Path,
+				body: string(payload),
+			})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"errors":false,"items":[{"update":{"_id":"incident-1","status":200}}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(config.ElasticsearchConfig{
+		Addresses:        []string{server.URL},
+		CorrelationIndex: "rca_correlated_incidents_current*",
+		RequestTimeout:   time.Second,
+		PageSize:         100,
+		ReplayWindow:     time.Hour,
+	}, nil)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	err = client.MarkCorrelationEventsProcessed(context.Background(), []models.CorrelationEventRef{
+		{
+			DocumentID:      "incident-1",
+			DocumentIndex:   "rca_correlated_incidents_current",
+			ResultSignature: "sig-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("MarkCorrelationEventsProcessed returned error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected one bulk update call, got %d", len(calls))
+	}
+	if calls[0].path != "/_bulk" {
+		t.Fatalf("expected global bulk endpoint for per-document index updates, got %s", calls[0].path)
+	}
+	if !strings.Contains(calls[0].body, `"update":{"_id":"incident-1","_index":"rca_correlated_incidents_current"}`) {
+		t.Fatalf("expected incident id and exact index in update metadata, got %s", calls[0].body)
+	}
+	if !strings.Contains(calls[0].body, `"result_signature":"sig-1"`) {
+		t.Fatalf("expected conditional result signature guard, got %s", calls[0].body)
+	}
+	if !strings.Contains(calls[0].body, `"is_processed":1`) {
+		t.Fatalf("expected processed flag update, got %s", calls[0].body)
 	}
 }
 

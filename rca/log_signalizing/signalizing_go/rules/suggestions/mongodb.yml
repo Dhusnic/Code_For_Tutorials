@@ -65,3 +65,42 @@ rules:
         field: message
         op: contains
         value: deferring table drop collection
+    - id: MONGODB_AUTO_TO_AUTHENTICATE_USER_ROOT_6132A4B2
+      signal_key: mongodb_auto_to_authenticate_user_root_6132
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: to authenticate user root'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - mongodb
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: to authenticate user root
+    - id: MONGODB_AUTO_TO_AUTHENTICATE_F8A10598
+      signal_key: mongodb_auto_to_authenticate_f8a1
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: to authenticate'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - mongodb
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: to authenticate
+    - id: MONGODB_AUTO_DROP_PENDING_IDENT_IS_31DDD3E2
+      signal_key: mongodb_auto_drop_pending_ident_is_31dd
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: drop pending ident is'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - mongodb
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: drop pending ident is

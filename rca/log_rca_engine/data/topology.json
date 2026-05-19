@@ -1,17 +1,54 @@
 {
+  "schema_version": 1,
   "organizations": {
     "135098068173316952064": {
       "infraon_onprem_prod": {
         "services": [
-          {},
-          {},
-          {},
-          {},
-          {},
-          {},
-          {},
-          {},
-          {}
+          {
+            "service_name": "nginx",
+            "device_ip": "10.0.4.72",
+            "host_name": "localhost.localdomain"
+          },
+          {
+            "service_name": "instancegunicorn",
+            "device_ip": "10.0.4.72",
+            "host_name": "localhost.localdomain"
+          },
+          {
+            "service_name": "mongodb",
+            "device_ip": "10.0.4.72",
+            "host_name": "localhost.localdomain"
+          },
+          {
+            "service_name": "rabbitmq",
+            "device_ip": "10.0.4.72",
+            "host_name": "localhost.localdomain"
+          },
+          {
+            "service_name": "redis",
+            "device_ip": "10.0.4.72",
+            "host_name": "localhost.localdomain"
+          },
+          {
+            "service_name": "kafka",
+            "device_ip": "10.0.4.72",
+            "host_name": "localhost.localdomain"
+          },
+          {
+            "service_name": "postgresql",
+            "device_ip": "10.0.4.72",
+            "host_name": "localhost.localdomain"
+          },
+          {
+            "service_name": "auth",
+            "device_ip": "10.0.4.72",
+            "host_name": "localhost.localdomain"
+          },
+          {
+            "service_name": "system",
+            "device_ip": "10.0.4.72",
+            "host_name": "localhost.localdomain"
+          }
         ],
         "dependencies": [
           {
@@ -152,42 +189,54 @@
         ],
         "devices": [
           {
+            "device_ip": "10.0.4.72",
+            "host_name": "localhost.localdomain",
             "services": [
               {
-                "service_name": "",
+                "service_name": "nginx",
                 "role": "edge_web_server"
               },
               {
-                "service_name": "",
+                "service_name": "instancegunicorn",
                 "role": "application_backend"
               },
               {
-                "service_name": "",
+                "service_name": "mongodb",
                 "role": "primary_operational_database"
               },
               {
-                "service_name": "",
+                "service_name": "rabbitmq",
                 "role": "background_job_broker"
               },
               {
-                "service_name": "",
+                "service_name": "redis",
                 "role": "realtime_cache_and_job_backend"
               },
               {
-                "service_name": "",
+                "service_name": "kafka",
                 "role": "agent_event_stream"
               },
               {
-                "service_name": "",
+                "service_name": "postgresql",
                 "role": "timeseries_statistics_store"
               },
               {
-                "service_name": "",
+                "service_name": "auth",
                 "role": "host_control_plane_auth"
               },
               {
-                "service_name": "",
-                "role": "host_and_network_underlay"
+                "service_name": "system",
+                "role": "host_and_network_underlay",
+                "depends_on": [
+                  "nginx",
+                  "instancegunicorn",
+                  "mongodb",
+                  "rabbitmq",
+                  "redis",
+                  "kafka",
+                  "postgresql",
+                  "auth"
+                ]
               }
             ]
           }

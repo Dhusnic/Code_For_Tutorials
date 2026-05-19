@@ -218,6 +218,7 @@ type CorrelationResult struct {
 	GroupByValues   map[string]string `json:"group_by_values,omitempty"`
 	MatchedAt       time.Time         `json:"matched_at,omitempty"`
 	CorrelatedAt    time.Time         `json:"correlated_at,omitempty"`
+	IsProcessed     int               `json:"is_processed"`
 	ResultSignature string            `json:"result_signature,omitempty"`
 	Audit           *MatchAudit       `json:"audit,omitempty"`
 

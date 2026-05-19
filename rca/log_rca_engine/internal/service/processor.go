@@ -9,18 +9,24 @@ import (
 	"strings"
 	"time"
 
+	"log_rca_engine/internal/autoscaling"
 	"log_rca_engine/internal/models"
 	"log_rca_engine/internal/scoring"
 	"log_rca_engine/internal/storage"
 	"log_rca_engine/internal/utils"
 )
 
-const rcaRecordSchemaVersion = 7
+const rcaRecordSchemaVersion = 8
 
 type CorrelationEventReader interface {
 	ReadCorrelationEvents(ctx context.Context, checkpoint models.ReaderCheckpoint) ([]models.CorrelationEvent, models.ReaderCheckpoint, error)
 	FetchMatchedLogs(ctx context.Context, evidence []models.EvidenceLog) ([]models.RelatedLog, error)
 	SearchRelatedLogs(ctx context.Context, event models.CorrelationEvent, limit int) ([]models.RelatedLog, error)
+	MarkCorrelationEventsProcessed(ctx context.Context, refs []models.CorrelationEventRef) error
+}
+
+type correlationEventReaderTuner interface {
+	SetPageSize(size int)
 }
 
 type RulesLoader interface {
@@ -34,6 +40,11 @@ type TopologyRepository interface {
 type ResultStore interface {
 	Load(ctx context.Context) (models.RCAOutputDocument, error)
 	Save(ctx context.Context, document models.RCAOutputDocument) error
+}
+
+type IncidentResultStore interface {
+	LoadByIncidentIDs(ctx context.Context, incidentIDs []string) (map[string]models.RCARecord, error)
+	UpsertRecords(ctx context.Context, records []models.RCARecord) error
 }
 
 type CheckpointStore interface {
@@ -68,6 +79,7 @@ type Dependencies struct {
 	ProbableCauseMin     float64
 	WorkerIndex          int
 	WorkerCount          int
+	Autoscaler           *autoscaling.Controller
 	Logger               *slog.Logger
 }
 
@@ -85,6 +97,7 @@ type Processor struct {
 	probableCauseMin     float64
 	workerIndex          int
 	workerCount          int
+	autoscaler           *autoscaling.Controller
 	logger               *slog.Logger
 	now                  func() time.Time
 }
@@ -99,6 +112,8 @@ type CycleSummary struct {
 	LLMCalls       int
 	LLMFailures    int
 	ResultWrites   int
+	PagesRead      int
+	WorkloadCapped bool
 }
 
 type organizationTopologyCandidate struct {
@@ -127,6 +142,7 @@ func NewProcessor(deps Dependencies) *Processor {
 		probableCauseMin:     deps.ProbableCauseMin,
 		workerIndex:          deps.WorkerIndex,
 		workerCount:          deps.WorkerCount,
+		autoscaler:           deps.Autoscaler,
 		logger:               deps.Logger,
 		now:                  time.Now,
 	}
@@ -145,19 +161,37 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load topology: %w", err)
 	}
-	resultDoc, err := p.results.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("load result store: %w", err)
-	}
 	checkpoint, err := p.checkpoints.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("load checkpoint: %w", err)
 	}
 	checkpoint.SearchAfter = nil
 
-	recordsByIncident := storage.ByIncident(resultDoc)
+	readerSettings := autoscaling.ReaderSettings{}
+	if p.autoscaler != nil && p.autoscaler.Enabled() {
+		readerSettings = p.autoscaler.CurrentReaderSettings()
+		if tunedReader, ok := p.reader.(correlationEventReaderTuner); ok && readerSettings.PageSize > 0 {
+			tunedReader.SetPageSize(readerSettings.PageSize)
+		}
+	}
+
+	events, nextCheckpoint, pagesRead, workloadCapped, err := p.collectOwnedEvents(ctx, checkpoint, readerSettings.MaxPagesPerCycle)
+	if err != nil {
+		return fmt.Errorf("read correlation events: %w", err)
+	}
+
+	recordsByIncident, optimizedResultStore, err := p.loadResultRecords(ctx, events)
+	if err != nil {
+		return err
+	}
+
 	recordsPendingPublish := make(map[string]models.RCARecord)
-	summary := CycleSummary{}
+	processedEventRefs := make([]models.CorrelationEventRef, 0)
+	dirtyIncidentIDs := make(map[string]struct{})
+	summary := CycleSummary{
+		PagesRead:      pagesRead,
+		WorkloadCapped: workloadCapped,
+	}
 	changed := false
 	upgraded, err := p.upgradeStaleRecords(ctx, recordsByIncident, rulesByID, topologyDoc, &summary)
 	if err != nil {
@@ -165,198 +199,197 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 	}
 	if upgraded {
 		changed = true
+		markDirtyIncidents(dirtyIncidentIDs, recordsByIncident)
 		queueRecordsForPublish(recordsPendingPublish, storage.FromIncidentMap(recordsByIncident).Items...)
 	}
-	nextCheckpoint := checkpoint
+	for _, event := range events {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		summary.EventsRead++
+		incidentID := strings.TrimSpace(event.IncidentID)
+		if incidentID == "" {
+			summary.EventsSkipped++
+			queueSkippedEventForPublish(recordsPendingPublish, models.RCARecord{}, false, event, "", "skipped because incident_id was empty", nil, p.now().UTC())
+			processedEventRefs = append(processedEventRefs, processedEventRef(event))
+			if p.logger != nil {
+				p.logger.Debug(
+					"skipping event because incident_id was empty",
+					"organization_id", event.OrganizationID,
+					"rule_id", event.RuleID,
+					"status", event.Status,
+					"result_signature", event.ResultSignature,
+					"document_id", event.DocumentID,
+				)
+			}
+			continue
+		}
 
-	for {
-		events, pageCheckpoint, err := p.reader.ReadCorrelationEvents(ctx, nextCheckpoint)
+		normalizedStatus := normalizeStatus(event.Status)
+		existing, hasExisting := recordsByIncident[incidentID]
+		if isDuplicateEvent(existing, normalizedStatus, event.ResultSignature) {
+			summary.EventsSkipped++
+			queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, existing.TopologyID, "duplicate replayed event", nil, p.now().UTC())
+			processedEventRefs = append(processedEventRefs, processedEventRef(event))
+			if p.logger != nil {
+				p.logger.Debug(
+					"skipping duplicate replayed event because incident_id and result_signature were already processed",
+					"incident_id", event.IncidentID,
+					"organization_id", event.OrganizationID,
+					"rule_id", event.RuleID,
+					"status", normalizedStatus,
+					"result_signature", event.ResultSignature,
+					"last_processed_result_signature", existing.LastProcessedResultSignature,
+				)
+			}
+			continue
+		}
+		enrichedEvent, err := p.enrichEventEvidence(ctx, event)
 		if err != nil {
-			return fmt.Errorf("read correlation events: %w", err)
+			return fmt.Errorf("enrich matched evidence for incident %s: %w", incidentID, err)
 		}
-		if len(events) == 0 {
-			break
+		event = enrichedEvent
+
+		var rule *models.Rule
+		if loadedRule, ok := rulesByID[event.RuleID]; ok {
+			rule = &loadedRule
 		}
+		scopedTopologyID, scopedToSingleTopology := singleRuleTopologyID(rule)
 
-		for _, event := range events {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if !p.ownsEvent(event) {
-				continue
-			}
-			summary.EventsRead++
-			incidentID := strings.TrimSpace(event.IncidentID)
-			if incidentID == "" {
+		if normalizedStatus == "closed" && (!hasExisting || existing.SchemaVersion >= rcaRecordSchemaVersion) {
+			if !hasExisting {
 				summary.EventsSkipped++
-				queueSkippedEventForPublish(recordsPendingPublish, models.RCARecord{}, false, event, "", "skipped because incident_id was empty", nil, p.now().UTC())
+				queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, strings.TrimSpace(event.GroupByValues["topology_id"]), "closed event arrived before an RCA record was stored", nil, p.now().UTC())
+				processedEventRefs = append(processedEventRefs, processedEventRef(event))
 				if p.logger != nil {
 					p.logger.Debug(
-						"skipping event because incident_id was empty",
-						"organization_id", event.OrganizationID,
-						"rule_id", event.RuleID,
-						"status", event.Status,
-						"result_signature", event.ResultSignature,
-						"document_id", event.DocumentID,
-					)
-				}
-				continue
-			}
-
-			normalizedStatus := normalizeStatus(event.Status)
-			existing, hasExisting := recordsByIncident[incidentID]
-			if isDuplicateEvent(existing, normalizedStatus, event.ResultSignature) {
-				summary.EventsSkipped++
-				queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, existing.TopologyID, "duplicate replayed event", nil, p.now().UTC())
-				if p.logger != nil {
-					p.logger.Debug(
-						"skipping duplicate replayed event because incident_id and result_signature were already processed",
+						"skipping closed event because no prior scored RCA record exists",
 						"incident_id", event.IncidentID,
 						"organization_id", event.OrganizationID,
 						"rule_id", event.RuleID,
-						"status", normalizedStatus,
-						"result_signature", event.ResultSignature,
-						"last_processed_result_signature", existing.LastProcessedResultSignature,
 					)
 				}
 				continue
 			}
-			enrichedEvent, err := p.enrichEventEvidence(ctx, event)
-			if err != nil {
-				return fmt.Errorf("enrich matched evidence for incident %s: %w", incidentID, err)
+			selectedTopologyID := strings.TrimSpace(existing.TopologyID)
+			if selectedTopologyID == "" {
+				selectedTopologyID = strings.TrimSpace(event.GroupByValues["topology_id"])
 			}
-			event = enrichedEvent
-
-			var rule *models.Rule
-			if loadedRule, ok := rulesByID[event.RuleID]; ok {
-				rule = &loadedRule
-			}
-			scopedTopologyID, scopedToSingleTopology := singleRuleTopologyID(rule)
-
-			if normalizedStatus == "closed" && (!hasExisting || existing.SchemaVersion >= rcaRecordSchemaVersion) {
-				if !hasExisting {
-					summary.EventsSkipped++
-					queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, strings.TrimSpace(event.GroupByValues["topology_id"]), "closed event arrived before an RCA record was stored", nil, p.now().UTC())
-					if p.logger != nil {
-						p.logger.Debug(
-							"skipping closed event because no prior scored RCA record exists",
-							"incident_id", event.IncidentID,
-							"organization_id", event.OrganizationID,
-							"rule_id", event.RuleID,
-						)
-					}
-					continue
-				}
-				selectedTopologyID := strings.TrimSpace(existing.TopologyID)
-				if selectedTopologyID == "" {
-					selectedTopologyID = strings.TrimSpace(event.GroupByValues["topology_id"])
-				}
-				record := updateClosedRecord(existing, hasExisting, event, selectedTopologyID, p.now().UTC())
-				recordsByIncident[incidentID] = record
-				queueRecordsForPublish(recordsPendingPublish, record)
-				summary.ClosedUpdates++
-				summary.ResultWrites++
-				changed = true
-				continue
-			}
-
-			var topologyCandidates []organizationTopologyCandidate
-			if !scopedToSingleTopology {
-				topologyCandidates = resolveOrganizationTopologies(event.OrganizationID, topologyDoc)
-			}
-			selection, eligible := p.selectScoringTopology(
-				event,
-				rule,
-				event.OrganizationID,
-				topologyDoc,
-				scopedTopologyID,
-				topologyCandidates,
-				nil,
-			)
-			if !eligible {
-				summary.EventsSkipped++
-				queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, scopedTopologyID, "rule topology scope did not match any organization topology", nil, p.now().UTC())
-				if p.logger != nil {
-					p.logger.Debug(
-						"skipping event because rule topology scope did not match any organization topology",
-						"incident_id", event.IncidentID,
-						"organization_id", event.OrganizationID,
-						"rule_id", event.RuleID,
-						"rule_topology_ids", ruleTopologyIDs(rule),
-					)
-				}
-				continue
-			}
-			score := selection.Score
-			var nearbyLogs []models.RelatedLog
-			if p.shouldLoadScoringNearbyLogs(score) {
-				nearbyLogs = p.loadScoringNearbyLogs(ctx, event)
-				if len(nearbyLogs) > 0 {
-					if rescored, ok := p.selectScoringTopology(
-						event,
-						rule,
-						event.OrganizationID,
-						topologyDoc,
-						scopedTopologyID,
-						topologyCandidates,
-						nearbyLogs,
-					); ok {
-						selection = rescored
-						score = rescored.Score
-					}
-				}
-			}
-			if !p.shouldPersistProbableCause(score) {
-				summary.EventsSkipped++
-				queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, selection.TopologyID, "probable cause score was below the minimum threshold", &score, p.now().UTC())
-				if p.logger != nil {
-					p.logger.Debug(
-						"skipping probable cause below minimum threshold",
-						"incident_id", event.IncidentID,
-						"organization_id", event.OrganizationID,
-						"rule_id", event.RuleID,
-						"confidence_score", score.ConfidenceScore,
-						"probable_cause_min_threshold", p.effectiveProbableCauseMin(),
-					)
-				}
-				continue
-			}
-			record := buildRecord(existing, hasExisting, event, selection.TopologyID, score, p.now().UTC())
-			record.Status = normalizedStatus
-			record.LLM = nil
-
-			if score.Classification == scoring.ClassificationConfirmed && p.explainer != nil && p.explainer.Enabled() {
-				summary.LLMCalls++
-				explanation, explainErr := p.explainIncident(ctx, event, rule, selection.Topology, score, nearbyLogs)
-				if explainErr != nil {
-					summary.LLMFailures++
-					record.LLM = &models.LLMExplanation{
-						Provider: "openai",
-						Error:    explainErr.Error(),
-					}
-				} else {
-					record.LLM = explanation
-				}
-			}
-
+			record := updateClosedRecord(existing, hasExisting, event, selectedTopologyID, p.now().UTC())
 			recordsByIncident[incidentID] = record
+			markDirtyIncident(dirtyIncidentIDs, incidentID)
 			queueRecordsForPublish(recordsPendingPublish, record)
-			summary.EventsScored++
+			summary.ClosedUpdates++
 			summary.ResultWrites++
-			if score.Classification == scoring.ClassificationConfirmed {
-				summary.ConfirmedRCAs++
-			} else {
-				summary.ProbableCauses++
-			}
 			changed = true
+			processedEventRefs = append(processedEventRefs, processedEventRef(event))
+			continue
 		}
 
-		nextCheckpoint = pageCheckpoint
+		var topologyCandidates []organizationTopologyCandidate
+		if !scopedToSingleTopology {
+			topologyCandidates = resolveOrganizationTopologies(event.OrganizationID, topologyDoc)
+		}
+		selection, eligible := p.selectScoringTopology(
+			event,
+			rule,
+			event.OrganizationID,
+			topologyDoc,
+			scopedTopologyID,
+			topologyCandidates,
+			nil,
+		)
+		if !eligible {
+			summary.EventsSkipped++
+			queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, scopedTopologyID, "rule topology scope did not match any organization topology", nil, p.now().UTC())
+			processedEventRefs = append(processedEventRefs, processedEventRef(event))
+			if p.logger != nil {
+				p.logger.Debug(
+					"skipping event because rule topology scope did not match any organization topology",
+					"incident_id", event.IncidentID,
+					"organization_id", event.OrganizationID,
+					"rule_id", event.RuleID,
+					"rule_topology_ids", ruleTopologyIDs(rule),
+				)
+			}
+			continue
+		}
+		score := selection.Score
+		var nearbyLogs []models.RelatedLog
+		if p.shouldLoadScoringNearbyLogs(score) {
+			nearbyLogs = p.loadScoringNearbyLogs(ctx, event)
+			if len(nearbyLogs) > 0 {
+				if rescored, ok := p.selectScoringTopology(
+					event,
+					rule,
+					event.OrganizationID,
+					topologyDoc,
+					scopedTopologyID,
+					topologyCandidates,
+					nearbyLogs,
+				); ok {
+					selection = rescored
+					score = rescored.Score
+				}
+			}
+		}
+		if !p.shouldPersistProbableCause(score) {
+			summary.EventsSkipped++
+			queueSkippedEventForPublish(recordsPendingPublish, existing, hasExisting, event, selection.TopologyID, "probable cause score was below the minimum threshold", &score, p.now().UTC())
+			processedEventRefs = append(processedEventRefs, processedEventRef(event))
+			if p.logger != nil {
+				p.logger.Debug(
+					"skipping probable cause below minimum threshold",
+					"incident_id", event.IncidentID,
+					"organization_id", event.OrganizationID,
+					"rule_id", event.RuleID,
+					"confidence_score", score.ConfidenceScore,
+					"probable_cause_min_threshold", p.effectiveProbableCauseMin(),
+				)
+			}
+			continue
+		}
+		record := buildRecord(existing, hasExisting, event, selection.TopologyID, score, p.now().UTC())
+		record.Status = normalizedStatus
+		record.LLM = nil
+
+		if score.Classification == scoring.ClassificationConfirmed && p.explainer != nil && p.explainer.Enabled() {
+			summary.LLMCalls++
+			explanation, explainErr := p.explainIncident(ctx, event, rule, selection.Topology, score, nearbyLogs)
+			if explainErr != nil {
+				summary.LLMFailures++
+				record.LLM = &models.LLMExplanation{
+					Provider: "openai",
+					Error:    explainErr.Error(),
+				}
+			} else {
+				record.LLM = explanation
+			}
+		}
+
+		recordsByIncident[incidentID] = record
+		markDirtyIncident(dirtyIncidentIDs, incidentID)
+		queueRecordsForPublish(recordsPendingPublish, record)
+		summary.EventsScored++
+		summary.ResultWrites++
+		if score.Classification == scoring.ClassificationConfirmed {
+			summary.ConfirmedRCAs++
+		} else {
+			summary.ProbableCauses++
+		}
+		changed = true
+		processedEventRefs = append(processedEventRefs, processedEventRef(event))
 	}
 
 	if changed {
-		if err := p.results.Save(ctx, storage.FromIncidentMap(recordsByIncident)); err != nil {
-			return fmt.Errorf("save result store: %w", err)
+		if optimizedResultStore != nil {
+			if err := optimizedResultStore.UpsertRecords(ctx, recordsForIncidentIDs(recordsByIncident, dirtyIncidentIDs)); err != nil {
+				return fmt.Errorf("save result store: %w", err)
+			}
+		} else {
+			if err := p.results.Save(ctx, storage.FromIncidentMap(recordsByIncident)); err != nil {
+				return fmt.Errorf("save result store: %w", err)
+			}
 		}
 	}
 	if p.resultPublisher != nil && len(recordsPendingPublish) > 0 {
@@ -364,12 +397,19 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 			return fmt.Errorf("persist RCA results to MongoDB: %w", err)
 		}
 	}
+	if err := p.reader.MarkCorrelationEventsProcessed(ctx, processedEventRefs); err != nil {
+		return fmt.Errorf("mark processed correlation events: %w", err)
+	}
 	nextCheckpoint.SearchAfter = nil
 	if err := p.checkpoints.Save(ctx, nextCheckpoint); err != nil {
 		return fmt.Errorf("save checkpoint: %w", err)
 	}
 
 	if p.logger != nil {
+		effectiveReaderSettings := readerSettings
+		if effectiveReaderSettings.PageSize <= 0 {
+			effectiveReaderSettings.PageSize = 0
+		}
 		p.logger.Info(
 			"log RCA cycle completed",
 			"events_read", summary.EventsRead,
@@ -381,9 +421,82 @@ func (p *Processor) RunCycle(ctx context.Context) error {
 			"llm_calls", summary.LLMCalls,
 			"llm_failures", summary.LLMFailures,
 			"result_writes", summary.ResultWrites,
+			"pages_read", summary.PagesRead,
+			"workload_capped", summary.WorkloadCapped,
+			"effective_reader_page_size", effectiveReaderSettings.PageSize,
+			"effective_max_pages_per_cycle", effectiveReaderSettings.MaxPagesPerCycle,
 		)
 	}
+	if p.autoscaler != nil && p.autoscaler.Enabled() {
+		p.autoscaler.ObserveCycle(summary.EventsRead)
+		if p.logger != nil {
+			schedulerSettings := p.autoscaler.CurrentSchedulerSettings()
+			nextReaderSettings := p.autoscaler.CurrentReaderSettings()
+			p.logger.Info(
+				"autoscaling workload observed",
+				"correlation_events", summary.EventsRead,
+				"pages_read", summary.PagesRead,
+				"workload_capped", summary.WorkloadCapped,
+				"next_scheduler_interval", schedulerSettings.Interval.String(),
+				"next_scheduler_run_timeout", schedulerSettings.RunTimeout.String(),
+				"next_reader_page_size", nextReaderSettings.PageSize,
+				"next_max_pages_per_cycle", nextReaderSettings.MaxPagesPerCycle,
+			)
+		}
+	}
 	return nil
+}
+
+func (p *Processor) collectOwnedEvents(
+	ctx context.Context,
+	checkpoint models.ReaderCheckpoint,
+	maxPagesPerCycle int,
+) ([]models.CorrelationEvent, models.ReaderCheckpoint, int, bool, error) {
+	nextCheckpoint := checkpoint
+	events := make([]models.CorrelationEvent, 0)
+	pagesRead := 0
+	workloadCapped := false
+	for {
+		if maxPagesPerCycle > 0 && pagesRead >= maxPagesPerCycle {
+			workloadCapped = true
+			break
+		}
+		page, pageCheckpoint, err := p.reader.ReadCorrelationEvents(ctx, nextCheckpoint)
+		if err != nil {
+			return nil, models.ReaderCheckpoint{}, 0, false, err
+		}
+		if len(page) == 0 {
+			break
+		}
+		pagesRead++
+		for _, event := range page {
+			if !p.ownsEvent(event) {
+				continue
+			}
+			events = append(events, event)
+		}
+		nextCheckpoint = pageCheckpoint
+	}
+	return events, nextCheckpoint, pagesRead, workloadCapped, nil
+}
+
+func (p *Processor) loadResultRecords(
+	ctx context.Context,
+	events []models.CorrelationEvent,
+) (map[string]models.RCARecord, IncidentResultStore, error) {
+	if scopedStore, ok := p.results.(IncidentResultStore); ok {
+		recordsByIncident, err := scopedStore.LoadByIncidentIDs(ctx, incidentIDsFromEvents(events))
+		if err != nil {
+			return nil, nil, fmt.Errorf("load result store: %w", err)
+		}
+		return recordsByIncident, scopedStore, nil
+	}
+
+	resultDoc, err := p.results.Load(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load result store: %w", err)
+	}
+	return storage.ByIncident(resultDoc), nil, nil
 }
 
 func (p *Processor) ownsEvent(event models.CorrelationEvent) bool {
@@ -866,10 +979,15 @@ func buildRecord(existing models.RCARecord, hasExisting bool, event models.Corre
 		ScoreBreakdown:               score.Breakdown,
 		BelowThresholdReasons:        append([]string(nil), score.BelowThresholdReasons...),
 		InvolvedServices:             append([]string(nil), score.InvolvedServices...),
+		TriggerMatchedDocIDs:         triggerMatchedDocIDsForPersistence(existing, event),
+		TriggerMatchedLogs:           triggerEvidenceLogsForPersistence(existing, event.LogID),
 		MatchedDocIDs:                append([]string(nil), score.MatchedDocIDs...),
 		MatchedLogs:                  matchedLogs,
 		ContradictionEvidence:        cloneContradictionEvidence(score.ContradictionEvidence),
 		GroupByValues:                utils.CloneStringMap(event.GroupByValues),
+		FirstMatchedAt:               firstMatchedAtForPersistence(existing, event),
+		FirstCorrelatedAt:            firstCorrelatedAtForPersistence(existing, event),
+		FirstRCAGeneratedAt:          firstRCAGeneratedAtForPersistence(existing, now),
 		MatchedAt:                    event.MatchedAt.UTC(),
 		CorrelatedAt:                 correlatedAt,
 		FirstSeen:                    cloneTimePtr(event.FirstSeen),
@@ -908,11 +1026,16 @@ func buildSkippedPublishRecord(existing models.RCARecord, hasExisting bool, even
 		record.RuleID = event.RuleID
 		record.Status = normalizeStatus(event.Status)
 		record.GroupByValues = utils.CloneStringMap(event.GroupByValues)
+		record.TriggerMatchedDocIDs = triggerMatchedDocIDsForPersistence(existing, event)
+		record.TriggerMatchedLogs = triggerEvidenceLogsForPersistence(existing, event.LogID)
 		record.MatchedLogs = evidenceLogsForPersistence(existing.MatchedLogs, event.LogID)
 		record.MatchedDocIDs = matchedDocIDsFromEvent(event)
 		record.ResultSignature = strings.TrimSpace(event.ResultSignature)
 		record.LastProcessedResultSignature = strings.TrimSpace(event.ResultSignature)
 		record.Audit = cloneAudit(event.Audit)
+		record.FirstMatchedAt = firstMatchedAtForPersistence(existing, event)
+		record.FirstCorrelatedAt = firstCorrelatedAtForPersistence(existing, event)
+		record.FirstRCAGeneratedAt = firstRCAGeneratedAtForPersistence(existing, now)
 		record.CorrelatedAt = correlationTimeForPersistence(existing.CorrelatedAt, event.CorrelatedAt)
 		record.RCAGeneratedAt = now
 		record.UpdatedAt = now
@@ -973,11 +1096,16 @@ func updateClosedRecord(existing models.RCARecord, hasExisting bool, event model
 	}
 	record.RuleID = event.RuleID
 	record.GroupByValues = utils.CloneStringMap(event.GroupByValues)
+	record.TriggerMatchedDocIDs = triggerMatchedDocIDsForPersistence(existing, event)
+	record.TriggerMatchedLogs = triggerEvidenceLogsForPersistence(existing, event.LogID)
 	record.MatchedLogs = evidenceLogsForPersistence(existing.MatchedLogs, event.LogID)
 	record.MatchedDocIDs = matchedDocIDsFromEvent(event)
 	record.ResultSignature = strings.TrimSpace(event.ResultSignature)
 	record.LastProcessedResultSignature = strings.TrimSpace(event.ResultSignature)
 	record.Audit = cloneAudit(event.Audit)
+	record.FirstMatchedAt = firstMatchedAtForPersistence(existing, event)
+	record.FirstCorrelatedAt = firstCorrelatedAtForPersistence(existing, event)
+	record.FirstRCAGeneratedAt = firstRCAGeneratedAtForPersistence(existing, now)
 	record.CorrelatedAt = correlationTimeForPersistence(existing.CorrelatedAt, event.CorrelatedAt)
 	record.RCAGeneratedAt = now
 	record.UpdatedAt = now
@@ -1029,12 +1157,83 @@ func matchedDocIDsFromEvent(event models.CorrelationEvent) []string {
 	return utils.UniqueStrings(ids)
 }
 
+func triggerMatchedDocIDsForPersistence(existing models.RCARecord, event models.CorrelationEvent) []string {
+	if ids := normalizeDocIDs(existing.TriggerMatchedDocIDs); len(ids) > 0 {
+		return ids
+	}
+	if ids := evidenceDocIDs(existing.TriggerMatchedLogs); len(ids) > 0 {
+		return ids
+	}
+	if ids := normalizeDocIDs(existing.MatchedDocIDs); len(ids) > 0 {
+		return ids
+	}
+	if ids := evidenceDocIDs(existing.MatchedLogs); len(ids) > 0 {
+		return ids
+	}
+	return matchedDocIDsFromEvent(event)
+}
+
+func normalizeDocIDs(values []string) []string {
+	ids := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			ids = append(ids, trimmed)
+		}
+	}
+	return utils.UniqueStrings(ids)
+}
+
+func evidenceDocIDs(values []models.EvidenceLog) []string {
+	ids := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value.ID); trimmed != "" {
+			ids = append(ids, trimmed)
+		}
+	}
+	return utils.UniqueStrings(ids)
+}
+
+func triggerEvidenceLogsForPersistence(existing models.RCARecord, incoming []models.EvidenceLog) []models.EvidenceLog {
+	base := existing.TriggerMatchedLogs
+	if len(base) == 0 {
+		base = existing.MatchedLogs
+	}
+	if len(base) == 0 {
+		if len(existing.TriggerMatchedDocIDs) > 0 || len(existing.MatchedDocIDs) > 0 {
+			return nil
+		}
+		return evidenceLogsForPersistence(nil, incoming)
+	}
+	return preserveEvidenceSnapshot(base, incoming)
+}
+
 func cloneTimePtr(input *time.Time) *time.Time {
 	if input == nil {
 		return nil
 	}
 	value := input.UTC()
 	return &value
+}
+
+func firstMatchedAtForPersistence(existing models.RCARecord, event models.CorrelationEvent) time.Time {
+	return firstNonZeroTime(existing.FirstMatchedAt, existing.MatchedAt, event.MatchedAt)
+}
+
+func firstCorrelatedAtForPersistence(existing models.RCARecord, event models.CorrelationEvent) time.Time {
+	return firstNonZeroTime(existing.FirstCorrelatedAt, existing.CorrelatedAt, event.CorrelatedAt)
+}
+
+func firstRCAGeneratedAtForPersistence(existing models.RCARecord, now time.Time) time.Time {
+	return firstNonZeroTime(existing.FirstRCAGeneratedAt, existing.RCAGeneratedAt, existing.UpdatedAt, now)
+}
+
+func firstNonZeroTime(values ...time.Time) time.Time {
+	for _, value := range values {
+		if !value.IsZero() {
+			return value.UTC()
+		}
+	}
+	return time.Time{}
 }
 
 func cloneAudit(audit *models.MatchAudit) *models.MatchAudit {
@@ -1106,12 +1305,74 @@ func evidenceLogsForPersistence(existing []models.EvidenceLog, incoming []models
 	return merged
 }
 
+func preserveEvidenceSnapshot(existing []models.EvidenceLog, incoming []models.EvidenceLog) []models.EvidenceLog {
+	if len(existing) == 0 {
+		return evidenceLogsForPersistence(nil, incoming)
+	}
+	if len(incoming) == 0 {
+		return normalizeEvidenceLogs(existing)
+	}
+
+	incomingByID := make(map[string]models.EvidenceLog, len(incoming))
+	for _, entry := range incoming {
+		normalized := normalizeEvidenceLog(entry)
+		docID := strings.TrimSpace(normalized.ID)
+		if docID == "" {
+			continue
+		}
+		incomingByID[docID] = normalized
+	}
+
+	result := make([]models.EvidenceLog, len(existing))
+	for idx, entry := range existing {
+		normalized := normalizeEvidenceLog(entry)
+		docID := strings.TrimSpace(normalized.ID)
+		if incomingEntry, ok := incomingByID[docID]; ok {
+			normalized = fillMissingEvidenceFields(normalized, incomingEntry)
+		}
+		result[idx] = normalized
+	}
+	return result
+}
+
 func normalizeEvidenceLogs(input []models.EvidenceLog) []models.EvidenceLog {
 	cloned := cloneEvidenceLogs(input)
 	for idx := range cloned {
 		cloned[idx] = normalizeEvidenceLog(cloned[idx])
 	}
 	return cloned
+}
+
+func fillMissingEvidenceFields(current models.EvidenceLog, incoming models.EvidenceLog) models.EvidenceLog {
+	filled := current
+	if filled.Severity == "" {
+		filled.Severity = incoming.Severity
+	}
+	if filled.SourceIndex == "" {
+		filled.SourceIndex = incoming.SourceIndex
+	}
+	if filled.Signal == "" {
+		filled.Signal = incoming.Signal
+	}
+	if filled.Timestamp.IsZero() && !incoming.Timestamp.IsZero() {
+		filled.Timestamp = incoming.Timestamp.UTC()
+	}
+	if filled.SignalizedAt.IsZero() && !incoming.SignalizedAt.IsZero() {
+		filled.SignalizedAt = incoming.SignalizedAt.UTC()
+	}
+	if filled.ServiceName == "" {
+		filled.ServiceName = incoming.ServiceName
+	}
+	if filled.HostName == "" {
+		filled.HostName = incoming.HostName
+	}
+	if filled.HostIP == "" {
+		filled.HostIP = incoming.HostIP
+	}
+	if len(filled.HostIPs) == 0 && len(incoming.HostIPs) > 0 {
+		filled.HostIPs = append([]string(nil), incoming.HostIPs...)
+	}
+	return filled
 }
 
 func normalizeEvidenceLog(entry models.EvidenceLog) models.EvidenceLog {
@@ -1296,6 +1557,14 @@ func publishIncidentID(event models.CorrelationEvent) string {
 	return strings.TrimSpace(event.ResultSignature)
 }
 
+func processedEventRef(event models.CorrelationEvent) models.CorrelationEventRef {
+	return models.CorrelationEventRef{
+		DocumentID:      strings.TrimSpace(event.DocumentID),
+		DocumentIndex:   strings.TrimSpace(event.DocumentIndex),
+		ResultSignature: strings.TrimSpace(event.ResultSignature),
+	}
+}
+
 func appendReason(reasons []string, reason string) []string {
 	trimmed := strings.TrimSpace(reason)
 	if trimmed == "" {
@@ -1307,4 +1576,63 @@ func appendReason(reasons []string, reason string) []string {
 		}
 	}
 	return append(reasons, trimmed)
+}
+
+func incidentIDsFromEvents(events []models.CorrelationEvent) []string {
+	if len(events) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(events))
+	incidentIDs := make([]string, 0, len(events))
+	for _, event := range events {
+		incidentID := strings.TrimSpace(event.IncidentID)
+		if incidentID == "" {
+			continue
+		}
+		if _, ok := seen[incidentID]; ok {
+			continue
+		}
+		seen[incidentID] = struct{}{}
+		incidentIDs = append(incidentIDs, incidentID)
+	}
+	sort.Strings(incidentIDs)
+	return incidentIDs
+}
+
+func markDirtyIncident(destination map[string]struct{}, incidentID string) {
+	if destination == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(incidentID)
+	if trimmed == "" {
+		return
+	}
+	destination[trimmed] = struct{}{}
+}
+
+func markDirtyIncidents(destination map[string]struct{}, records map[string]models.RCARecord) {
+	for incidentID := range records {
+		markDirtyIncident(destination, incidentID)
+	}
+}
+
+func recordsForIncidentIDs(recordsByIncident map[string]models.RCARecord, incidentIDs map[string]struct{}) []models.RCARecord {
+	if len(recordsByIncident) == 0 || len(incidentIDs) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(incidentIDs))
+	for incidentID := range incidentIDs {
+		if _, ok := recordsByIncident[incidentID]; ok {
+			keys = append(keys, incidentID)
+		}
+	}
+	sort.Strings(keys)
+
+	records := make([]models.RCARecord, 0, len(keys))
+	for _, incidentID := range keys {
+		records = append(records, recordsByIncident[incidentID])
+	}
+	return records
 }

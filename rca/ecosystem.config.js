@@ -1,7 +1,7 @@
-const signalizingInstances = Number(process.env.SIGNALIZING_INSTANCES || 7);
+const signalizingInstances = Number(process.env.SIGNALIZING_INSTANCES || 10);
 const signalizingModulePartitions = signalizingInstances;
-const correlationInstances = Number(process.env.CORRELATION_INSTANCES || 7);
-const logRcaInstances = Number(process.env.LOG_RCA_INSTANCES || process.env.RCA_ENGINE_INSTANCES || 7);
+const correlationInstances = Number(process.env.CORRELATION_INSTANCES || 10);
+const logRcaInstances = Number(process.env.LOG_RCA_INSTANCES || process.env.RCA_ENGINE_INSTANCES || 10);
 
 const directStreamApps = [
   {

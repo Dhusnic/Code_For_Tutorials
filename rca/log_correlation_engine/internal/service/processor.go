@@ -24,6 +24,7 @@ import (
 
 type OrganizationStore interface {
 	ListOrganizations(ctx context.Context) ([]string, error)
+	LoadSignalEventsWindow(ctx context.Context, since time.Time) ([]models.FullLog, error)
 	LoadSignalPayload(ctx context.Context, organization string) ([]byte, error)
 	SaveSignalLogs(ctx context.Context, organization string, logs []models.SignalLog) error
 	DeleteSignalLogs(ctx context.Context, organization string) error
@@ -34,6 +35,10 @@ type OrganizationStore interface {
 	ListActiveIncidents(ctx context.Context, organization string) ([]models.IncidentState, error)
 	SaveIncident(ctx context.Context, state *models.IncidentState, ttl time.Duration) error
 	DeleteIncident(ctx context.Context, organization, incidentID string) error
+}
+
+type SignalActivityStore interface {
+	CountSignalEventsWindowForSignals(ctx context.Context, since time.Time, signalKeys []string) (map[string]int, error)
 }
 
 type CheckpointStore interface {
@@ -111,21 +116,23 @@ type Dependencies struct {
 }
 
 type Processor struct {
-	config      config.Config
-	store       OrganizationStore
-	distributed DistributedStore
-	checkpoints CheckpointStore
-	fetcher     LogFetcher
-	engine      Correlator
-	rules       RuleProvider
-	writer      ResultWriter
-	autoscaler  *autoscaling.Controller
-	logger      *slog.Logger
-	workerID    string
-	consumer    string
-	now         func() time.Time
-	prefetchMu  sync.Mutex
-	prefetching bool
+	config                 config.Config
+	store                  OrganizationStore
+	distributed            DistributedStore
+	checkpoints            CheckpointStore
+	fetcher                LogFetcher
+	engine                 Correlator
+	rules                  RuleProvider
+	writer                 ResultWriter
+	autoscaler             *autoscaling.Controller
+	logger                 *slog.Logger
+	workerID               string
+	consumer               string
+	now                    func() time.Time
+	prefetchMu             sync.Mutex
+	prefetching            bool
+	workerHeartbeatMu      sync.Mutex
+	workerHeartbeatStarted bool
 }
 
 type CycleSummary struct {
@@ -268,7 +275,16 @@ func NewProcessor(deps Dependencies) *Processor {
 func (p *Processor) RunCycle(ctx context.Context) error {
 	started := p.now().UTC()
 
+	if p.config.Distributed.Enabled {
+		if err := p.ensurePersistentDistributedWorkerHeartbeat(ctx); err != nil {
+			return fmt.Errorf("heartbeat distributed worker %s: %w", p.workerID, err)
+		}
+	}
+
 	rules := p.rules.GetRules()
+	if p.config.Engine.InputMode == "redis_stream" {
+		return p.runRedisStreamCycle(ctx, started, rules)
+	}
 	if p.config.Distributed.Enabled {
 		return p.runDistributedCycle(ctx, started, rules)
 	}
@@ -575,6 +591,9 @@ func (p *Processor) buildIncidentAction(organization string, result *models.Corr
 	if result == nil {
 		return incidentAction{}, false, fmt.Errorf("result cannot be nil")
 	}
+	if strings.TrimSpace(result.OrganizationID) == "" {
+		result.OrganizationID = strings.TrimSpace(organization)
+	}
 
 	incidentKey, err := models.BuildIncidentID(organization, result.RuleID, result.GroupByValues)
 	if err != nil {
@@ -702,7 +721,7 @@ func (p *Processor) buildRecoveryClosures(
 				continue
 			}
 
-			groupByValues := utils.ExtractGroupByValues(log.Metadata, rule.GroupBy)
+			groupByValues := utils.ExtractGroupByValues(log.Metadata, p.resolvedGroupByFields(rule))
 			incidentKey, err := models.BuildIncidentID(organization, rule.ID, groupByValues)
 			if err != nil {
 				return nil, err
@@ -713,6 +732,9 @@ func (p *Processor) buildRecoveryClosures(
 				return nil, err
 			}
 			if !exists || normalizeIncidentState(state.Status) == "closed" {
+				continue
+			}
+			if !state.LastSeen.IsZero() && log.Timestamp.Before(state.LastSeen.UTC()) {
 				continue
 			}
 			incidentID := state.IncidentID
@@ -1113,6 +1135,16 @@ func filterRulesByOrg(rules []models.Rule, orgID string) []models.Rule {
 		}
 	}
 	return result
+}
+
+func (p *Processor) resolvedGroupByFields(rule models.Rule) []string {
+	if len(p.config.Engine.GroupByFields) > 0 {
+		return append([]string(nil), p.config.Engine.GroupByFields...)
+	}
+	if len(rule.GroupBy) == 0 {
+		return nil
+	}
+	return append([]string(nil), rule.GroupBy...)
 }
 
 func (p *Processor) lookbackWindow(rules []models.Rule) time.Duration {
@@ -1954,6 +1986,55 @@ func (p *Processor) distributedMetadataTTL() time.Duration {
 		return leaseTTL
 	}
 	return ttl
+}
+
+func (p *Processor) ensurePersistentDistributedWorkerHeartbeat(ctx context.Context) error {
+	if !p.config.Distributed.Enabled || p.distributed == nil || strings.TrimSpace(p.workerID) == "" {
+		return nil
+	}
+	if err := p.heartbeatDistributedWorker(ctx); err != nil {
+		return err
+	}
+	if p.config.Distributed.LeaseHeartbeatInterval <= 0 {
+		return nil
+	}
+
+	p.workerHeartbeatMu.Lock()
+	defer p.workerHeartbeatMu.Unlock()
+	if p.workerHeartbeatStarted {
+		return nil
+	}
+	p.workerHeartbeatStarted = true
+
+	go p.runPersistentDistributedWorkerHeartbeat()
+	return nil
+}
+
+func (p *Processor) runPersistentDistributedWorkerHeartbeat() {
+	interval := p.config.Distributed.LeaseHeartbeatInterval
+	if interval <= 0 {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		timeout := p.config.Redis.WriteTimeout
+		if timeout <= 0 || timeout > interval {
+			timeout = interval
+		}
+		heartbeatCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		err := p.heartbeatDistributedWorker(heartbeatCtx)
+		cancel()
+		if err != nil {
+			p.logger.Warn(
+				"distributed worker heartbeat failed",
+				"worker_id", p.workerID,
+				"error", err,
+			)
+		}
+	}
 }
 
 func partitionRulesByExecutionMode(rules []models.Rule) ruleExecutionBuckets {

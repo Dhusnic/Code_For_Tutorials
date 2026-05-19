@@ -435,23 +435,7 @@ func (s *Store) ReadSignalStream(ctx context.Context, lastID string) ([]models.S
 }
 
 func (s *Store) TrimSignalStream(ctx context.Context, minID string) (int64, error) {
-	if !s.signalStreamEnabled {
-		return 0, nil
-	}
-
-	trimMinID := strings.TrimSpace(minID)
-	if trimMinID == "" {
-		return 0, nil
-	}
-
-	trimmed, err := s.client.XTrimMinIDApprox(ctx, s.signalStreamKey, trimMinID, 0).Result()
-	if errors.Is(err, goredis.Nil) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("trim redis signal stream %s before %s: %w", s.signalStreamKey, trimMinID, err)
-	}
-	return trimmed, nil
+	return s.trimSignalStreamKeys(ctx, minID, []string{s.signalStreamKey})
 }
 
 func SignalPayloadSignature(payload []byte) string {

@@ -89,6 +89,7 @@ if ($Rebuild) {
 }
 
 $pathsToCopy = @(
+    "ca-cert",
     "ecosystem.config.js",
     "rebuild_all.ps1",
     "rebuild_all.sh",

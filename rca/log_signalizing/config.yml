@@ -7,7 +7,7 @@
 elasticsearch:
   # Elasticsearch node URLs used by the reader and writer clients.
   hosts:
-    - "http://10.0.4.132:9200"
+    - "http://10.0.5.60:9200"
   # Basic auth username for Elasticsearch.
   username: "elastic"
   # Basic auth password for Elasticsearch.
@@ -41,6 +41,60 @@ logging:
   # Log unmatched events at debug-level details; can create high log volume.
   log_unmatched_events: false
 
+input:
+  # Primary source for incoming logs.
+  source: "elasticsearch"  # elasticsearch | kafka
+
+kafka:
+  # Kafka brokers used when input.source=kafka.
+  brokers:
+    - "10.0.4.203:9092"
+  # Topic to consume from.
+  topic: "linux-logs"
+  # Consumer group shared by signalizing workers.
+  group_id: "signalizing-engine-v2"
+  # Client identifier visible in Kafka broker logs.
+  client_id: "signalizing-engine"
+  # Where to start when no committed offset exists.
+  start_offset: "earliest"  # earliest | latest
+  # Max messages pulled into one processing cycle.
+  batch_size: 500
+  # Max time one cycle waits for a Kafka batch before returning.
+  read_batch_timeout_seconds: "2s"
+  # Broker fetch wait target.
+  max_wait_seconds: "1s"
+  # Consumer group session timeout.
+  session_timeout_seconds: "45s"
+  # Consumer rebalance timeout.
+  rebalance_timeout_seconds: "60s"
+  # Consumer heartbeat interval.
+  heartbeat_interval_seconds: "3s"
+  # Kafka fetch size tuning.
+  min_bytes: 1
+  max_bytes: "8MB"
+  # Commit retry attempts after Elasticsearch and Redis processing succeed.
+  commit_retries: 3
+  # Elasticsearch source index used for Kafka-origin raw events when source_index_field is empty.
+  source_index: "linux-logs"
+  # Event field that tells the signalizing engine which original Elasticsearch index to update.
+  source_index_field: "source_rca_index"
+  # Prefix used when building deterministic document IDs from topic/partition/offset.
+  document_id_prefix: "kafka"
+  # Event field where Kafka metadata is attached.
+  metadata_field: "kafka"
+  # Event field where raw text payload is preserved when message body is not a JSON object.
+  event_original_field: "event.original"
+  # When true, unmatched Kafka events are still indexed into Elasticsearch source_index.
+  index_unmatched_events: false
+  # Transport security.
+  security_protocol: "SASL_SSL"
+  sasl_mechanism: "SCRAM-SHA-512"
+  username: "dnsadmin"
+  password: "dnsadmin@123"
+  tls_enabled: true
+  insecure_skip_verify: true
+  ca_file: "../ca-cert"
+
 signal_stream:
   # Publish compact signal events into Redis so downstream correlation can ingest them directly.
   enabled: true
@@ -54,6 +108,10 @@ signal_stream:
   stream_key: "Rca:signalized_log_events"
   max_len: 100000
   organization_field: "event.organization"
+  # Prevent duplicate Redis stream entries when Kafka redelivers or a worker retries after partial success.
+  publish_dedup_enabled: true
+  publish_dedup_ttl_seconds: "24h"
+  publish_dedup_key_prefix: "rca:signal_stream:dedupe:"
 
 # Root directory containing rule files.
 rules_directory: "rules"
@@ -81,8 +139,8 @@ rule_learning:
   level: "critical"
 
 pipeline:
-  # Max events read per ES search page and primary action-batch cap by count.
-  batch_size: 2000
+  # Max events read per Kafka cycle or ES search page, and primary action-batch cap by count.
+  batch_size: 500
   # Secondary action-batch cap by payload size (controls RAM usage per flush).
   bulk_max_batch_bytes: "8MB"
 
@@ -129,7 +187,7 @@ pipeline:
   # Batch mode:
   # - static: always uses batch_size
   # - dynamic: estimates from recent event rate
-  batch_size_mode: "dynamic"  # static | dynamic
+  batch_size_mode: "static"  # static | dynamic
   # Dynamic mode minimum page size.
   dynamic_batch_min_size: 500
   # Dynamic mode maximum page size.
@@ -155,7 +213,7 @@ pipeline:
   autoscaling_lag_scale_down_seconds: "10s"
 
   # Sleep time between full processing cycles.
-  poll_interval_seconds: "10s"
+  poll_interval_seconds: "0s"
   # Event timestamp field used for ordering and lag calculation.
   timestamp_field: "@timestamp"
   # Elasticsearch DSL start time for global reads (kept as ES DSL string).
@@ -198,10 +256,10 @@ pipeline:
       rule_file: "services/nginx.yml"
       # Source indices for this service (overrides pipeline.source_indices).
       source_indices:
-        - "*"
+        - "linux*"
       # Elasticsearch DSL start time for this service only.
       start_time: "now-1m"
-      # Elasticsearch query filter to scope service events.
+      # Query filter scopes Elasticsearch reads and also routes Kafka events to this service.
       query:
         term:
           event.module: "nginx"
@@ -210,7 +268,7 @@ pipeline:
       enabled: true
       rule_file: "services/rabbitmq.yml"
       source_indices:
-        - "*"
+        - "linux*"
       start_time: "now-1m"
       query:
         term:
@@ -220,7 +278,7 @@ pipeline:
       enabled: true
       rule_file: "services/mongodb.yml"
       source_indices:
-        - "*"
+        - "linux*"
       start_time: "now-1m"
       query:
         term:
@@ -230,7 +288,7 @@ pipeline:
       enabled: true
       rule_file: "services/redis.yml"
       source_indices:
-        - "*"
+        - "linux*"
       start_time: "now-1m"
       query:
         term:
@@ -240,7 +298,7 @@ pipeline:
       enabled: true
       rule_file: "services/kafka.yml"
       source_indices:
-        - "*"
+        - "linux*"
       start_time: "now-1m"
       query:
         term:
@@ -250,7 +308,7 @@ pipeline:
       enabled: true
       rule_file: "services/postgres.yml"
       source_indices:
-        - "*"
+        - "linux*"
       start_time: "now-1m"
       query:
         term:
@@ -260,7 +318,7 @@ pipeline:
       enabled: true
       rule_file: "services/system.yml"
       source_indices:
-        - "*"
+        - "linux*"
       start_time: "now-1m"
       query:
         bool:
@@ -288,7 +346,7 @@ pipeline:
       enabled: true
       rule_file: "services/auth.yml"
       source_indices:
-        - "*"
+        - "linux*"
       start_time: "now-1m"
       query:
         bool:
@@ -306,7 +364,7 @@ pipeline:
           minimum_should_match: 1
 
     - name: "network"
-      enabled: true
+      enabled: false
       rule_file: "services/network.yml"
       source_indices:
         - "network-*"

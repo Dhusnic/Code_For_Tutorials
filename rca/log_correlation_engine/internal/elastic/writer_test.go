@@ -53,6 +53,9 @@ func TestWriterWriteResultsAlsoIndexesCurrentIncidentDocument(t *testing.T) {
 	}
 
 	now := time.Date(2026, time.April, 12, 9, 0, 0, 0, time.UTC)
+	firstSeen := now.Add(-2 * time.Minute)
+	lastSeen := now.Add(-time.Minute)
+	correlatedAt := now.Add(30 * time.Second)
 	result := &models.CorrelationResult{
 		SchemaVersion:   2,
 		DocumentID:      "history-doc-1",
@@ -60,9 +63,38 @@ func TestWriterWriteResultsAlsoIndexesCurrentIncidentDocument(t *testing.T) {
 		OrganizationID:  "org-1",
 		RuleID:          "rule-1",
 		Status:          "open",
+		FirstSeen:       &firstSeen,
+		LastSeen:        &lastSeen,
+		GroupByValues:   map[string]string{"host.ip": "10.0.4.72"},
 		ResultSignature: "sig-1",
 		MatchedAt:       now,
-		LogID:           []models.ResultLog{{ID: "doc-1"}},
+		CorrelatedAt:    correlatedAt,
+		LogID: []models.ResultLog{{
+			ID:           "doc-1",
+			SourceIndex:  "logs-a",
+			SignalizedAt: now.Add(-15 * time.Second),
+		}},
+		Audit: &models.MatchAudit{
+			RuleType:            "sequence",
+			Window:              "30m",
+			MaxGapBetweenSteps:  "5m",
+			GroupBy:             []string{"host.ip"},
+			GroupByValues:       map[string]string{"host.ip": "10.0.4.72"},
+			RequiredMetadata:    map[string]string{"event.module": "system"},
+			NegativeSignals:     []string{"signal-clear"},
+			DeduplicationKey:    []string{"host.ip"},
+			DeduplicationWindow: "10m",
+			MatchedLogIDs:       []string{"doc-1"},
+			MatchedSignals:      []string{"signal-a"},
+			Steps: []models.MatchStepAudit{{
+				StepIndex:     0,
+				SignalKey:     "signal-a",
+				RequiredCount: 1,
+				MatchedCount:  1,
+				Within:        "5m",
+				MatchedLogIDs: []string{"doc-1"},
+			}},
+		},
 	}
 
 	errorsByIndex := writer.WriteResults(context.Background(), []*models.CorrelationResult{result})
@@ -78,11 +110,38 @@ func TestWriterWriteResultsAlsoIndexesCurrentIncidentDocument(t *testing.T) {
 	if !strings.Contains(calls[0].body, `"history-doc-1"`) {
 		t.Fatalf("expected history document id in first bulk body, got %s", calls[0].body)
 	}
+	if !strings.Contains(calls[0].body, `"is_processed":0`) {
+		t.Fatalf("expected history document to be marked unprocessed, got %s", calls[0].body)
+	}
+	if strings.Contains(calls[0].body, `"schema_version"`) {
+		t.Fatalf("expected compact history payload without schema_version, got %s", calls[0].body)
+	}
+	if strings.Contains(calls[0].body, `"rule_type"`) || strings.Contains(calls[0].body, `"group_by"`) || strings.Contains(calls[0].body, `"required_metadata"`) || strings.Contains(calls[0].body, `"deduplication_key"`) || strings.Contains(calls[0].body, `"deduplication_window"`) || strings.Contains(calls[0].body, `"step_index"`) || strings.Contains(calls[0].body, `"signal_key"`) {
+		t.Fatalf("expected unused audit fields to be removed from history payload, got %s", calls[0].body)
+	}
+	if !strings.Contains(calls[0].body, `"correlated_at":"2026-04-12T09:00:30Z"`) {
+		t.Fatalf("expected correlated_at in history payload, got %s", calls[0].body)
+	}
+	if strings.Contains(calls[0].body, `"signalized_at"`) {
+		t.Fatalf("expected signalized_at to be removed from history payload, got %s", calls[0].body)
+	}
 	if !strings.Contains(calls[1].path, "/rca_correlated_incidents_current/_bulk") {
 		t.Fatalf("expected current bulk request second, got %s", calls[1].path)
 	}
 	if !strings.Contains(calls[1].body, `"incident-1"`) {
 		t.Fatalf("expected incident id in current bulk body, got %s", calls[1].body)
+	}
+	if !strings.Contains(calls[1].body, `"is_processed":0`) {
+		t.Fatalf("expected current document to be marked unprocessed, got %s", calls[1].body)
+	}
+	if strings.Contains(calls[1].body, `"schema_version"`) || strings.Contains(calls[1].body, `"rule_type"`) || strings.Contains(calls[1].body, `"group_by"`) || strings.Contains(calls[1].body, `"required_metadata"`) || strings.Contains(calls[1].body, `"deduplication_key"`) || strings.Contains(calls[1].body, `"deduplication_window"`) || strings.Contains(calls[1].body, `"step_index"`) || strings.Contains(calls[1].body, `"signal_key"`) {
+		t.Fatalf("expected compact current payload without removed fields, got %s", calls[1].body)
+	}
+	if !strings.Contains(calls[1].body, `"correlated_at":"2026-04-12T09:00:30Z"`) {
+		t.Fatalf("expected correlated_at in current payload, got %s", calls[1].body)
+	}
+	if strings.Contains(calls[1].body, `"signalized_at"`) {
+		t.Fatalf("expected signalized_at to be removed from current payload, got %s", calls[1].body)
 	}
 }
 
@@ -126,6 +185,7 @@ func TestWriterWriteResultsCanSkipHistoryIndexAndOnlyWriteCurrent(t *testing.T) 
 	}
 
 	now := time.Date(2026, time.April, 12, 9, 0, 0, 0, time.UTC)
+	correlatedAt := now.Add(45 * time.Second)
 	result := &models.CorrelationResult{
 		SchemaVersion:   2,
 		DocumentID:      "history-doc-1",
@@ -135,7 +195,8 @@ func TestWriterWriteResultsCanSkipHistoryIndexAndOnlyWriteCurrent(t *testing.T) 
 		Status:          "open",
 		ResultSignature: "sig-1",
 		MatchedAt:       now,
-		LogID:           []models.ResultLog{{ID: "doc-1"}},
+		CorrelatedAt:    correlatedAt,
+		LogID:           []models.ResultLog{{ID: "doc-1", SignalizedAt: now.Add(-time.Second)}},
 	}
 
 	errorsByIndex := writer.WriteResults(context.Background(), []*models.CorrelationResult{result})
@@ -150,5 +211,17 @@ func TestWriterWriteResultsCanSkipHistoryIndexAndOnlyWriteCurrent(t *testing.T) 
 	}
 	if !strings.Contains(calls[0].body, `"incident-1"`) {
 		t.Fatalf("expected incident id in current bulk body, got %s", calls[0].body)
+	}
+	if !strings.Contains(calls[0].body, `"is_processed":0`) {
+		t.Fatalf("expected current document to be marked unprocessed, got %s", calls[0].body)
+	}
+	if strings.Contains(calls[0].body, `"schema_version"`) || strings.Contains(calls[0].body, `"rule_type"`) || strings.Contains(calls[0].body, `"group_by"`) {
+		t.Fatalf("expected compact current payload without removed fields, got %s", calls[0].body)
+	}
+	if !strings.Contains(calls[0].body, `"correlated_at":"2026-04-12T09:00:45Z"`) {
+		t.Fatalf("expected correlated_at in current payload, got %s", calls[0].body)
+	}
+	if strings.Contains(calls[0].body, `"signalized_at"`) {
+		t.Fatalf("expected signalized_at to be removed from current payload, got %s", calls[0].body)
 	}
 }

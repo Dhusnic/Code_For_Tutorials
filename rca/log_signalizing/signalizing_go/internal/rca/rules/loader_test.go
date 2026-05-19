@@ -136,3 +136,83 @@ rules:
 		t.Fatalf("expected 2 rules, got %d", len(loaded.Rules))
 	}
 }
+
+func TestRuleLoaderCompilesRegexFastPaths(t *testing.T) {
+	tempDir := t.TempDir()
+	rulesFile := filepath.Join(tempDir, "mongodb.yml")
+
+	content := `
+service: mongodb
+rules:
+  - id: HOST_UNREACHABLE
+    signal_key: mongodb_host_unreachable
+    level: critical
+    condition:
+      field: message
+      op: regex
+      value: "(HostUnreachable|No route to host|Network is unreachable)"
+  - id: STATUS_502
+    signal_key: nginx_502
+    level: warning
+    condition:
+      field: status_code
+      op: regex
+      value: "^502$"
+`
+	if err := os.WriteFile(rulesFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write rules file: %v", err)
+	}
+
+	loader := NewRuleLoader(tempDir)
+	loaded, err := loader.Load("mongodb", "mongodb.yml")
+	if err != nil {
+		t.Fatalf("load rules: %v", err)
+	}
+
+	if _, ok := loaded.Rules[0].Condition.(compiledCondition); !ok {
+		t.Fatalf("expected compiled condition, got %T", loaded.Rules[0].Condition)
+	}
+
+	engine := NewRuleEngine(true)
+	signals := engine.Evaluate(map[string]any{
+		"message":     "peer disconnect: Network is unreachable",
+		"status_code": 502,
+	}, loaded, 0, false)
+	if len(signals) != 2 {
+		t.Fatalf("expected 2 compiled regex matches, got %d", len(signals))
+	}
+}
+
+func TestRuleLoaderMarksVendorAwareRuleSets(t *testing.T) {
+	tempDir := t.TempDir()
+	rulesFile := filepath.Join(tempDir, "network.yml")
+
+	content := `
+service: network
+rules:
+  - id: VENDOR_RULE
+    signal_key: network_vendor_rule
+    level: critical
+    tags: [cisco, interface]
+    condition:
+      field: message
+      op: contains
+      value: down
+`
+	if err := os.WriteFile(rulesFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write rules file: %v", err)
+	}
+
+	loader := NewRuleLoader(tempDir)
+	loaded, err := loader.Load("network", "network.yml")
+	if err != nil {
+		t.Fatalf("load rules: %v", err)
+	}
+
+	if !loaded.HasVendorAwareRules {
+		t.Fatal("expected vendor-aware ruleset flag")
+	}
+	if loaded.Rules[0].Vendor != "cisco" {
+		t.Fatalf("expected compiled vendor hint, got %q", loaded.Rules[0].Vendor)
+	}
+}

@@ -108,6 +108,9 @@ type ParallelCorrelationConfig struct {
 type EngineConfig struct {
 	RulesFile             string                    `yaml:"rules_file"`
 	HotReloadInterval     time.Duration             `yaml:"hot_reload_interval"`
+	InputMode             string                    `yaml:"input_mode"`
+	InputWindow           time.Duration             `yaml:"input_window"`
+	GroupByFields         []string                  `yaml:"group_by_fields"`
 	DefaultWindow         time.Duration             `yaml:"default_window"`
 	DefaultMaxGap         time.Duration             `yaml:"default_max_gap"`
 	IncrementalLookback   time.Duration             `yaml:"incremental_lookback"`
@@ -253,6 +256,9 @@ func defaultConfig() Config {
 		Engine: EngineConfig{
 			RulesFile:             "rules/rules.json",
 			HotReloadInterval:     30 * time.Second,
+			InputMode:             "organization_payload",
+			InputWindow:           30 * time.Minute,
+			GroupByFields:         nil,
 			DefaultWindow:         30 * time.Minute,
 			DefaultMaxGap:         5 * time.Minute,
 			IncrementalLookback:   0,
@@ -321,7 +327,9 @@ func (c *Config) normalize() {
 	c.Elasticsearch.Addresses = compactStrings(c.Elasticsearch.Addresses)
 
 	c.Engine.RulesFile = strings.TrimSpace(c.Engine.RulesFile)
+	c.Engine.InputMode = strings.ToLower(strings.TrimSpace(c.Engine.InputMode))
 	c.Engine.CheckpointDirectory = strings.TrimSpace(c.Engine.CheckpointDirectory)
+	c.Engine.GroupByFields = compactStrings(c.Engine.GroupByFields)
 	c.MongoSync.URI = strings.TrimSpace(c.MongoSync.URI)
 	c.MongoSync.Database = strings.TrimSpace(c.MongoSync.Database)
 	c.MongoSync.RulesCollection = strings.TrimSpace(c.MongoSync.RulesCollection)
@@ -343,6 +351,12 @@ func (c *Config) normalize() {
 	c.Fetcher.Addresses = compactStrings(c.Fetcher.Addresses)
 	if c.Fetcher.Mode == "" {
 		c.Fetcher.Mode = "mock"
+	}
+	if c.Engine.InputMode == "" {
+		c.Engine.InputMode = "organization_payload"
+	}
+	if c.Engine.InputWindow <= 0 {
+		c.Engine.InputWindow = 30 * time.Minute
 	}
 	if c.Engine.ParallelCorrelation.MinLogs <= 0 {
 		c.Engine.ParallelCorrelation.MinLogs = 5000
@@ -586,6 +600,17 @@ func (c Config) Validate() error {
 	}
 	if c.Engine.RulesFile == "" {
 		return errors.New("engine.rules_file must not be empty")
+	}
+	switch c.Engine.InputMode {
+	case "organization_payload", "redis_stream":
+	default:
+		return fmt.Errorf("engine.input_mode %q is not supported", c.Engine.InputMode)
+	}
+	if c.Engine.InputWindow <= 0 {
+		return errors.New("engine.input_window must be greater than zero")
+	}
+	if c.Engine.InputMode == "redis_stream" && len(c.Engine.GroupByFields) == 0 {
+		return errors.New("engine.group_by_fields must contain at least one field when engine.input_mode is redis_stream")
 	}
 	if c.Engine.DefaultWindow <= 0 {
 		return errors.New("engine.default_window must be greater than zero")

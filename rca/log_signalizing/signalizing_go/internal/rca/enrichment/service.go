@@ -40,6 +40,11 @@ type BulkClient interface {
 	Bulk(actions []map[string]any) (int, []map[string]any, error)
 }
 
+// SearchClient locates source documents in Elasticsearch.
+type SearchClient interface {
+	Search(index string, body map[string]any) (map[string]any, error)
+}
+
 // SignalPublisher writes compact signal events for downstream consumers.
 type SignalPublisher interface {
 	Publish(ctx context.Context, event signalstream.Event) error
@@ -51,6 +56,7 @@ type SignalEnrichmentService struct {
 	esClient        any
 	config          config.AppConfig
 	checkpointStore checkpoints.Store
+	kafkaReader     ingest.KafkaReader
 	ruleLoader      *rules.RuleLoader
 	ruleEngine      *rules.RuleEngine
 	ruleLearner     *rulelearning.AutoRuleLearner
@@ -65,6 +71,11 @@ type workUnit struct {
 	serviceConfig config.ServiceConfig
 	ruleSet       *rules.RuleSet
 	indexName     string
+}
+
+type serviceRule struct {
+	serviceConfig config.ServiceConfig
+	ruleSet       *rules.RuleSet
 }
 
 // NewSignalEnrichmentService constructs the enrichment service.
@@ -121,8 +132,20 @@ func NewSignalEnrichmentServiceWithPublisher(
 	}
 	service.bulkWriter = bulkWriter
 
+	if strings.EqualFold(strings.TrimSpace(cfg.Input.Source), "kafka") {
+		kafkaReader, err := ingest.NewKafkaReader(cfg.Kafka)
+		if err != nil {
+			_ = service.bulkWriter.Close()
+			return nil, err
+		}
+		service.kafkaReader = kafkaReader
+	}
+
 	if err := service.validateRuntimeConfig(); err != nil {
 		_ = service.bulkWriter.Close()
+		if service.kafkaReader != nil {
+			_ = service.kafkaReader.Close()
+		}
 		return nil, err
 	}
 	return service, nil
@@ -140,6 +163,11 @@ func (s *SignalEnrichmentService) Shutdown() error {
 			return err
 		}
 	}
+	if s.kafkaReader != nil {
+		if err := s.kafkaReader.Close(); err != nil {
+			return err
+		}
+	}
 	if s.streamPublisher != nil {
 		return s.streamPublisher.Close()
 	}
@@ -148,6 +176,10 @@ func (s *SignalEnrichmentService) Shutdown() error {
 
 // RunCycle processes one full cycle across configured services and indices.
 func (s *SignalEnrichmentService) RunCycle() (int, error) {
+	if strings.EqualFold(strings.TrimSpace(s.config.Input.Source), "kafka") {
+		return s.runKafkaCycle()
+	}
+
 	cycleStarted := time.Now()
 	processed := 0
 	taken := 0
@@ -188,6 +220,264 @@ func (s *SignalEnrichmentService) RunCycle() (int, error) {
 	s.emitAutoscalingMetrics(processed, taken, maxLagSeconds, cycleSeconds)
 	s.flushRuleLearningCandidates()
 	return processed, nil
+}
+
+func (s *SignalEnrichmentService) runKafkaCycle() (int, error) {
+	if s.kafkaReader == nil {
+		return 0, fmt.Errorf("kafka reader is not configured")
+	}
+
+	cycleStarted := time.Now()
+	messages, err := s.kafkaReader.ReadBatch(context.Background(), s.kafkaBatchSize())
+	if err != nil {
+		return 0, err
+	}
+	if len(messages) == 0 {
+		return 0, nil
+	}
+
+	serviceRules := s.loadServiceRulesForKafka()
+	if len(serviceRules) == 0 {
+		s.logger.Warning("No enabled service rules loaded for Kafka processing")
+		return 0, nil
+	}
+
+	batcher := writer.NewActionBatcher(s.kafkaBatchSize(), maxInt(1, s.config.Pipeline.BulkMaxBatchBytes))
+	pendingSignals := make([]signalstream.Event, 0)
+	processed := 0
+	matchedEvents := 0
+	unmatchedEvents := 0
+	indexedUnmatchedEvents := 0
+	var latestEventAt *time.Time
+	resolvedSourceDocIDs := make(map[string]string, len(messages))
+
+	for _, message := range messages {
+		if eventTS := s.extractEventTimestamp(message.Event); eventTS != nil && (latestEventAt == nil || eventTS.After(*latestEventAt)) {
+			latestEventAt = eventTS
+		}
+
+		sourceDocumentID, err := s.resolveKafkaSourceDocumentID(message, resolvedSourceDocIDs)
+		if err != nil {
+			return processed, err
+		}
+
+		selectedService, selectedSignal := s.matchKafkaSignal(message.Event, serviceRules)
+		if selectedSignal == nil {
+			unmatchedEvents++
+			if s.shouldIndexKafkaUnmatchedEvents() {
+				action := s.actionFactory.BuildSourceUpdate(message.SourceIndex, sourceDocumentID, message.Event)
+				if flushed := batcher.Add(action); flushed != nil {
+					if err := s.enqueueActions(flushed); err != nil {
+						return processed, err
+					}
+				}
+				indexedUnmatchedEvents++
+				processed++
+			}
+			continue
+		}
+
+		matchedEvents++
+		s.ruleLearner.Observe(selectedService.Name, message.Event, selectedSignal)
+		destinationIndices := s.resolveDestinationIndices(message.SourceIndex)
+		for _, destinationIndex := range destinationIndices {
+			var action map[string]any
+			if destinationIndex == message.SourceIndex {
+				action = s.actionFactory.BuildMatchedSourceUpdate(
+					message.SourceIndex,
+					destinationIndex,
+					sourceDocumentID,
+					message.Event,
+					selectedSignal,
+				)
+			} else {
+				action = s.actionFactory.Build(
+					message.SourceIndex,
+					destinationIndex,
+					sourceDocumentID,
+					message.Event,
+					selectedSignal,
+					false,
+				)
+			}
+			if flushed := batcher.Add(action); flushed != nil {
+				if err := s.enqueueActions(flushed); err != nil {
+					return processed, err
+				}
+			}
+			processed++
+		}
+		if s.streamPublisher != nil {
+			if event, ok := s.buildSignalStreamEvent(message.SourceIndex, message.SourceID, message.Event, selectedSignal); ok {
+				pendingSignals = append(pendingSignals, event)
+			}
+		}
+	}
+
+	if remaining := batcher.FlushRemaining(); remaining != nil {
+		if err := s.enqueueActions(remaining); err != nil {
+			return processed, err
+		}
+	}
+	if err := s.bulkWriter.Drain(); err != nil {
+		return processed, err
+	}
+	for _, event := range pendingSignals {
+		if err := s.streamPublisher.Publish(context.Background(), event); err != nil {
+			return processed, err
+		}
+	}
+	if err := s.kafkaReader.Commit(context.Background(), messages); err != nil {
+		return processed, err
+	}
+
+	cycleSeconds := time.Since(cycleStarted).Seconds()
+	if cycleSeconds <= 0 {
+		cycleSeconds = 0.000001
+	}
+	lagSeconds := computeLagSeconds(latestEventAt)
+	s.emitAutoscalingMetrics(processed, len(messages), lagSeconds, cycleSeconds)
+	s.flushRuleLearningCandidates()
+	s.logger.Info(
+		"Processed Kafka batch",
+		logging.F("topic", s.config.Kafka.Topic),
+		logging.F("input_source", "kafka"),
+		logging.F("messages_taken", len(messages)),
+		logging.F("matched_events", matchedEvents),
+		logging.F("unmatched_events", unmatchedEvents),
+		logging.F("indexed_unmatched_events", indexedUnmatchedEvents),
+		logging.F("signal_events_published", len(pendingSignals)),
+		logging.F("total_processed", processed),
+		logging.F("lag_seconds", lagSeconds),
+	)
+	return processed, nil
+}
+
+func (s *SignalEnrichmentService) kafkaBatchSize() int {
+	if s.config.Kafka.BatchSize > 0 {
+		return s.config.Kafka.BatchSize
+	}
+	return maxInt(1, s.config.Pipeline.BatchSize)
+}
+
+func (s *SignalEnrichmentService) resolveKafkaSourceDocumentID(
+	message ingest.KafkaMessage,
+	cache map[string]string,
+) (string, error) {
+	cacheKey := message.SourceIndex + "::" + message.SourceID
+	if cached, ok := cache[cacheKey]; ok {
+		return cached, nil
+	}
+
+	searchClient, ok := s.esClient.(SearchClient)
+	if !ok {
+		return "", fmt.Errorf("Elasticsearch client does not implement search for Kafka source document resolution")
+	}
+
+	query := map[string]any{
+		"size":             2,
+		"track_total_hits": false,
+		"_source":          false,
+		"query": map[string]any{
+			"bool": map[string]any{
+				"should": []any{
+					map[string]any{"term": map[string]any{"source_rca_id": message.SourceID}},
+					map[string]any{"term": map[string]any{"source_rca_id.keyword": message.SourceID}},
+					map[string]any{"match_phrase": map[string]any{"source_rca_id": message.SourceID}},
+				},
+				"minimum_should_match": 1,
+			},
+		},
+		"sort": []any{
+			map[string]any{"@timestamp": map[string]any{"order": "desc", "unmapped_type": "date"}},
+			map[string]any{"_shard_doc": map[string]any{"order": "desc"}},
+		},
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		response, err := searchClient.Search(message.SourceIndex, query)
+		if err != nil {
+			lastErr = err
+		} else {
+			hitsRoot, _ := response["hits"].(map[string]any)
+			hits, _ := hitsRoot["hits"].([]any)
+			if len(hits) > 0 {
+				hit, _ := hits[0].(map[string]any)
+				documentID := strings.TrimSpace(fmt.Sprint(hit["_id"]))
+				if documentID != "" && documentID != "<nil>" {
+					if len(hits) > 1 {
+						s.logger.Warning(
+							"Multiple source documents matched source_rca_id; using the newest hit",
+							logging.F("source_index", message.SourceIndex),
+							logging.F("source_rca_id", message.SourceID),
+							logging.F("match_count", len(hits)),
+							logging.F("selected_document_id", documentID),
+						)
+					}
+					cache[cacheKey] = documentID
+					return documentID, nil
+				}
+			}
+			lastErr = fmt.Errorf(
+				"document with source_rca_id %s not found in index %s",
+				message.SourceID,
+				message.SourceIndex,
+			)
+		}
+
+		if attempt < 5 {
+			time.Sleep(time.Duration(attempt*200) * time.Millisecond)
+		}
+	}
+
+	return "", lastErr
+}
+
+func (s *SignalEnrichmentService) shouldIndexKafkaUnmatchedEvents() bool {
+	return s.config.Kafka.IndexUnmatchedEvents && s.config.Pipeline.WriteToSourceIndex
+}
+
+func (s *SignalEnrichmentService) loadServiceRulesForKafka() []serviceRule {
+	loaded := make([]serviceRule, 0)
+	for _, serviceConfig := range s.config.Pipeline.Services {
+		if !serviceConfig.Enabled {
+			continue
+		}
+
+		ruleSet, err := s.ruleLoader.Load(serviceConfig.Name, serviceConfig.RuleFile)
+		if err != nil {
+			s.logger.Exception(
+				"Failed loading rule file for Kafka service",
+				err,
+				logging.F("service", serviceConfig.Name),
+				logging.F("rule_file", serviceConfig.RuleFile),
+			)
+			continue
+		}
+		loaded = append(loaded, serviceRule{serviceConfig: serviceConfig, ruleSet: ruleSet})
+	}
+	return loaded
+}
+
+func (s *SignalEnrichmentService) matchKafkaSignal(event map[string]any, serviceRules []serviceRule) (*config.ServiceConfig, map[string]any) {
+	for _, candidate := range serviceRules {
+		if !ingest.EventMatchesQuery(event, candidate.serviceConfig.Query) {
+			continue
+		}
+		signals := s.ruleEngine.Evaluate(
+			event,
+			candidate.ruleSet,
+			s.config.Pipeline.SignalMaxPerEvent,
+			s.config.Pipeline.SignalSelectHighestOnly,
+		)
+		if len(signals) == 0 {
+			continue
+		}
+		serviceConfig := candidate.serviceConfig
+		return &serviceConfig, signals[0]
+	}
+	return nil, nil
 }
 
 func (s *SignalEnrichmentService) buildWorkUnits() []workUnit {
@@ -384,7 +674,7 @@ func (s *SignalEnrichmentService) processIndex(serviceConfig config.ServiceConfi
 							"Failed to publish compact signal event",
 							logging.F("service", serviceConfig.Name),
 							logging.F("source_index", sourceEventIndex),
-							logging.F("source_id", hit["_id"]),
+							logging.F("source_rca_id", hit["_id"]),
 							logging.F("signal", selectedSignal["signal"]),
 							logging.F("error", err.Error()),
 						)
@@ -411,7 +701,7 @@ func (s *SignalEnrichmentService) processIndex(serviceConfig config.ServiceConfi
 				"Signal added for event",
 				logging.F("service", serviceConfig.Name),
 				logging.F("source_index", sourceEventIndex),
-				logging.F("source_id", hit["_id"]),
+				logging.F("source_rca_id", hit["_id"]),
 				logging.F("target_indices", destinationIndices),
 				logging.F("log", map[string]any{"level": selectedSignal["level"]}),
 				logging.F("matched_rule_ids", []any{selectedSignal["rule_id"]}),
@@ -423,7 +713,7 @@ func (s *SignalEnrichmentService) processIndex(serviceConfig config.ServiceConfi
 				"No signals matched for event",
 				logging.F("service", serviceConfig.Name),
 				logging.F("source_index", sourceEventIndex),
-				logging.F("source_id", hit["_id"]),
+				logging.F("source_rca_id", hit["_id"]),
 				logging.F("target_indices", destinationIndices),
 				logging.F("matched_rule_ids", []any{}),
 				logging.F("signal_count", 0),
@@ -492,6 +782,7 @@ func (s *SignalEnrichmentService) validateRuntimeConfig() error {
 		"Worker partitioning initialized",
 		logging.F("worker_id", workerID),
 		logging.F("worker_count", workerCount),
+		logging.F("input_source", strings.ToLower(strings.TrimSpace(s.config.Input.Source))),
 	)
 	if s.config.Pipeline.WriteToSourceIndex && s.config.Pipeline.WriteToTargetIndex {
 		s.logger.Warning(
@@ -499,6 +790,9 @@ func (s *SignalEnrichmentService) validateRuntimeConfig() error {
 			logging.F("write_to_source_index", true),
 			logging.F("write_to_target_index", true),
 		)
+	}
+	if strings.EqualFold(strings.TrimSpace(s.config.Input.Source), "kafka") && !s.config.Pipeline.WriteToSourceIndex && !s.config.Pipeline.WriteToTargetIndex {
+		return fmt.Errorf("kafka input requires at least one of pipeline.write_to_source_index or pipeline.write_to_target_index")
 	}
 	return nil
 }
@@ -546,7 +840,6 @@ func (s *SignalEnrichmentService) buildSignalStreamEvent(
 		TimeStamp:      eventTime.UTC(),
 		SignalizedAt:   parseSelectedSignalMatchedAt(selectedSignal),
 		SourceIndex:    sourceIndex,
-		SourceID:       sourceID,
 	}, true
 }
 
@@ -999,19 +1292,19 @@ func (s *SignalEnrichmentService) sendToDeadLetter(bulkClient BulkClient, failed
 	for _, action := range failedActions {
 		doc, _ := action["doc"].(map[string]any)
 		sourceIndex := stringValue(doc["source_index"], "unknown")
-		sourceID := stringValue(doc["source_id"], "unknown")
+		sourceRCAID := stringValue(doc["source_rca_id"], "unknown")
 		targetIndex := sourceIndex + s.config.Pipeline.DeadLetterSuffix
 		dlqID := fmt.Sprintf("%v:%v:%d", action["_index"], action["_id"], now.Unix())
 		errorKey := fmt.Sprintf("%v||%v", action["_index"], action["_id"])
 		errorPayload := failedErrors[errorKey]
 		dlqDoc := map[string]any{
-			"failed_at":    nowText,
-			"reason":       "bulk_retry_exhausted",
-			"target_index": action["_index"],
-			"source_index": sourceIndex,
-			"source_id":    sourceID,
-			"error":        valueFromMap(errorPayload, "error"),
-			"status":       valueFromMap(errorPayload, "status"),
+			"failed_at":     nowText,
+			"reason":        "bulk_retry_exhausted",
+			"target_index":  action["_index"],
+			"source_index":  sourceIndex,
+			"source_rca_id": sourceRCAID,
+			"error":         valueFromMap(errorPayload, "error"),
+			"status":        valueFromMap(errorPayload, "status"),
 			"action": map[string]any{
 				"op_type": action["_op_type"],
 				"id":      action["_id"],

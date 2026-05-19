@@ -5,12 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"rca/internal/rca/logging"
+	"rca/internal/rca/util"
 )
 
 type dependencyEntry struct {
@@ -97,7 +99,11 @@ func (l *RuleLoader) loadUncached(path string, service string) (*RuleSet, error)
 	if err := validateDuplicateRuleIDs(rules, path); err != nil {
 		return nil, err
 	}
-	return &RuleSet{Service: rootService, Rules: rules}, nil
+	return &RuleSet{
+		Service:             rootService,
+		Rules:               rules,
+		HasVendorAwareRules: hasVendorAwareRules(rules),
+	}, nil
 }
 
 func (l *RuleLoader) loadRulesRecursive(path string, service string, visiting map[string]bool, stack []string) ([]SignalRule, error) {
@@ -143,8 +149,9 @@ func (l *RuleLoader) loadRulesRecursive(path string, service string, visiting ma
 			SignalKey:   fmt.Sprint(item["signal_key"]),
 			Level:       fmt.Sprint(item["level"]),
 			Description: defaultString(item["description"], fmt.Sprint(item["id"])),
-			Condition:   condition,
+			Condition:   compileConditionNode(condition),
 			Tags:        stringSlice(item["tags"]),
+			Vendor:      InferRuleVendor(stringSlice(item["tags"])),
 		})
 	}
 
@@ -375,6 +382,443 @@ func (l *RuleLoader) parseConditionNode(nodeRaw map[string]any) (ConditionNode, 
 		Value:         nodeRaw["value"],
 		CaseSensitive: boolValue(nodeRaw["case_sensitive"]),
 	}, nil
+}
+
+func compileConditionNode(node ConditionNode) ConditionNode {
+	switch typed := node.(type) {
+	case RuleCondition:
+		return compileLeafCondition(typed)
+	case *RuleCondition:
+		return compileLeafCondition(*typed)
+	case RuleConditionGroup:
+		children := make([]ConditionNode, 0, len(typed.Conditions))
+		for _, child := range typed.Conditions {
+			children = append(children, compileConditionNode(child))
+		}
+		group := compiledConditionGroup{
+			Op:         strings.ToLower(strings.TrimSpace(typed.Op)),
+			Conditions: children,
+		}
+		orderConditionGroup(&group)
+		group.MaxMatchCount = maxMatchCountForGroup(group.Op, group.Conditions)
+		group.Cost = estimatedCostForGroup(group.Op, group.Conditions)
+		return group
+	case *RuleConditionGroup:
+		return compileConditionNode(*typed)
+	default:
+		return node
+	}
+}
+
+func compileLeafCondition(condition RuleCondition) ConditionNode {
+	matcher, cost := buildValueMatcher(
+		strings.ToLower(strings.TrimSpace(condition.Op)),
+		condition.Value,
+		condition.CaseSensitive,
+	)
+	getter := buildFieldGetter(strings.TrimSpace(condition.Field))
+	return compiledCondition{
+		Field: strings.TrimSpace(condition.Field),
+		Matches: func(event map[string]any) bool {
+			return matcher(getter(event))
+		},
+		Cost: cost,
+	}
+}
+
+func buildFieldGetter(field string) func(map[string]any) any {
+	if field == "" {
+		return func(map[string]any) any { return nil }
+	}
+	if !strings.Contains(field, ".") {
+		return func(event map[string]any) any {
+			if event == nil {
+				return nil
+			}
+			return event[field]
+		}
+	}
+	parts := strings.Split(field, ".")
+	return func(event map[string]any) any {
+		return util.GetNestedPath(event, parts)
+	}
+}
+
+func buildValueMatcher(op string, value any, caseSensitive bool) (func(any) bool, int) {
+	switch op {
+	case "exists":
+		return func(left any) bool { return left != nil }, 1
+	case "equals":
+		return func(left any) bool { return valuesEqual(left, value) }, 2
+	case "not_equals":
+		return func(left any) bool { return !valuesEqual(left, value) }, 2
+	case "contains":
+		return buildContainsMatcher(value, caseSensitive), 5
+	case "not_contains":
+		base := buildContainsMatcher(value, caseSensitive)
+		return func(left any) bool { return !base(left) }, 5
+	case "regex":
+		return buildRegexValueMatcher(value, caseSensitive)
+	case "not_regex":
+		base, cost := buildRegexValueMatcher(value, caseSensitive)
+		return func(left any) bool { return !base(left) }, cost
+	case "in":
+		return buildInListMatcher(value), 2
+	case "not_in":
+		base := buildInListMatcher(value)
+		return func(left any) bool { return !base(left) }, 2
+	case "gt", "gte", "lt", "lte":
+		rightFloat, ok := asFloat(value)
+		if !ok {
+			return func(any) bool { return false }, 3
+		}
+		return func(left any) bool {
+			leftFloat, ok := asFloat(left)
+			if !ok {
+				return false
+			}
+			switch op {
+			case "gt":
+				return leftFloat > rightFloat
+			case "gte":
+				return leftFloat >= rightFloat
+			case "lt":
+				return leftFloat < rightFloat
+			default:
+				return leftFloat <= rightFloat
+			}
+		}, 3
+	default:
+		return func(any) bool { return false }, 10
+	}
+}
+
+func buildContainsMatcher(value any, caseSensitive bool) func(any) bool {
+	rightText := fmt.Sprint(value)
+	if caseSensitive {
+		return func(left any) bool {
+			if left == nil {
+				return false
+			}
+			return strings.Contains(fmt.Sprint(left), rightText)
+		}
+	}
+	needle := strings.ToLower(rightText)
+	return func(left any) bool {
+		if left == nil {
+			return false
+		}
+		return strings.Contains(strings.ToLower(fmt.Sprint(left)), needle)
+	}
+}
+
+func buildRegexValueMatcher(value any, caseSensitive bool) (func(any) bool, int) {
+	pattern := fmt.Sprint(value)
+	if exact, ok := exactRegexLiteral(pattern); ok {
+		if caseSensitive {
+			return func(left any) bool {
+				if left == nil {
+					return false
+				}
+				return fmt.Sprint(left) == exact
+			}, 2
+		}
+		return func(left any) bool {
+			if left == nil {
+				return false
+			}
+			return strings.EqualFold(fmt.Sprint(left), exact)
+		}, 2
+	}
+
+	if literals, ok := simpleAlternationLiterals(pattern); ok {
+		return buildContainsAnyMatcher(literals, caseSensitive), 4
+	}
+
+	if literal, ok := plainRegexLiteral(pattern); ok {
+		return buildContainsMatcher(literal, caseSensitive), 5
+	}
+
+	compiledPattern := pattern
+	if !caseSensitive {
+		compiledPattern = "(?i)" + compiledPattern
+	}
+	re, err := regexp.Compile(compiledPattern)
+	if err != nil {
+		return func(any) bool { return false }, 9
+	}
+	return func(left any) bool {
+		if left == nil {
+			return false
+		}
+		return re.FindStringIndex(fmt.Sprint(left)) != nil
+	}, 9
+}
+
+func buildContainsAnyMatcher(literals []string, caseSensitive bool) func(any) bool {
+	if caseSensitive {
+		values := append([]string{}, literals...)
+		return func(left any) bool {
+			if left == nil {
+				return false
+			}
+			text := fmt.Sprint(left)
+			for _, literal := range values {
+				if strings.Contains(text, literal) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	values := make([]string, 0, len(literals))
+	for _, literal := range literals {
+		values = append(values, strings.ToLower(literal))
+	}
+	return func(left any) bool {
+		if left == nil {
+			return false
+		}
+		text := strings.ToLower(fmt.Sprint(left))
+		for _, literal := range values {
+			if strings.Contains(text, literal) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func buildInListMatcher(value any) func(any) bool {
+	items, ok := value.([]any)
+	if !ok {
+		return func(any) bool { return false }
+	}
+
+	numericSet := make(map[float64]struct{})
+	exactItems := make([]any, 0, len(items))
+	for _, item := range items {
+		if numericValue, ok := asFloat(item); ok {
+			numericSet[numericValue] = struct{}{}
+			continue
+		}
+		exactItems = append(exactItems, item)
+	}
+
+	return func(left any) bool {
+		if len(numericSet) > 0 {
+			if numericValue, ok := asFloat(left); ok {
+				if _, exists := numericSet[numericValue]; exists {
+					return true
+				}
+			}
+		}
+		for _, item := range exactItems {
+			if valuesEqual(left, item) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func exactRegexLiteral(pattern string) (string, bool) {
+	if len(pattern) < 2 || pattern[0] != '^' || pattern[len(pattern)-1] != '$' {
+		return "", false
+	}
+	body := pattern[1 : len(pattern)-1]
+	if body == "" || hasRegexMeta(body) {
+		return "", false
+	}
+	return body, true
+}
+
+func plainRegexLiteral(pattern string) (string, bool) {
+	if pattern == "" || hasRegexMeta(pattern) {
+		return "", false
+	}
+	return pattern, true
+}
+
+func simpleAlternationLiterals(pattern string) ([]string, bool) {
+	body := ""
+	switch {
+	case strings.HasPrefix(pattern, "(?:") && strings.HasSuffix(pattern, ")"):
+		body = pattern[3 : len(pattern)-1]
+	case strings.HasPrefix(pattern, "(") && strings.HasSuffix(pattern, ")"):
+		body = pattern[1 : len(pattern)-1]
+	default:
+		return nil, false
+	}
+
+	parts := make([]string, 0)
+	current := strings.Builder{}
+	escaped := false
+	for _, char := range body {
+		switch {
+		case escaped:
+			return nil, false
+		case char == '\\':
+			escaped = true
+		case char == '|':
+			part := current.String()
+			if part == "" || hasRegexMeta(part) {
+				return nil, false
+			}
+			parts = append(parts, part)
+			current.Reset()
+		default:
+			current.WriteRune(char)
+		}
+	}
+	if escaped {
+		return nil, false
+	}
+	part := current.String()
+	if part == "" || hasRegexMeta(part) {
+		return nil, false
+	}
+	parts = append(parts, part)
+	return parts, true
+}
+
+func hasRegexMeta(value string) bool {
+	return strings.ContainsAny(value, `.^$*+?()[]{}\|`)
+}
+
+func orderConditionGroup(group *compiledConditionGroup) {
+	if len(group.Conditions) < 2 {
+		return
+	}
+	if group.Op == "or" {
+		sort.SliceStable(group.Conditions, func(i int, j int) bool {
+			leftMax := maxMatchCountForNode(group.Conditions[i])
+			rightMax := maxMatchCountForNode(group.Conditions[j])
+			if leftMax != rightMax {
+				return leftMax > rightMax
+			}
+			return estimatedCostForNode(group.Conditions[i]) < estimatedCostForNode(group.Conditions[j])
+		})
+		return
+	}
+	sort.SliceStable(group.Conditions, func(i int, j int) bool {
+		leftCost := estimatedCostForNode(group.Conditions[i])
+		rightCost := estimatedCostForNode(group.Conditions[j])
+		if leftCost != rightCost {
+			return leftCost < rightCost
+		}
+		return maxMatchCountForNode(group.Conditions[i]) < maxMatchCountForNode(group.Conditions[j])
+	})
+}
+
+func estimatedCostForNode(node ConditionNode) int {
+	switch typed := node.(type) {
+	case compiledCondition:
+		return typed.Cost
+	case *compiledCondition:
+		return typed.Cost
+	case compiledConditionGroup:
+		return typed.Cost
+	case *compiledConditionGroup:
+		return typed.Cost
+	case RuleCondition:
+		return fallbackLeafCost(strings.TrimSpace(typed.Field), strings.ToLower(strings.TrimSpace(typed.Op)))
+	case *RuleCondition:
+		return fallbackLeafCost(strings.TrimSpace(typed.Field), strings.ToLower(strings.TrimSpace(typed.Op)))
+	case RuleConditionGroup:
+		return estimatedCostForGroup(strings.ToLower(strings.TrimSpace(typed.Op)), typed.Conditions)
+	case *RuleConditionGroup:
+		return estimatedCostForGroup(strings.ToLower(strings.TrimSpace(typed.Op)), typed.Conditions)
+	default:
+		return 10
+	}
+}
+
+func estimatedCostForGroup(op string, children []ConditionNode) int {
+	if len(children) == 0 {
+		return 10
+	}
+	if op == "or" {
+		best := estimatedCostForNode(children[0])
+		for _, child := range children[1:] {
+			if cost := estimatedCostForNode(child); cost < best {
+				best = cost
+			}
+		}
+		return best + 1
+	}
+	total := 1
+	for _, child := range children {
+		total += estimatedCostForNode(child)
+	}
+	return total
+}
+
+func maxMatchCountForNode(node ConditionNode) int {
+	switch typed := node.(type) {
+	case compiledCondition, *compiledCondition, RuleCondition, *RuleCondition:
+		return 1
+	case compiledConditionGroup:
+		return typed.MaxMatchCount
+	case *compiledConditionGroup:
+		return typed.MaxMatchCount
+	case RuleConditionGroup:
+		return maxMatchCountForGroup(strings.ToLower(strings.TrimSpace(typed.Op)), typed.Conditions)
+	case *RuleConditionGroup:
+		return maxMatchCountForGroup(strings.ToLower(strings.TrimSpace(typed.Op)), typed.Conditions)
+	default:
+		return 0
+	}
+}
+
+func maxMatchCountForGroup(op string, children []ConditionNode) int {
+	if len(children) == 0 {
+		return 0
+	}
+	if op == "or" {
+		best := 0
+		for _, child := range children {
+			if count := maxMatchCountForNode(child); count > best {
+				best = count
+			}
+		}
+		return best
+	}
+	total := 0
+	for _, child := range children {
+		total += maxMatchCountForNode(child)
+	}
+	return total
+}
+
+func fallbackLeafCost(field string, op string) int {
+	cost := 5
+	switch op {
+	case "exists":
+		cost = 1
+	case "equals", "not_equals", "in", "not_in":
+		cost = 2
+	case "gt", "gte", "lt", "lte":
+		cost = 3
+	case "contains", "not_contains":
+		cost = 5
+	case "regex", "not_regex":
+		cost = 9
+	}
+	normalizedField := strings.ToLower(field)
+	if normalizedField == "message" || normalizedField == "msg" || strings.HasSuffix(normalizedField, ".message") || normalizedField == "event.original" {
+		cost += 2
+	}
+	return cost
+}
+
+func hasVendorAwareRules(rules []SignalRule) bool {
+	for _, rule := range rules {
+		if rule.Vendor != "" || InferRuleVendor(rule.Tags) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultString(value any, fallback string) string {

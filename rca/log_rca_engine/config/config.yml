@@ -1,16 +1,33 @@
 service_name: log-rca-engine
 
 logging:
-  level: info
+  level: debug
   format: json
 
 scheduler:
   interval: 30s
   run_timeout: 25s
 
+autoscaling:
+  enabled: true
+  input_basis: correlation_events
+  input_low_watermark: 100
+  input_high_watermark: 5000
+  scale_down_cooldown_cycles: 3
+  scheduler:
+    min_interval: 10s
+    max_interval: 90s
+    timeout_ratio: 0.9
+    target_cycle_utilization: 0.8
+    timeout_scale_up_multiplier: 1.5
+  reader:
+    min_page_size: 100
+    max_page_size: 1000
+    max_pages_per_cycle: 10
+
 elasticsearch:
   addresses:
-    - http://10.0.4.132:9200
+    - http://10.0.5.60:9200
   username: "elastic"
   password: "elastic"
   api_key: ""
@@ -22,14 +39,6 @@ elasticsearch:
 
 rules:
   file: ../../log_correlation_engine/rules/rules.json
-
-signal_catalog:
-  files:
-    - ../../log_signalizing/rules/services/*.yml
-    - ../../log_signalizing/rules/network/*.yml
-    - ../../log_signalizing/rules/network/vendors/*.yml
-    - ../../log_signalizing/rules/suggestions/*.yml
-    - ../../log_signalizing/rules/correlation/*.json
 
 topology:
   file: ../data/topology.json
@@ -49,8 +58,8 @@ mongo_sync:
   state_name: prod_rules_topology
   snapshot_collection: rca_config_snapshots
   snapshot_name: prod_rules_topology
-  use_snapshot: true
-  write_snapshot: true
+  use_snapshot: false
+  write_snapshot: false
   redis_notify:
     enabled: false
     address: 10.0.5.97:6379

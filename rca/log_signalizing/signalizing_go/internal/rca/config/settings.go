@@ -44,19 +44,58 @@ type LoggingConfig struct {
 	LogUnmatchedEvents bool
 }
 
+// InputConfig stores the primary event source selection.
+type InputConfig struct {
+	Source string
+}
+
+// KafkaConfig stores Kafka consumer settings used when input.source=kafka.
+type KafkaConfig struct {
+	Brokers                  []string
+	Topic                    string
+	GroupID                  string
+	ClientID                 string
+	StartOffset              string
+	BatchSize                int
+	ReadBatchTimeoutSeconds  float64
+	MaxWaitSeconds           float64
+	SessionTimeoutSeconds    int
+	RebalanceTimeoutSeconds  int
+	HeartbeatIntervalSeconds int
+	MinBytes                 int
+	MaxBytes                 int
+	CommitRetries            int
+	SourceIndex              string
+	SourceIndexField         string
+	DocumentIDPrefix         string
+	MetadataField            string
+	EventOriginalField       string
+	IndexUnmatchedEvents     bool
+	SecurityProtocol         string
+	SASLMechanism            string
+	Username                 *string
+	Password                 *string
+	TLSEnabled               bool
+	InsecureSkipVerify       bool
+	CAFile                   string
+}
+
 // SignalStreamConfig stores Redis stream publication settings for compact signal events.
 type SignalStreamConfig struct {
-	Enabled               bool
-	Address               string
-	Username              *string
-	Password              *string
-	DB                    int
-	DialTimeoutSeconds    int
-	ReadTimeoutSeconds    int
-	WriteTimeoutSeconds   int
-	StreamKey             string
-	MaxLen                int64
-	OrganizationFieldPath string
+	Enabled                bool
+	Address                string
+	Username               *string
+	Password               *string
+	DB                     int
+	DialTimeoutSeconds     int
+	ReadTimeoutSeconds     int
+	WriteTimeoutSeconds    int
+	StreamKey              string
+	MaxLen                 int64
+	OrganizationFieldPath  string
+	PublishDedupEnabled    bool
+	PublishDedupTTLSeconds int
+	PublishDedupKeyPrefix  string
 }
 
 // ServiceConfig stores service-specific processing settings.
@@ -139,6 +178,8 @@ type AppConfig struct {
 	Elasticsearch  ElasticsearchConfig
 	Checkpoints    CheckpointConfig
 	Logging        LoggingConfig
+	Input          InputConfig
+	Kafka          KafkaConfig
 	SignalStream   SignalStreamConfig
 	Pipeline       PipelineConfig
 	RulesDirectory string
@@ -209,6 +250,14 @@ func LoadAppConfig(path string) (AppConfig, error) {
 		return AppConfig{}, err
 	}
 	loggingRaw, err := optionalMapping(raw, "logging")
+	if err != nil {
+		return AppConfig{}, err
+	}
+	inputRaw, err := optionalMapping(raw, "input")
+	if err != nil {
+		return AppConfig{}, err
+	}
+	kafkaRaw, err := optionalMapping(raw, "kafka")
 	if err != nil {
 		return AppConfig{}, err
 	}
@@ -302,6 +351,45 @@ func LoadAppConfig(path string) (AppConfig, error) {
 	if err != nil {
 		return AppConfig{}, err
 	}
+	signalStreamDedupTTLSeconds, err := coerceSecondsInt(getOrDefault(signalStreamRaw, "publish_dedup_ttl_seconds", 86400), "signal_stream.publish_dedup_ttl_seconds", 1)
+	if err != nil {
+		return AppConfig{}, err
+	}
+	kafkaBatchTimeoutSeconds, err := coerceSecondsFloat(getOrDefault(kafkaRaw, "read_batch_timeout_seconds", 2.0), "kafka.read_batch_timeout_seconds")
+	if err != nil {
+		return AppConfig{}, err
+	}
+	kafkaMaxWaitSeconds, err := coerceSecondsFloat(getOrDefault(kafkaRaw, "max_wait_seconds", 1.0), "kafka.max_wait_seconds")
+	if err != nil {
+		return AppConfig{}, err
+	}
+	kafkaSessionTimeoutSeconds, err := coerceSecondsInt(getOrDefault(kafkaRaw, "session_timeout_seconds", 45), "kafka.session_timeout_seconds", 1)
+	if err != nil {
+		return AppConfig{}, err
+	}
+	kafkaRebalanceTimeoutSeconds, err := coerceSecondsInt(getOrDefault(kafkaRaw, "rebalance_timeout_seconds", 60), "kafka.rebalance_timeout_seconds", 1)
+	if err != nil {
+		return AppConfig{}, err
+	}
+	kafkaHeartbeatIntervalSeconds, err := coerceSecondsInt(getOrDefault(kafkaRaw, "heartbeat_interval_seconds", 3), "kafka.heartbeat_interval_seconds", 1)
+	if err != nil {
+		return AppConfig{}, err
+	}
+	kafkaMaxBytes, err := coerceSizeBytes(getOrDefault(kafkaRaw, "max_bytes", 8*1024*1024), "kafka.max_bytes")
+	if err != nil {
+		return AppConfig{}, err
+	}
+	kafkaBrokers := normalizeElasticsearchHosts(kafkaRaw["brokers"])
+	for index, broker := range kafkaBrokers {
+		kafkaBrokers[index] = strings.TrimPrefix(strings.TrimPrefix(broker, "http://"), "https://")
+	}
+	kafkaCAFile := stringify(getOrDefault(kafkaRaw, "ca_file", ""))
+	if strings.TrimSpace(kafkaCAFile) != "" {
+		kafkaCAFile, err = resolvePathFromConfig(configPath, kafkaCAFile)
+		if err != nil {
+			return AppConfig{}, err
+		}
+	}
 
 	return AppConfig{
 		Elasticsearch: ElasticsearchConfig{
@@ -326,18 +414,53 @@ func LoadAppConfig(path string) (AppConfig, error) {
 			JSON:               boolDefault(loggingRaw, "json", true),
 			LogUnmatchedEvents: boolDefault(loggingRaw, "log_unmatched_events", false),
 		},
+		Input: InputConfig{
+			Source: stringify(getOrDefault(inputRaw, "source", "elasticsearch")),
+		},
+		Kafka: KafkaConfig{
+			Brokers:                  kafkaBrokers,
+			Topic:                    stringify(getOrDefault(kafkaRaw, "topic", "")),
+			GroupID:                  stringify(getOrDefault(kafkaRaw, "group_id", "")),
+			ClientID:                 stringify(getOrDefault(kafkaRaw, "client_id", "signalizing-engine")),
+			StartOffset:              stringify(getOrDefault(kafkaRaw, "start_offset", "latest")),
+			BatchSize:                intDefault(kafkaRaw, "batch_size", intDefault(pipeRaw, "batch_size", 2000)),
+			ReadBatchTimeoutSeconds:  kafkaBatchTimeoutSeconds,
+			MaxWaitSeconds:           kafkaMaxWaitSeconds,
+			SessionTimeoutSeconds:    kafkaSessionTimeoutSeconds,
+			RebalanceTimeoutSeconds:  kafkaRebalanceTimeoutSeconds,
+			HeartbeatIntervalSeconds: kafkaHeartbeatIntervalSeconds,
+			MinBytes:                 intDefault(kafkaRaw, "min_bytes", 1),
+			MaxBytes:                 kafkaMaxBytes,
+			CommitRetries:            intDefault(kafkaRaw, "commit_retries", 3),
+			SourceIndex:              stringify(getOrDefault(kafkaRaw, "source_index", "")),
+			SourceIndexField:         stringify(getOrDefault(kafkaRaw, "source_index_field", "")),
+			DocumentIDPrefix:         stringify(getOrDefault(kafkaRaw, "document_id_prefix", "kafka")),
+			MetadataField:            stringify(getOrDefault(kafkaRaw, "metadata_field", "kafka")),
+			EventOriginalField:       stringify(getOrDefault(kafkaRaw, "event_original_field", "event.original")),
+			IndexUnmatchedEvents:     boolDefault(kafkaRaw, "index_unmatched_events", true),
+			SecurityProtocol:         stringify(getOrDefault(kafkaRaw, "security_protocol", "plaintext")),
+			SASLMechanism:            stringify(getOrDefault(kafkaRaw, "sasl_mechanism", "")),
+			Username:                 stringPointer(kafkaRaw["username"]),
+			Password:                 stringPointer(kafkaRaw["password"]),
+			TLSEnabled:               boolDefault(kafkaRaw, "tls_enabled", false),
+			InsecureSkipVerify:       boolDefault(kafkaRaw, "insecure_skip_verify", false),
+			CAFile:                   kafkaCAFile,
+		},
 		SignalStream: SignalStreamConfig{
-			Enabled:               boolDefault(signalStreamRaw, "enabled", false),
-			Address:               stringify(getOrDefault(signalStreamRaw, "address", "")),
-			Username:              stringPointer(signalStreamRaw["username"]),
-			Password:              stringPointer(signalStreamRaw["password"]),
-			DB:                    intDefault(signalStreamRaw, "db", 0),
-			DialTimeoutSeconds:    signalStreamDialTimeout,
-			ReadTimeoutSeconds:    signalStreamReadTimeout,
-			WriteTimeoutSeconds:   signalStreamWriteTimeout,
-			StreamKey:             stringify(getOrDefault(signalStreamRaw, "stream_key", "Rca:signalized_log_events")),
-			MaxLen:                int64(intDefault(signalStreamRaw, "max_len", 100000)),
-			OrganizationFieldPath: stringify(getOrDefault(signalStreamRaw, "organization_field", "event.organization")),
+			Enabled:                boolDefault(signalStreamRaw, "enabled", false),
+			Address:                stringify(getOrDefault(signalStreamRaw, "address", "")),
+			Username:               stringPointer(signalStreamRaw["username"]),
+			Password:               stringPointer(signalStreamRaw["password"]),
+			DB:                     intDefault(signalStreamRaw, "db", 0),
+			DialTimeoutSeconds:     signalStreamDialTimeout,
+			ReadTimeoutSeconds:     signalStreamReadTimeout,
+			WriteTimeoutSeconds:    signalStreamWriteTimeout,
+			StreamKey:              stringify(getOrDefault(signalStreamRaw, "stream_key", "Rca:signalized_log_events")),
+			MaxLen:                 int64(intDefault(signalStreamRaw, "max_len", 100000)),
+			OrganizationFieldPath:  stringify(getOrDefault(signalStreamRaw, "organization_field", "event.organization")),
+			PublishDedupEnabled:    boolDefault(signalStreamRaw, "publish_dedup_enabled", false),
+			PublishDedupTTLSeconds: signalStreamDedupTTLSeconds,
+			PublishDedupKeyPrefix:  stringify(getOrDefault(signalStreamRaw, "publish_dedup_key_prefix", "rca:signal_stream:dedupe:")),
 		},
 		Pipeline: PipelineConfig{
 			BatchSize:                           intDefault(pipeRaw, "batch_size", 2000),

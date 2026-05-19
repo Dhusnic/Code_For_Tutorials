@@ -26,7 +26,11 @@ type testStore struct {
 	checkpoints         map[string]models.ProcessingCheckpoint
 	incidents           map[string]models.IncidentState
 	streamEvents        []models.SignalStreamEvent
+	streamWindowLogs    []models.FullLog
+	signalWindowCounts  map[string]int
 	streamReads         int
+	streamWindowSignals []string
+	streamWindowSince   time.Time
 	streamNextID        string
 	trimCalls           int
 	trimMinIDs          []string
@@ -35,6 +39,7 @@ type testStore struct {
 	leases              map[string]string
 	fullLogCache        map[string]*models.FullLog
 	workerHeartbeats    map[string]distributed.WorkerHeartbeat
+	heartbeatWrites     int
 	runRecords          map[string]distributed.WorkloadRun
 	runStatuses         map[string]distributed.ShardState
 	runMessages         map[string]string
@@ -48,6 +53,59 @@ type testStore struct {
 
 func (s *testStore) ListOrganizations(context.Context) ([]string, error) {
 	return append([]string(nil), s.organizations...), nil
+}
+
+func (s *testStore) LoadSignalEventsWindow(_ context.Context, _ time.Time) ([]models.FullLog, error) {
+	return append([]models.FullLog(nil), s.streamWindowLogs...), nil
+}
+
+func (s *testStore) LoadSignalEventsWindowForSignals(_ context.Context, since time.Time, signalKeys []string) ([]models.FullLog, error) {
+	s.streamWindowSince = since.UTC()
+	s.streamWindowSignals = append([]string(nil), signalKeys...)
+	if len(signalKeys) == 0 {
+		return append([]models.FullLog(nil), s.streamWindowLogs...), nil
+	}
+
+	allowed := make(map[string]struct{}, len(signalKeys))
+	for _, signalKey := range signalKeys {
+		allowed[signalKey] = struct{}{}
+	}
+
+	filtered := make([]models.FullLog, 0, len(s.streamWindowLogs))
+	for _, log := range s.streamWindowLogs {
+		if _, ok := allowed[log.Signal]; ok {
+			filtered = append(filtered, log)
+		}
+	}
+	return filtered, nil
+}
+
+func (s *testStore) CountSignalEventsWindowForSignals(_ context.Context, since time.Time, signalKeys []string) (map[string]int, error) {
+	s.streamWindowSince = since.UTC()
+	s.streamWindowSignals = append([]string(nil), signalKeys...)
+	counts := make(map[string]int, len(signalKeys))
+	if len(s.signalWindowCounts) > 0 {
+		for _, signalKey := range signalKeys {
+			counts[signalKey] = s.signalWindowCounts[signalKey]
+		}
+		return counts, nil
+	}
+
+	allowed := make(map[string]struct{}, len(signalKeys))
+	for _, signalKey := range signalKeys {
+		allowed[signalKey] = struct{}{}
+	}
+
+	for _, log := range s.streamWindowLogs {
+		if !log.Timestamp.IsZero() && log.Timestamp.UTC().Before(since.UTC()) {
+			continue
+		}
+		if _, ok := allowed[log.Signal]; !ok {
+			continue
+		}
+		counts[log.Signal]++
+	}
+	return counts, nil
 }
 
 func (s *testStore) LoadSignalPayload(_ context.Context, organization string) ([]byte, error) {
@@ -145,6 +203,12 @@ func (s *testStore) AckSignalStream(_ context.Context, group string, ids []strin
 }
 
 func (s *testStore) TrimSignalStream(_ context.Context, minID string) (int64, error) {
+	s.trimCalls++
+	s.trimMinIDs = append(s.trimMinIDs, minID)
+	return 0, nil
+}
+
+func (s *testStore) TrimSignalStreams(_ context.Context, minID string, _ []string) (int64, error) {
 	s.trimCalls++
 	s.trimMinIDs = append(s.trimMinIDs, minID)
 	return 0, nil
@@ -313,6 +377,7 @@ func (s *testStore) HeartbeatWorker(_ context.Context, worker distributed.Worker
 	if s.workerHeartbeats == nil {
 		s.workerHeartbeats = make(map[string]distributed.WorkerHeartbeat)
 	}
+	s.heartbeatWrites++
 	s.workerHeartbeats[worker.WorkerID] = distributed.WorkerHeartbeat{
 		WorkerID:  worker.WorkerID,
 		UpdatedAt: worker.UpdatedAt.UTC(),
@@ -738,6 +803,173 @@ func resultFromLogs(orgID, ruleID string, logs []models.FullLog) models.Correlat
 		RuleCompletion: 1,
 		SequenceMatch:  1,
 		MatchedAt:      matchedAt,
+	}
+}
+
+func TestProcessorRedisStreamTargetsOwnedSignalsUsingRuleWindow(t *testing.T) {
+	base := time.Date(2026, time.May, 13, 10, 0, 0, 0, time.UTC)
+	store := &testStore{
+		streamWindowLogs: []models.FullLog{
+			{
+				DocID:     "doc-1",
+				Timestamp: base.Add(-11 * time.Minute),
+				Signal:    "signal-a",
+				Metadata: map[string]any{
+					"event": map[string]any{"organization": "org-1"},
+				},
+			},
+			{
+				DocID:     "doc-2",
+				Timestamp: base.Add(-8 * time.Minute),
+				Signal:    "signal-b",
+				Metadata: map[string]any{
+					"event": map[string]any{"organization": "org-1"},
+				},
+			},
+			{
+				DocID:     "doc-3",
+				Timestamp: base.Add(-7 * time.Minute),
+				Signal:    "signal-noise",
+				Metadata: map[string]any{
+					"event": map[string]any{"organization": "org-1"},
+				},
+			},
+		},
+	}
+
+	cfg := baseTestConfig()
+	cfg.Engine.InputMode = "redis_stream"
+	cfg.Engine.InputWindow = 2 * time.Minute
+	cfg.Redis.SignalStreamEnabled = true
+	cfg.Redis.SignalStreamKey = "Rca:signalized_log_events"
+
+	rules := []models.Rule{
+		{
+			ID:                 "rule-1",
+			OrganizationID:     "org-1",
+			Window:             "12m",
+			MaxGapBetweenSteps: "3m",
+			Sequence: []models.SequenceStep{
+				{SignalKey: "signal-a", Within: "5m"},
+				{SignalKey: "signal-b", Within: "4m"},
+			},
+		},
+	}
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &testFetcher{},
+		Engine: CorrelatorFunc(func(_ context.Context, _ string, _ []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			return nil, nil
+		}),
+		Rules:  &testRules{rules: rules},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+	processor.now = func() time.Time {
+		return base
+	}
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("redis stream cycle failed: %v", err)
+	}
+
+	if len(store.streamWindowSignals) != 2 {
+		t.Fatalf("expected targeted signal stream read, got %#v", store.streamWindowSignals)
+	}
+	wantSignals := []string{"signal-a", "signal-b"}
+	if strings.Join(store.streamWindowSignals, ",") != strings.Join(wantSignals, ",") {
+		t.Fatalf("expected targeted signals %v, got %v", wantSignals, store.streamWindowSignals)
+	}
+	wantSince := base.Add(-12 * time.Minute)
+	if !store.streamWindowSince.Equal(wantSince) {
+		t.Fatalf("expected stream window since %s, got %s", wantSince, store.streamWindowSince)
+	}
+}
+
+func TestAssignRuleGroupsToWorkersBalancesObservedSignalLoad(t *testing.T) {
+	groups := []ruleOwnershipGroup{
+		{Key: "hot-a", SignalKeys: []string{"hot-a"}, Rules: make([]models.Rule, 40)},
+		{Key: "hot-b", SignalKeys: []string{"hot-b"}, Rules: make([]models.Rule, 40)},
+		{Key: "hot-c", SignalKeys: []string{"hot-c"}, Rules: make([]models.Rule, 40)},
+		{Key: "cold-a", SignalKeys: []string{"cold-a"}, Rules: make([]models.Rule, 100)},
+		{Key: "cold-b", SignalKeys: []string{"cold-b"}, Rules: make([]models.Rule, 100)},
+	}
+	activity := map[string]int{
+		"hot-a":  1000,
+		"hot-b":  1000,
+		"hot-c":  1000,
+		"cold-a": 0,
+		"cold-b": 0,
+	}
+
+	assignments := assignRuleGroupsToWorkers(groups, []string{"0", "1", "2"}, activity)
+	for _, workerID := range []string{"0", "1", "2"} {
+		assignment := assignments[workerID]
+		hotGroups := 0
+		for _, group := range assignment.Groups {
+			if strings.HasPrefix(group.Key, "hot-") {
+				hotGroups++
+			}
+		}
+		if hotGroups != 1 {
+			t.Fatalf("expected worker %s to own exactly one hot group, got %#v", workerID, assignment.Groups)
+		}
+		if assignment.SignalLoad != 1000 {
+			t.Fatalf("expected worker %s signal load to stay balanced at 1000, got %d", workerID, assignment.SignalLoad)
+		}
+	}
+}
+
+func TestProcessorKeepsDistributedWorkerHeartbeatAliveBetweenRedisStreamCycles(t *testing.T) {
+	store := &testStore{
+		loadCalls:  make(map[string]int),
+		logBatches: map[string][][]models.SignalLog{},
+	}
+
+	cfg := baseTestConfig()
+	cfg.Engine.InputMode = "redis_stream"
+	cfg.Redis.SignalStreamEnabled = true
+	cfg.Distributed.Enabled = true
+	cfg.Distributed.LeaseTTL = 80 * time.Millisecond
+	cfg.Distributed.LeaseHeartbeatInterval = 20 * time.Millisecond
+	cfg.Redis.WriteTimeout = 20 * time.Millisecond
+
+	processor := NewProcessor(Dependencies{
+		Config:      cfg,
+		Store:       store,
+		Checkpoints: store,
+		Fetcher:     &testFetcher{},
+		Engine: CorrelatorFunc(func(_ context.Context, _ string, _ []models.FullLog, _ []models.Rule) ([]models.CorrelationResult, error) {
+			return nil, nil
+		}),
+		Rules:  &testRules{},
+		Writer: &testWriter{},
+		Logger: slog.Default(),
+	})
+	processor.workerID = "worker-1"
+	processor.consumer = "worker-1"
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("redis stream cycle failed: %v", err)
+	}
+
+	time.Sleep(75 * time.Millisecond)
+
+	store.mu.Lock()
+	heartbeatWrites := store.heartbeatWrites
+	heartbeat, ok := store.workerHeartbeats["worker-1"]
+	store.mu.Unlock()
+	if !ok {
+		t.Fatalf("expected worker heartbeat for worker-1, got %#v", store.workerHeartbeats)
+	}
+	if heartbeatWrites < 3 {
+		t.Fatalf("expected persistent worker heartbeat writes after cycle, got %d", heartbeatWrites)
+	}
+	if heartbeat.UpdatedAt.IsZero() {
+		t.Fatalf("expected heartbeat timestamp to be recorded")
 	}
 }
 

@@ -802,19 +802,19 @@ Final severity score:
 S_sev = clamp01(0.6 * Severity_max + 0.4 * Severity_avg)
 ```
 
-The engine also calculates the severity expected by the correlation rule. It loads the signal catalog from `signal_catalog.files`, reads each signalizing rule's `signal_key` and `level`, and averages the expected severities of the signals mentioned in the RCA rule sequence.
+The engine now uses only the severities already present on the matched evidence logs (`log_id[].severity`). It does not load the signalizing YAML catalog for expected severity anymore.
 
 ```text
-S_expected = average severity of rule sequence signal keys from the signal catalog
-S_align    = clamp01(S_sev / S_expected)
+S_expected = S_sev
+S_align    = 1.0 when evidence severity exists, otherwise 0.0
 ```
 
-The weighted confidence score uses `S_align`, while the output still includes all three values:
+The weighted confidence score uses `S_sev` directly, while the output still includes all three values:
 
 ```text
 signal_severity          = observed evidence severity
-expected_signal_severity = severity expected by the rule's signal keys
-severity_alignment       = observed / expected
+expected_signal_severity = same effective evidence severity used by the scorer
+severity_alignment       = neutralized because there is no external rule-severity catalog
 ```
 
 ### Signal severity worked sum
@@ -1421,7 +1421,7 @@ cd "D:\Code for tutorials\rca\log_rca_engine"
 PM2:
 
 ```powershell
-pm2 start .\app.json
+pm2 start .\pm2.config.js
 ```
 
 ## OpenAI

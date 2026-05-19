@@ -1,116 +1,130 @@
+# Added to every structured log line so this process is easy to identify in PM2 and central logging.
 service_name: log-correlation-engine
 
 logging:
+  # Keep JSON logs because this service is meant to run under process supervision and log aggregation.
   level: debug
   format: json
 
 scheduler:
+  # How often one correlation cycle starts.
   interval: 35s
+  # Hard stop for a single cycle so a stuck run does not overlap forever.
   run_timeout: 31s
-  organization_workers: 1
 
 autoscaling:
+  # Lets the scheduler stretch or shrink its cadence based on Redis-stream workload.
   enabled: true
+  # Uses the current cycle's input volume as the scaling signal.
   input_basis: incremental_logs
+  # Below this, the autoscaler treats the workload as light.
   input_low_watermark: 1000
+  # Above this, the autoscaler treats the workload as heavy.
   input_high_watermark: 100000
+  # Prevents rapid scale-down oscillation between cycles.
   scale_down_cooldown_cycles: 3
   scheduler:
-    min_interval: 35s
-    max_interval: 75s
+    # Fastest allowed schedule when backlog is low.
+    min_interval: 30s
+    # Slowest allowed schedule when backlog is high.
+    max_interval: 90s
+    # Keeps run timeout slightly below the cycle interval.
     timeout_ratio: 0.9
+    # Desired fraction of each interval spent doing useful work.
     target_cycle_utilization: 0.8
+    # Expands the interval faster after timeout pressure.
     timeout_scale_up_multiplier: 1.5
   fetcher:
+    # These are still used by the autoscaler as capacity hints even though redis_stream mode skips ES fetching.
     min_grouped_lookup_batch_size: 250
     max_grouped_lookup_batch_size: 2500
     max_batches_per_cycle: 5
 
 distributed:
+  # Enables multi-instance rule ownership so PM2 workers do not all run the same rules.
   enabled: true
+  # PM2 injects this env var so each process can advertise a stable worker id.
   worker_id_env: RCA_WORKER_ID
+  # How long a worker lease stays valid without renewal.
   lease_ttl: 45s
+  # How often each worker refreshes its lease while alive.
   lease_heartbeat_interval: 15s
-  claim_limit_per_cycle: 12
-  stream_consumer_group: rca-correlation
-  single_stream_ingest_leader: true
-  prefetch_full_logs: false
-  prefetch_timeout: 5s
-  prefetch_max_doc_ids: 1000
-  full_log_cache_ttl: 2h
 
 redis:
+  # Redis is both the input source for signalized events and the state store for incidents.
   address: 10.0.5.97:6379
-  username: ""
   password: "InfraonRedis321"
   db: 0
+  # Generous network timeouts help avoid false failures during heavier cycles.
   dial_timeout: 50s
   read_timeout: 30s
   write_timeout: 30s
+  # Namespace prefix for correlation-engine owned keys in Redis.
   key_prefix: Rca
+  # Field that stores organization-level signal payloads and helps Redis key discovery.
   hash_field: signaled_logs
-  result_list: correlated_events
-  result_list_max_len: 1000
-  publish_results: false
+  # Turns on direct correlation input from Redis streams instead of Elasticsearch log reads.
   signal_stream_enabled: true
+  # Shared stream where signalizing publishes compact events.
   signal_stream_key: Rca:signalized_log_events
+  # Batch size per Redis XREAD call while loading the active time window.
   signal_stream_batch_size: 250
+  # How long already-consumed stream data is kept before trim.
   signal_stream_consumed_retention: 30m
+  # How long unconsumed backlog is allowed to remain before trim.
   signal_stream_unconsumed_retention: 2h
 
 elasticsearch:
+  # Correlation results are still written to Elasticsearch even though input now comes from Redis.
   addresses:
-    - http://10.0.4.132:9200
+    - http://10.0.5.60:9200
   username: "elastic"
   password: "elastic"
-  api_key: ""
-  index: rca_correlated_events
-  write_history_index: false
+  # Current incident state lives here; this is the main output index in the new flow.
   current_index: rca_correlated_incidents_current
+  # Disable history writes for now and only maintain the current incident view.
+  write_history_index: false
+  # Per-request timeout for Elasticsearch write calls.
   request_timeout: 30s
+  # Larger bulk batches reduce write overhead during busy cycles.
   bulk_batch_size: 1000
 
 engine:
+  # Local rule file that the engine loads and hot-reloads.
   rules_file: rules/rules.json
+  # Poll interval for picking up local or Mongo-synced rule changes.
   hot_reload_interval: 30s
+  # Forces the engine to read correlation input from Redis streams only.
+  input_mode: redis_stream
+  # Base input lookback window before any rule-specific expansion is applied.
+  input_window: 30m
+  # Global grouping for incident identity and correlation scope across all rules.
+  group_by_fields:
+    - event.organization
+    - host.ip
+  # Default correlation window when a rule does not specify a larger one.
   default_window: 2h
+  # Default max gap used when a rule does not provide its own gap.
   default_max_gap: 5m
-  incremental_lookback: 0s
+  # How long an incident can stay quiet before it is closed.
   incident_inactivity_ttl: 10m
-  checkpoint_directory: data/checkpoints
-  parallel_correlation:
-    enabled: true
-    min_logs: 3000
-    target_logs_per_shard: 2500
-    max_workers: 10
-    distributed_target_shard_duration: 750ms
-    distributed_shard_timeout: 5s
-    distributed_run_reserve: 3s
-    distributed_min_shards_per_worker: 1
-    distributed_max_shards_per_worker: 4
-    shard_poll_interval: 20ms
 
 mongo_sync:
+  # MongoDB is the source of truth for rule content in this deployment.
   enabled: true
+  # Connection used to refresh the local rules file from Mongo.
   uri: "mongodb://infraondns:InfraonMongodb321@10.0.4.72:27017/infraon_default_db?retryWrites=false&authSource=infraon_default_db&authMechanism=SCRAM-SHA-1"
+  # Database that stores rule definitions and sync state.
   database: dhusnic_test_db
+  # Collection that contains the correlation rule documents.
   rules_collection: correlation_rules
+  # Collection used to track the active ruleset revision.
   state_collection: rca_config_state
+  # State document name that identifies the live correlation ruleset.
   state_name: prod_rules_topology
-  snapshot_collection: rca_config_snapshots
-  snapshot_name: prod_rules_topology
-  use_snapshot: false
-  write_snapshot: false
-  redis_notify:
-    enabled: false
-    channel: rca_config_changed
-    reconnect_delay: 5s
+  # Timeout for one Mongo sync operation.
   timeout: 5s
 
 fetcher:
-  mode: elasticsearch
-  index: "*"
-  request_timeout: 30s
+  # In redis_stream mode this is only kept as the autoscaler's baseline capacity hint.
   grouped_lookup_batch_size: 150
-  timestamp_field: "@timestamp"
-  log_level_field: "log.level"

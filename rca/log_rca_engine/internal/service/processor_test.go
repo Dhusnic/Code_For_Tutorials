@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"log_rca_engine/internal/autoscaling"
+	"log_rca_engine/internal/config"
 	"log_rca_engine/internal/models"
 	"log_rca_engine/internal/scoring"
 )
@@ -28,6 +30,10 @@ type stubReader struct {
 	matchedLogs        []models.RelatedLog
 	relatedLogs        []models.RelatedLog
 	relatedCalls       int
+	processedRefs      []models.CorrelationEventRef
+	markCalls          int
+	markErr            error
+	pageSizes          []int
 }
 
 func (r *stubReader) ReadCorrelationEvents(_ context.Context, checkpoint models.ReaderCheckpoint) ([]models.CorrelationEvent, models.ReaderCheckpoint, error) {
@@ -63,6 +69,16 @@ func (r *stubReader) SearchRelatedLogs(context.Context, models.CorrelationEvent,
 	return []models.RelatedLog{{DocID: "nearby-1", Index: "logs"}}, nil
 }
 
+func (r *stubReader) MarkCorrelationEventsProcessed(_ context.Context, refs []models.CorrelationEventRef) error {
+	r.markCalls++
+	r.processedRefs = append(r.processedRefs, refs...)
+	return r.markErr
+}
+
+func (r *stubReader) SetPageSize(size int) {
+	r.pageSizes = append(r.pageSizes, size)
+}
+
 type stubRules struct {
 	rules map[string]models.Rule
 }
@@ -94,6 +110,40 @@ func (s *stubResults) Save(_ context.Context, document models.RCAOutputDocument)
 	s.saved = document
 	s.document = document
 	s.saveCalls++
+	return nil
+}
+
+type stubScopedResults struct {
+	loadedIncidentIDs [][]string
+	loaded            map[string]models.RCARecord
+	upserts           [][]models.RCARecord
+	loadCalls         int
+	saveCalls         int
+}
+
+func (s *stubScopedResults) Load(context.Context) (models.RCAOutputDocument, error) {
+	s.saveCalls++
+	return models.RCAOutputDocument{}, errors.New("unexpected full load")
+}
+
+func (s *stubScopedResults) Save(context.Context, models.RCAOutputDocument) error {
+	s.saveCalls++
+	return errors.New("unexpected full save")
+}
+
+func (s *stubScopedResults) LoadByIncidentIDs(_ context.Context, incidentIDs []string) (map[string]models.RCARecord, error) {
+	s.loadCalls++
+	s.loadedIncidentIDs = append(s.loadedIncidentIDs, append([]string(nil), incidentIDs...))
+	result := make(map[string]models.RCARecord, len(s.loaded))
+	for key, value := range s.loaded {
+		result[key] = value
+	}
+	return result, nil
+}
+
+func (s *stubScopedResults) UpsertRecords(_ context.Context, records []models.RCARecord) error {
+	cloned := append([]models.RCARecord(nil), records...)
+	s.upserts = append(s.upserts, cloned)
 	return nil
 }
 
@@ -184,10 +234,13 @@ func baseEvent(signature string, status string) models.CorrelationEvent {
 		OrganizationID:  "org-1",
 		RuleID:          "rule-1",
 		Status:          status,
+		IsProcessed:     0,
 		ResultSignature: signature,
 		MatchedAt:       now,
 		FirstSeen:       &now,
 		LastSeen:        &now,
+		DocumentID:      "incident-1",
+		DocumentIndex:   "rca_correlated_incidents_current",
 		LogID: []models.EvidenceLog{
 			{ID: "doc-1", Severity: "critical", Timestamp: now, ServiceName: "api", SourceIndex: "logs-a"},
 			{ID: "doc-2", Severity: "error", Timestamp: now.Add(10 * time.Second), ServiceName: "rabbitmq", SourceIndex: "logs-a"},
@@ -234,6 +287,68 @@ func TestProcessorStoresProbableCauseWhenScoreIsBelowThreshold(t *testing.T) {
 	}
 	if results.saved.Items[0].Classification != scoring.ClassificationProbable {
 		t.Fatalf("unexpected saved record: %#v", results.saved.Items[0])
+	}
+	if reader.markCalls != 1 {
+		t.Fatalf("expected one processed-mark call, got %d", reader.markCalls)
+	}
+	if len(reader.processedRefs) != 1 || reader.processedRefs[0].DocumentID != "incident-1" {
+		t.Fatalf("expected processed incident ref for incident-1, got %#v", reader.processedRefs)
+	}
+}
+
+func TestProcessorUsesIncidentScopedResultStoreWhenAvailable(t *testing.T) {
+	reader := &stubReader{pages: [][]models.CorrelationEvent{{baseEvent("sig-scoped", "open")}}}
+	results := &stubScopedResults{
+		loaded: map[string]models.RCARecord{
+			"incident-1": {
+				SchemaVersion:                rcaRecordSchemaVersion,
+				IncidentID:                   "incident-1",
+				OrganizationID:               "org-1",
+				RuleID:                       "rule-1",
+				Status:                       "open",
+				LastProcessedResultSignature: "older-signature",
+			},
+		},
+	}
+	checkpoints := &stubCheckpoint{}
+	scorerStub := &stubScorer{
+		result: models.ScoreResult{
+			Classification:   scoring.ClassificationProbable,
+			ConfidenceScore:  4.8,
+			Breakdown:        models.ScoreBreakdown{DependencyMatch: 0.2},
+			InvolvedServices: []string{"api"},
+			MatchedDocIDs:    []string{"doc-1"},
+		},
+	}
+
+	processor := NewProcessor(Dependencies{
+		Reader:               reader,
+		Rules:                &stubRules{rules: map[string]models.Rule{"rule-1": {ID: "rule-1"}}},
+		Topology:             &stubTopology{document: models.TopologyDocument{}},
+		Results:              results,
+		Checkpoints:          checkpoints,
+		Scorer:               scorerStub,
+		NeighborhoodLogLimit: 10,
+		NearbyLogTrigger:     10,
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("RunCycle returned error: %v", err)
+	}
+	if results.loadCalls != 1 {
+		t.Fatalf("expected one scoped load, got %d", results.loadCalls)
+	}
+	if len(results.loadedIncidentIDs) != 1 || len(results.loadedIncidentIDs[0]) != 1 || results.loadedIncidentIDs[0][0] != "incident-1" {
+		t.Fatalf("expected scoped load for incident-1, got %#v", results.loadedIncidentIDs)
+	}
+	if results.saveCalls != 0 {
+		t.Fatalf("expected no legacy full load/save calls, got %d", results.saveCalls)
+	}
+	if len(results.upserts) != 1 || len(results.upserts[0]) != 1 {
+		t.Fatalf("expected one scoped upsert, got %#v", results.upserts)
+	}
+	if results.upserts[0][0].IncidentID != "incident-1" || results.upserts[0][0].ResultSignature != "sig-scoped" {
+		t.Fatalf("unexpected scoped upsert payload: %#v", results.upserts[0][0])
 	}
 }
 
@@ -409,6 +524,9 @@ func TestProcessorPublishesDuplicateEventToMongoPublisher(t *testing.T) {
 	record := publisher.records[0][0]
 	if record.IncidentID != event.IncidentID || record.ResultSignature != event.ResultSignature {
 		t.Fatalf("unexpected published duplicate record: %#v", record)
+	}
+	if reader.markCalls != 1 || len(reader.processedRefs) != 1 {
+		t.Fatalf("expected duplicate replay to still be marked processed, got calls=%d refs=%#v", reader.markCalls, reader.processedRefs)
 	}
 }
 
@@ -1074,10 +1192,25 @@ func TestBuildRecordPreservesLatencyFieldsFromExistingRecordWhenEventIsSparse(t 
 	oldLogAt := now.Add(-2 * time.Minute)
 	oldSignalizedAt := now.Add(-90 * time.Second)
 	oldCorrelatedAt := now.Add(-time.Minute)
+	oldFirstMatchedAt := now.Add(-3 * time.Minute)
+	oldFirstCorrelatedAt := now.Add(-150 * time.Second)
+	oldFirstRCAAt := now.Add(-75 * time.Second)
 	existing := models.RCARecord{
-		IncidentID:     "incident-1",
-		OrganizationID: "org-1",
-		CorrelatedAt:   oldCorrelatedAt,
+		IncidentID:          "incident-1",
+		OrganizationID:      "org-1",
+		CorrelatedAt:        oldCorrelatedAt,
+		FirstMatchedAt:      oldFirstMatchedAt,
+		FirstCorrelatedAt:   oldFirstCorrelatedAt,
+		FirstRCAGeneratedAt: oldFirstRCAAt,
+		TriggerMatchedLogs: []models.EvidenceLog{
+			{
+				ID:           "doc-trigger",
+				Severity:     "critical",
+				Timestamp:    now.Add(-4 * time.Minute),
+				SignalizedAt: now.Add(-210 * time.Second),
+			},
+		},
+		TriggerMatchedDocIDs: []string{"doc-trigger"},
 		MatchedLogs: []models.EvidenceLog{
 			{
 				ID:           "doc-1",
@@ -1117,8 +1250,67 @@ func TestBuildRecordPreservesLatencyFieldsFromExistingRecordWhenEventIsSparse(t 
 	if !record.CorrelatedAt.Equal(oldCorrelatedAt) {
 		t.Fatalf("expected correlated_at %s, got %s", oldCorrelatedAt, record.CorrelatedAt)
 	}
+	if !record.FirstMatchedAt.Equal(oldFirstMatchedAt) {
+		t.Fatalf("expected first_matched_at %s, got %s", oldFirstMatchedAt, record.FirstMatchedAt)
+	}
+	if !record.FirstCorrelatedAt.Equal(oldFirstCorrelatedAt) {
+		t.Fatalf("expected first_correlated_at %s, got %s", oldFirstCorrelatedAt, record.FirstCorrelatedAt)
+	}
+	if !record.FirstRCAGeneratedAt.Equal(oldFirstRCAAt) {
+		t.Fatalf("expected first_rca_generated_at %s, got %s", oldFirstRCAAt, record.FirstRCAGeneratedAt)
+	}
 	if !record.RCAGeneratedAt.Equal(updatedAt) {
 		t.Fatalf("expected rca_generated_at %s, got %s", updatedAt, record.RCAGeneratedAt)
+	}
+	if len(record.TriggerMatchedLogs) != 1 || record.TriggerMatchedLogs[0].ID != "doc-trigger" {
+		t.Fatalf("expected trigger evidence to stay stable, got %#v", record.TriggerMatchedLogs)
+	}
+	if len(record.TriggerMatchedDocIDs) != 1 || record.TriggerMatchedDocIDs[0] != "doc-trigger" {
+		t.Fatalf("expected trigger matched doc ids to stay stable, got %#v", record.TriggerMatchedDocIDs)
+	}
+}
+
+func TestBuildRecordInitializesImmutableTriggerSnapshotFromFirstEvent(t *testing.T) {
+	now := time.Now().UTC()
+	event := models.CorrelationEvent{
+		SchemaVersion:  2,
+		IncidentID:     "incident-1",
+		OrganizationID: "org-1",
+		RuleID:         "rule-1",
+		Status:         "open",
+		MatchedAt:      now.Add(-10 * time.Second),
+		CorrelatedAt:   now.Add(-5 * time.Second),
+		LogID: []models.EvidenceLog{
+			{
+				ID:           "doc-1",
+				SourceIndex:  "logs-a",
+				ServiceName:  "api",
+				Timestamp:    now.Add(-30 * time.Second),
+				SignalizedAt: now.Add(-20 * time.Second),
+			},
+		},
+	}
+
+	record := buildRecord(models.RCARecord{}, false, event, "topology-1", models.ScoreResult{
+		Classification:  scoring.ClassificationProbable,
+		ConfidenceScore: 5.5,
+		MatchedDocIDs:   []string{"doc-1"},
+	}, now)
+
+	if len(record.TriggerMatchedLogs) != 1 || record.TriggerMatchedLogs[0].ID != "doc-1" {
+		t.Fatalf("expected trigger matched logs to be initialized from first event, got %#v", record.TriggerMatchedLogs)
+	}
+	if len(record.TriggerMatchedDocIDs) != 1 || record.TriggerMatchedDocIDs[0] != "doc-1" {
+		t.Fatalf("expected trigger matched doc ids to be initialized from first event, got %#v", record.TriggerMatchedDocIDs)
+	}
+	if !record.FirstMatchedAt.Equal(event.MatchedAt.UTC()) {
+		t.Fatalf("expected first_matched_at %s, got %s", event.MatchedAt.UTC(), record.FirstMatchedAt)
+	}
+	if !record.FirstCorrelatedAt.Equal(event.CorrelatedAt.UTC()) {
+		t.Fatalf("expected first_correlated_at %s, got %s", event.CorrelatedAt.UTC(), record.FirstCorrelatedAt)
+	}
+	if !record.FirstRCAGeneratedAt.Equal(now.UTC()) {
+		t.Fatalf("expected first_rca_generated_at %s, got %s", now.UTC(), record.FirstRCAGeneratedAt)
 	}
 }
 
@@ -1218,5 +1410,82 @@ func TestProcessorOnlyProcessesEventsOwnedByWorkerShard(t *testing.T) {
 	}
 	if results.saved.Items[0].IncidentID != ownedEvent.IncidentID {
 		t.Fatalf("expected owned incident %q, got %#v", ownedEvent.IncidentID, results.saved.Items[0])
+	}
+}
+
+func TestProcessorAutoscalingCapsSearchPagesAndTunesReaderPageSize(t *testing.T) {
+	event1 := baseEvent("sig-page-1", "open")
+	event1.IncidentID = "incident-page-1"
+	event1.DocumentID = "incident-page-1"
+	event2 := baseEvent("sig-page-2", "open")
+	event2.IncidentID = "incident-page-2"
+	event2.DocumentID = "incident-page-2"
+	event3 := baseEvent("sig-page-3", "open")
+	event3.IncidentID = "incident-page-3"
+	event3.DocumentID = "incident-page-3"
+
+	reader := &stubReader{
+		pages: [][]models.CorrelationEvent{
+			{event1},
+			{event2},
+			{event3},
+		},
+	}
+	results := &stubResults{}
+	controller := autoscaling.NewController(
+		config.AutoscalingConfig{
+			Enabled:                 true,
+			InputBasis:              "correlation_events",
+			InputLowWatermark:       1,
+			InputHighWatermark:      2,
+			ScaleDownCooldownCycles: 1,
+			Scheduler: config.AutoscalingSchedulerConfig{
+				MinInterval:              20 * time.Second,
+				MaxInterval:              90 * time.Second,
+				TimeoutRatio:             0.9,
+				TargetCycleUtilization:   0.8,
+				TimeoutScaleUpMultiplier: 1.5,
+			},
+			Reader: config.AutoscalingReaderConfig{
+				MinPageSize:      100,
+				MaxPageSize:      500,
+				MaxPagesPerCycle: 2,
+			},
+		},
+		autoscaling.SchedulerSettings{Interval: 30 * time.Second, RunTimeout: 27 * time.Second},
+		autoscaling.ReaderSettings{PageSize: 100, MaxPagesPerCycle: 2},
+	)
+	controller.ObserveCycle(2)
+
+	processor := NewProcessor(Dependencies{
+		Reader:      reader,
+		Rules:       &stubRules{rules: map[string]models.Rule{"rule-1": {ID: "rule-1"}}},
+		Topology:    &stubTopology{document: models.TopologyDocument{}},
+		Results:     results,
+		Checkpoints: &stubCheckpoint{},
+		Scorer: &stubScorer{
+			result: models.ScoreResult{
+				Classification:   scoring.ClassificationProbable,
+				ConfidenceScore:  5.0,
+				Breakdown:        models.ScoreBreakdown{},
+				InvolvedServices: []string{"api"},
+				MatchedDocIDs:    []string{"doc-1"},
+			},
+		},
+		Explainer:  &stubExplainer{},
+		Autoscaler: controller,
+	})
+
+	if err := processor.RunCycle(context.Background()); err != nil {
+		t.Fatalf("RunCycle returned error: %v", err)
+	}
+	if reader.index != 2 {
+		t.Fatalf("expected processor to stop after two pages, read=%d", reader.index)
+	}
+	if len(reader.pageSizes) == 0 || reader.pageSizes[0] != 500 {
+		t.Fatalf("expected autoscaler to tune reader page size to 500, got %#v", reader.pageSizes)
+	}
+	if len(results.saved.Items) != 2 {
+		t.Fatalf("expected only two events to be processed under page cap, got %#v", results.saved.Items)
 	}
 }

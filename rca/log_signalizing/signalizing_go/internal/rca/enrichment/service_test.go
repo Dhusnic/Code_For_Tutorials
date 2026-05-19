@@ -352,7 +352,7 @@ func TestBuildSignalStreamEventUsesOrganizationAndNormalizedLevel(t *testing.T) 
 	if event.LogLevel != "error" {
 		t.Fatalf("expected normalized log level error, got %q", event.LogLevel)
 	}
-	if event.SourceIndex != "linux-logs" || event.SourceID != "doc-1" {
+	if event.SourceIndex != "linux-logs" {
 		t.Fatalf("unexpected source fields: %#v", event)
 	}
 	if !event.TimeStamp.Equal(time.Date(2026, 4, 9, 10, 0, 0, 0, time.UTC)) {

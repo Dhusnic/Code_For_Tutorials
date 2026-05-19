@@ -53,10 +53,18 @@ type CorrelationEvent struct {
 	GroupByValues   map[string]string `json:"group_by_values,omitempty"`
 	MatchedAt       time.Time         `json:"matched_at,omitempty"`
 	CorrelatedAt    time.Time         `json:"correlated_at,omitempty"`
+	IsProcessed     int               `json:"is_processed"`
 	ResultSignature string            `json:"result_signature,omitempty"`
 	Audit           *MatchAudit       `json:"audit,omitempty"`
 	DocumentID      string            `json:"-"`
+	DocumentIndex   string            `json:"-"`
 	SortValues      []any             `json:"-"`
+}
+
+type CorrelationEventRef struct {
+	DocumentID      string
+	DocumentIndex   string
+	ResultSignature string
 }
 
 type SequenceStep struct {
@@ -207,10 +215,15 @@ type RCARecord struct {
 	ScoreBreakdown               ScoreBreakdown          `json:"score_breakdown"`
 	BelowThresholdReasons        []string                `json:"below_threshold_reasons,omitempty"`
 	InvolvedServices             []string                `json:"involved_services,omitempty"`
+	TriggerMatchedDocIDs         []string                `json:"trigger_matched_doc_ids,omitempty"`
+	TriggerMatchedLogs           []EvidenceLog           `json:"trigger_matched_logs,omitempty"`
 	MatchedDocIDs                []string                `json:"matched_doc_ids,omitempty"`
 	MatchedLogs                  []EvidenceLog           `json:"matched_logs,omitempty"`
 	ContradictionEvidence        []ContradictionEvidence `json:"contradiction_evidence,omitempty"`
 	GroupByValues                map[string]string       `json:"group_by_values,omitempty"`
+	FirstMatchedAt               time.Time               `json:"first_matched_at,omitempty"`
+	FirstCorrelatedAt            time.Time               `json:"first_correlated_at,omitempty"`
+	FirstRCAGeneratedAt          time.Time               `json:"first_rca_generated_at,omitempty"`
 	MatchedAt                    time.Time               `json:"matched_at,omitempty"`
 	CorrelatedAt                 time.Time               `json:"correlated_at,omitempty"`
 	FirstSeen                    *time.Time              `json:"first_seen,omitempty"`

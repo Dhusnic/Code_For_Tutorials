@@ -312,3 +312,29 @@ rules:
         field: message
         op: contains
         value: 29t18 debug plugins alerting
+    - id: SYSTEM_AUTO_MAY_LOCALHOST_OPENTELEMETRY_INSTRUMENT_C988C814
+      signal_key: system_auto_may_localhost_opentelemetry_instrument_c988
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: may localhost opentelemetry instrument'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: may localhost opentelemetry instrument
+    - id: SYSTEM_AUTO_MAY_LOCALHOST_SETROUBLESHOOT_SELINUX_82C55FDB
+      signal_key: system_auto_may_localhost_setroubleshoot_selinux_82c5
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: may localhost setroubleshoot selinux'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - system
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: may localhost setroubleshoot selinux

@@ -1,0 +1,5 @@
+- pipeline.id: "beats_pipeline_135098068173316952064"
+  path.config: "/etc/logstash/conf.d/Beats_Pipeline_135098068173316952064_pl.conf"
+
+- pipeline.id: "linux_pipeline_135098068173316952064"
+  path.config: "/etc/logstash/conf.d/Linux_Pipeline_135098068173316952064_pl.conf"

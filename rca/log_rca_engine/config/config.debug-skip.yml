@@ -1,0 +1,91 @@
+service_name: log-rca-engine
+
+logging:
+  level: debug
+  format: json
+
+scheduler:
+  interval: 30s
+  run_timeout: 25s
+
+autoscaling:
+  enabled: true
+  input_basis: correlation_events
+  input_low_watermark: 100
+  input_high_watermark: 5000
+  scale_down_cooldown_cycles: 3
+  scheduler:
+    min_interval: 30s
+    max_interval: 75s
+    timeout_ratio: 0.9
+    target_cycle_utilization: 0.8
+    timeout_scale_up_multiplier: 1.5
+  reader:
+    min_page_size: 100
+    max_page_size: 1000
+    max_pages_per_cycle: 10
+
+elasticsearch:
+  addresses:
+    - http://10.0.5.60:9200
+  username: "elastic"
+  password: "elastic"
+  api_key: ""
+  correlation_index: rca_correlated_incidents_current*
+  source_index_fallback: "*"
+  request_timeout: 20s
+  page_size: 100
+  replay_window: 1h
+
+rules:
+  file: ../../log_correlation_engine/rules/rules.json
+
+topology:
+  file: ../data/topology.json
+
+storage:
+  results_file: ../tmp_debug/results/rca_results.json
+  checkpoint_file: ../tmp_debug/checkpoints/reader_checkpoint.json
+
+mongo_sync:
+  enabled: false
+  uri: ""
+  database: ""
+  rules_collection: correlation_rules
+  topology_collection: topology_data
+  results_collection: rca_results
+  state_collection: rca_config_state
+  state_name: prod_rules_topology
+  snapshot_collection: rca_config_snapshots
+  snapshot_name: prod_rules_topology
+  use_snapshot: false
+  write_snapshot: false
+  redis_notify:
+    enabled: false
+    address: ""
+    username: ""
+    password: ""
+    db: 0
+    channel: ""
+    reconnect_delay: 5s
+  timeout: 5s
+
+scoring:
+  confidence_threshold: 4.0
+  probable_cause_min_threshold: 2.0
+  nearby_log_trigger_threshold: 2.0
+  weights:
+    sequence_match: 0.30
+    dependency_match: 0.25
+    time_proximity: 0.15
+    signal_severity: 0.15
+    rule_completeness: 0.15
+
+openai:
+  enabled: false
+  base_url: https://api.openai.com/v1
+  api_key: ""
+  model: "gpt-4o-mini"
+  request_timeout: 30s
+  neighborhood_log_limit: 50
+  max_output_tokens: 1200

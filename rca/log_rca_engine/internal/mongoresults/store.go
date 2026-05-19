@@ -24,6 +24,7 @@ const (
 	runtimeSourceKind  = "current"
 	runtimeSourceFile  = "log_rca_engine/data/results/rca_results.json"
 	resultDocumentKind = "rca_result"
+	loadChunkSize      = 500
 )
 
 type Store struct {
@@ -52,6 +53,14 @@ func (s *Store) Close(ctx context.Context) error {
 	err := s.client.Disconnect(ctx)
 	s.client = nil
 	return err
+}
+
+func (s *Store) Load(context.Context) (models.RCAOutputDocument, error) {
+	return models.RCAOutputDocument{}, fmt.Errorf("full RCA result document loads are not supported by the MongoDB store; use incident-scoped loading")
+}
+
+func (s *Store) Save(ctx context.Context, document models.RCAOutputDocument) error {
+	return s.UpsertRecords(ctx, document.Items)
 }
 
 func (s *Store) UpsertRecords(ctx context.Context, records []models.RCARecord) error {
@@ -114,6 +123,68 @@ func (s *Store) UpsertRecords(ctx context.Context, records []models.RCARecord) e
 	return nil
 }
 
+func (s *Store) LoadByIncidentIDs(ctx context.Context, incidentIDs []string) (map[string]models.RCARecord, error) {
+	incidentIDs = trimUniqueStrings(incidentIDs)
+	if len(incidentIDs) == 0 {
+		return map[string]models.RCARecord{}, nil
+	}
+
+	readCtx, cancel := context.WithTimeout(ctx, s.timeout())
+	defer cancel()
+
+	client, err := s.ensureClient(readCtx)
+	if err != nil {
+		return nil, err
+	}
+	collection := client.Database(s.cfg.Database).Collection(s.cfg.ResultsCollection)
+	if err := s.ensureIndexes(readCtx, collection); err != nil {
+		return nil, err
+	}
+
+	recordsByIncident := make(map[string]models.RCARecord, len(incidentIDs))
+	for start := 0; start < len(incidentIDs); start += loadChunkSize {
+		end := start + loadChunkSize
+		if end > len(incidentIDs) {
+			end = len(incidentIDs)
+		}
+
+		cursor, err := collection.Aggregate(readCtx, latestRecordsPipeline(incidentIDs[start:end]))
+		if err != nil {
+			return nil, fmt.Errorf("query MongoDB RCA results by incident: %w", err)
+		}
+
+		for cursor.Next(readCtx) {
+			var document bson.M
+			if err := cursor.Decode(&document); err != nil {
+				_ = cursor.Close(readCtx)
+				return nil, fmt.Errorf("decode MongoDB RCA result document: %w", err)
+			}
+			record, err := recordFromDocument(document)
+			if err != nil {
+				_ = cursor.Close(readCtx)
+				return nil, fmt.Errorf("convert MongoDB RCA result document: %w", err)
+			}
+			incidentID := strings.TrimSpace(record.IncidentID)
+			if incidentID == "" {
+				continue
+			}
+			recordsByIncident[incidentID] = record
+		}
+		if err := cursor.Err(); err != nil {
+			_ = cursor.Close(readCtx)
+			return nil, fmt.Errorf("iterate MongoDB RCA result documents: %w", err)
+		}
+		if err := cursor.Close(readCtx); err != nil {
+			return nil, fmt.Errorf("close MongoDB RCA result cursor: %w", err)
+		}
+	}
+
+	if s.logger != nil {
+		s.logger.Debug("loaded RCA results from MongoDB for incidents", "collection", s.cfg.ResultsCollection, "incident_ids", len(incidentIDs), "records", len(recordsByIncident))
+	}
+	return recordsByIncident, nil
+}
+
 func (s *Store) ensureClient(ctx context.Context) (*mongo.Client, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -141,7 +212,7 @@ func (s *Store) ensureIndexes(ctx context.Context, collection *mongo.Collection)
 	}
 
 	models := []mongo.IndexModel{
-		{Keys: bson.D{{Key: "incident_id", Value: 1}}},
+		{Keys: bson.D{{Key: "managed_by", Value: 1}, {Key: "document_kind", Value: 1}, {Key: "incident_id", Value: 1}, {Key: "updated_at", Value: -1}, {Key: "rca_generated_at", Value: -1}, {Key: "last_persisted_at", Value: -1}}},
 		{Keys: bson.D{{Key: "result_signature", Value: 1}}},
 		{Keys: bson.D{{Key: "organization_id", Value: 1}, {Key: "topology_id", Value: 1}, {Key: "rule_id", Value: 1}}},
 		{Keys: bson.D{{Key: "status", Value: 1}, {Key: "classification", Value: 1}}},
@@ -215,4 +286,61 @@ func UniqueLatest(records []models.RCARecord) []models.RCARecord {
 		result = append(result, latestByDocumentID[documentID])
 	}
 	return result
+}
+
+func latestRecordsPipeline(incidentIDs []string) mongo.Pipeline {
+	return mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{
+			{Key: "managed_by", Value: runtimeManagedBy},
+			{Key: "document_kind", Value: resultDocumentKind},
+			{Key: "incident_id", Value: bson.D{{Key: "$in", Value: incidentIDs}}},
+		}}},
+		{{Key: "$sort", Value: bson.D{
+			{Key: "incident_id", Value: 1},
+			{Key: "updated_at", Value: -1},
+			{Key: "rca_generated_at", Value: -1},
+			{Key: "last_persisted_at", Value: -1},
+			{Key: "_id", Value: -1},
+		}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: "$incident_id"},
+			{Key: "document", Value: bson.D{{Key: "$first", Value: "$$ROOT"}}},
+		}}},
+		{{Key: "$replaceRoot", Value: bson.D{{Key: "newRoot", Value: "$document"}}}},
+	}
+}
+
+func recordFromDocument(document bson.M) (models.RCARecord, error) {
+	payload, err := json.Marshal(document)
+	if err != nil {
+		return models.RCARecord{}, err
+	}
+
+	var record models.RCARecord
+	if err := json.Unmarshal(payload, &record); err != nil {
+		return models.RCARecord{}, err
+	}
+	return record, nil
+}
+
+func trimUniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	trimmed := make([]string, 0, len(values))
+	for _, value := range values {
+		candidate := strings.TrimSpace(value)
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		trimmed = append(trimmed, candidate)
+	}
+	sort.Strings(trimmed)
+	return trimmed
 }

@@ -34,6 +34,11 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    import yaml  # type: ignore
+except Exception:
+    yaml = None
+
 CATEGORIES = [
     "switch",
     "router",
@@ -304,6 +309,130 @@ def validate_config(cfg: Dict[str, Any]) -> None:
 
     if errors:
         raise ConfigError("Config validation failed:\n- " + "\n- ".join(errors))
+
+
+def load_yaml_config(path: str) -> Dict[str, Any]:
+    if yaml is None:
+        raise ConfigError("PyYAML is required to read config.yml for syslog_simulator controls.")
+    with open(path, "r", encoding="utf-8") as f:
+        parsed = yaml.safe_load(f)
+    if parsed is None:
+        return {}
+    if not isinstance(parsed, dict):
+        raise ConfigError(f"YAML config must contain a top-level object: {path}")
+    return parsed
+
+
+def default_simulator_config_path() -> str:
+    return os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "config.yml")
+    )
+
+
+def default_defaults_path() -> str:
+    return os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "defaults.json")
+    )
+
+
+def parse_string_list(value: Any, path: str) -> Optional[List[str]]:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ConfigError(f"{path}: list of strings required")
+    out: List[str] = []
+    for i, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            raise ConfigError(f"{path}[{i}]: non-empty string required")
+        out.append(item.strip())
+    return out
+
+
+def apply_shared_config_overrides(cfg: Dict[str, Any], shared_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    simulator_cfg = shared_cfg.get("syslog_simulator")
+    if simulator_cfg is None:
+        return cfg
+    if not isinstance(simulator_cfg, dict):
+        raise ConfigError("syslog_simulator: object required in config.yml")
+
+    overrides = simulator_cfg.get("overrides")
+    if overrides is None:
+        return cfg
+    if not isinstance(overrides, dict):
+        raise ConfigError("syslog_simulator.overrides: object required in config.yml")
+    return deep_merge(cfg, overrides)
+
+
+def apply_shared_config_filters(cfg: Dict[str, Any], shared_cfg: Dict[str, Any]) -> None:
+    simulator_cfg = shared_cfg.get("syslog_simulator")
+    if simulator_cfg is None:
+        return
+    if not isinstance(simulator_cfg, dict):
+        raise ConfigError("syslog_simulator: object required in config.yml")
+
+    enabled_vendors = parse_string_list(
+        simulator_cfg.get("enabled_vendors"),
+        "syslog_simulator.enabled_vendors",
+    )
+    enabled_devices = parse_string_list(
+        simulator_cfg.get("enabled_devices"),
+        "syslog_simulator.enabled_devices",
+    )
+    if enabled_vendors is None and enabled_devices is None:
+        return
+
+    vendors = cfg.get("vendors")
+    devices = cfg.get("devices")
+    if not isinstance(vendors, dict) or not isinstance(devices, list):
+        return
+
+    known_vendor_ids = set(vendors.keys())
+    known_device_ids = {
+        str(device.get("id"))
+        for device in devices
+        if isinstance(device, dict) and isinstance(device.get("id"), str)
+    }
+
+    if enabled_vendors is not None:
+        unknown_vendors = [vendor_id for vendor_id in enabled_vendors if vendor_id not in known_vendor_ids]
+        if unknown_vendors:
+            raise ConfigError(
+                "syslog_simulator.enabled_vendors contains unknown vendor ids: "
+                + ", ".join(unknown_vendors)
+            )
+
+    if enabled_devices is not None:
+        unknown_devices = [device_id for device_id in enabled_devices if device_id not in known_device_ids]
+        if unknown_devices:
+            raise ConfigError(
+                "syslog_simulator.enabled_devices contains unknown device ids: "
+                + ", ".join(unknown_devices)
+            )
+
+    filtered_devices = [device for device in devices if isinstance(device, dict)]
+    if enabled_vendors is not None:
+        allowed_vendors = set(enabled_vendors)
+        filtered_devices = [
+            device for device in filtered_devices if device.get("vendor") in allowed_vendors
+        ]
+    if enabled_devices is not None:
+        allowed_devices = set(enabled_devices)
+        filtered_devices = [
+            device for device in filtered_devices if device.get("id") in allowed_devices
+        ]
+
+    referenced_vendors = {
+        str(device.get("vendor"))
+        for device in filtered_devices
+        if isinstance(device.get("vendor"), str)
+    }
+
+    cfg["devices"] = filtered_devices
+    cfg["vendors"] = {
+        vendor_id: vendor_cfg
+        for vendor_id, vendor_cfg in vendors.items()
+        if vendor_id in referenced_vendors
+    }
 
 
 def effective_now(cfg: Dict[str, Any]) -> datetime:
@@ -775,6 +904,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Multi-vendor syslog simulator (raw lines).")
 
     ap.add_argument("--defaults", help="Path to defaults JSON containing all configurable fields.")
+    ap.add_argument(
+        "--config",
+        help="Optional YAML config path; reads syslog_simulator controls from log_simulations/config/config.yml.",
+    )
     ap.add_argument("--host", help="Override target.host")
     ap.add_argument("--port", type=int, help="Override target.port")
     ap.add_argument("--proto", choices=["udp", "tcp"], help="Override target.proto")
@@ -879,12 +1012,19 @@ def main() -> int:
 
     if not args.defaults:
         print("You must provide --defaults <path/to/defaults.json> (see example in report).")
-        print("So Search for 'defaults.json' in the log_simulations/ directory.")
-        args.defaults = os.path.join(os.path.dirname(__file__), "defaults.json")
+        print("Using the default simulator defaults file in log_simulations/syslog_simulation/defaults.json.")
+        args.defaults = default_defaults_path()
     if not os.path.exists(args.defaults):
         raise ConfigError(f"Defaults file not found: {args.defaults}")
 
     cfg = load_defaults_file(args.defaults)
+    shared_config_path = args.config or default_simulator_config_path()
+    if shared_config_path and os.path.exists(shared_config_path):
+        shared_cfg = load_yaml_config(shared_config_path)
+        cfg = apply_shared_config_overrides(cfg, shared_cfg)
+        apply_shared_config_filters(cfg, shared_cfg)
+    elif args.config:
+        raise ConfigError(f"YAML config not found: {args.config}")
     apply_cli_overrides(cfg, args)
     validate_config(cfg)
 

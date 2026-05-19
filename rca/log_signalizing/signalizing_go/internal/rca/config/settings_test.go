@@ -271,3 +271,86 @@ pipeline:
 		t.Fatalf("expected integer validation error, got %v", err)
 	}
 }
+
+func TestLoadConfigParsesKafkaAndSignalStreamDedup(t *testing.T) {
+	tempDir := t.TempDir()
+	configFile := filepath.Join(tempDir, "config.yml")
+	configContents := `
+input:
+  source: "kafka"
+
+elasticsearch:
+  hosts: ["http://localhost:9200"]
+
+kafka:
+  brokers: ["broker-a:9092", "broker-b:9092"]
+  topic: "linux-logs"
+  group_id: "signalizing-engine"
+  client_id: "signalizing-worker"
+  start_offset: "earliest"
+  batch_size: 321
+  read_batch_timeout_seconds: "1500ms"
+  max_wait_seconds: "2s"
+  session_timeout_seconds: "45s"
+  rebalance_timeout_seconds: "90s"
+  heartbeat_interval_seconds: "3s"
+  min_bytes: 16
+  max_bytes: "12MB"
+  commit_retries: 5
+  source_index: "linux-logs"
+  document_id_prefix: "kafka"
+  metadata_field: "kafka"
+  event_original_field: "event.original"
+  index_unmatched_events: true
+  security_protocol: "SASL_SSL"
+  sasl_mechanism: "SCRAM-SHA-512"
+  username: "user-a"
+  password: "secret-a"
+  tls_enabled: true
+  insecure_skip_verify: true
+  ca_file: "../ca-cert"
+
+signal_stream:
+  enabled: true
+  address: "127.0.0.1:6379"
+  publish_dedup_enabled: true
+  publish_dedup_ttl_seconds: "24h"
+  publish_dedup_key_prefix: "rca:signal_stream:dedupe:"
+
+pipeline:
+  services: []
+`
+	if err := os.WriteFile(configFile, []byte(configContents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	appConfig, err := config.LoadAppConfig(configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if appConfig.Input.Source != "kafka" {
+		t.Fatalf("expected input source kafka, got %q", appConfig.Input.Source)
+	}
+	if len(appConfig.Kafka.Brokers) != 2 || appConfig.Kafka.Brokers[0] != "broker-a:9092" {
+		t.Fatalf("unexpected kafka brokers: %#v", appConfig.Kafka.Brokers)
+	}
+	if appConfig.Kafka.BatchSize != 321 {
+		t.Fatalf("expected kafka batch size 321, got %d", appConfig.Kafka.BatchSize)
+	}
+	if appConfig.Kafka.MaxBytes != 12*1024*1024 {
+		t.Fatalf("expected kafka max bytes 12MB, got %d", appConfig.Kafka.MaxBytes)
+	}
+	if !appConfig.Kafka.TLSEnabled || !appConfig.Kafka.InsecureSkipVerify {
+		t.Fatalf("expected kafka tls flags to be true, got %#v", appConfig.Kafka)
+	}
+	if !strings.HasSuffix(appConfig.Kafka.CAFile, "ca-cert") {
+		t.Fatalf("expected resolved kafka ca file, got %q", appConfig.Kafka.CAFile)
+	}
+	if !appConfig.SignalStream.PublishDedupEnabled {
+		t.Fatal("expected signal stream dedup to be enabled")
+	}
+	if appConfig.SignalStream.PublishDedupTTLSeconds != 86400 {
+		t.Fatalf("expected dedup ttl 86400 seconds, got %d", appConfig.SignalStream.PublishDedupTTLSeconds)
+	}
+}

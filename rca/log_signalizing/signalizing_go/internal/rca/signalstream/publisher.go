@@ -2,8 +2,11 @@ package signalstream
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -21,16 +24,18 @@ type Event struct {
 	LogLevel       string    `json:"log_level"`
 	TimeStamp      time.Time `json:"time_stamp"`
 	SignalizedAt   time.Time `json:"signalized_at,omitempty"`
-	SourceIndex    string    `json:"source_index,omitempty"`
-	SourceID       string    `json:"source_id,omitempty"`
+	SourceIndex    string    `json:"-"`
 }
 
 // Publisher writes compact signal events into a Redis stream.
 type Publisher struct {
-	client    *redis.Client
-	streamKey string
-	maxLen    int64
-	logger    logging.Logger
+	client         *redis.Client
+	streamKey      string
+	maxLen         int64
+	dedupEnabled   bool
+	dedupTTL       time.Duration
+	dedupKeyPrefix string
+	logger         logging.Logger
 }
 
 // NewPublisher creates a Redis stream publisher from config.
@@ -52,9 +57,12 @@ func NewPublisher(cfg config.SignalStreamConfig) (*Publisher, error) {
 			ReadTimeout:  time.Duration(cfg.ReadTimeoutSeconds) * time.Second,
 			WriteTimeout: time.Duration(cfg.WriteTimeoutSeconds) * time.Second,
 		}),
-		streamKey: cfg.StreamKey,
-		maxLen:    cfg.MaxLen,
-		logger:    logging.GetLogger("signalstream.Publisher"),
+		streamKey:      cfg.StreamKey,
+		maxLen:         cfg.MaxLen,
+		dedupEnabled:   cfg.PublishDedupEnabled,
+		dedupTTL:       time.Duration(cfg.PublishDedupTTLSeconds) * time.Second,
+		dedupKeyPrefix: cfg.PublishDedupKeyPrefix,
+		logger:         logging.GetLogger("signalstream.Publisher"),
 	}, nil
 }
 
@@ -68,31 +76,100 @@ func (p *Publisher) Publish(ctx context.Context, event Event) error {
 		return fmt.Errorf("marshal signal stream event: %w", err)
 	}
 
-	args := &redis.XAddArgs{
-		Stream: p.streamKey,
-		Values: map[string]any{
-			"payload": string(payload),
-		},
-	}
-	if p.maxLen > 0 {
-		args.MaxLen = p.maxLen
-		args.Approx = true
-	}
-
-	id, err := p.client.XAdd(ctx, args).Result()
+	id, published, err := p.publishPayload(ctx, event, string(payload))
 	if err != nil {
-		return fmt.Errorf("publish signal stream event: %w", err)
+		return err
+	}
+	if !published {
+		p.logger.Debug(
+			"skipped duplicate compact signal event",
+			logging.F("stream_key", p.signalStreamKey(event.Signal)),
+			logging.F("organization_id", event.OrganizationID),
+			logging.F("signal", event.Signal),
+			logging.F("doc_id", event.DocID),
+		)
+		return nil
 	}
 
 	p.logger.Debug(
 		"published compact signal event",
-		logging.F("stream_key", p.streamKey),
+		logging.F("stream_key", p.signalStreamKey(event.Signal)),
 		logging.F("stream_id", id),
 		logging.F("organization_id", event.OrganizationID),
 		logging.F("signal", event.Signal),
 		logging.F("doc_id", event.DocID),
 	)
 	return nil
+}
+
+func (p *Publisher) publishPayload(ctx context.Context, event Event, payload string) (string, bool, error) {
+	signalStreamKey := p.signalStreamKey(event.Signal)
+	if !p.dedupEnabled {
+		return p.publishWithoutDedup(ctx, payload, signalStreamKey)
+	}
+
+	dedupKey := p.buildDedupKey(event)
+	maxLen := ""
+	if p.maxLen > 0 {
+		maxLen = strconv.FormatInt(p.maxLen, 10)
+	}
+	ttlMillis := strconv.FormatInt(p.dedupTTL.Milliseconds(), 10)
+	result, err := p.client.Eval(ctx, `
+if redis.call("EXISTS", KEYS[2]) == 1 then
+	return ""
+end
+local stream_id
+if ARGV[2] ~= "" then
+	stream_id = redis.call("XADD", KEYS[1], "MAXLEN", "~", ARGV[2], "*", "payload", ARGV[1])
+else
+	stream_id = redis.call("XADD", KEYS[1], "*", "payload", ARGV[1])
+end
+if tonumber(ARGV[3]) > 0 then
+	redis.call("PSETEX", KEYS[2], ARGV[3], stream_id)
+else
+	redis.call("SET", KEYS[2], stream_id)
+end
+return stream_id
+`, []string{signalStreamKey, dedupKey}, payload, maxLen, ttlMillis).Text()
+	if err != nil {
+		return "", false, fmt.Errorf("publish deduplicated signal stream event: %w", err)
+	}
+	if strings.TrimSpace(result) == "" {
+		return "", false, nil
+	}
+	return result, true, nil
+}
+
+func (p *Publisher) buildDedupKey(event Event) string {
+	keyBase := fmt.Sprintf("%s|%s", strings.TrimSpace(event.DocID), strings.TrimSpace(event.Signal))
+	sum := sha256.Sum256([]byte(keyBase))
+	return p.dedupKeyPrefix + fmt.Sprintf("%x", sum[:])
+}
+
+func (p *Publisher) signalStreamKey(signal string) string {
+	trimmed := strings.TrimSpace(signal)
+	if trimmed == "" {
+		return p.streamKey
+	}
+	return p.streamKey + ":signal:" + trimmed
+}
+
+func (p *Publisher) publishWithoutDedup(ctx context.Context, payload string, signalStreamKey string) (string, bool, error) {
+	args := &redis.XAddArgs{
+		Stream: signalStreamKey,
+		Values: map[string]any{
+			"payload": payload,
+		},
+	}
+	if p.maxLen > 0 {
+		args.MaxLen = p.maxLen
+		args.Approx = true
+	}
+	id, err := p.client.XAdd(ctx, args).Result()
+	if err != nil {
+		return "", false, fmt.Errorf("publish signal stream event: %w", err)
+	}
+	return id, true, nil
 }
 
 // Close closes the underlying Redis client.

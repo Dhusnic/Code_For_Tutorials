@@ -86,6 +86,7 @@ The engine no longer stores active incidents as separate Redis keys. Each organi
   - `signaled_logs`
   - `active_incidents`
 - one shared `STREAM` at `Rca:signalized_log_events`
+- optional signal-scoped `STREAM`s at `Rca:signalized_log_events:signal:{signal_key}`
 
 Stream retention behavior:
 
@@ -215,6 +216,7 @@ Key settings:
 - `redis.publish_results`: when `true`, publish correlation events to `redis.result_list`. Default `false`.
 - `redis.signal_stream_enabled`: when `true`, ingest compact signal events from Redis stream before each cycle. The checked-in config enables this path by default.
 - `redis.signal_stream_key`: Redis stream that carries compact signal events from signalizing. Default `Rca:signalized_log_events`.
+- When signal-scoped Redis streams also exist under `redis.signal_stream_key:signal:{signal_key}`, `engine.input_mode=redis_stream` now prefers reading only the streams required by the worker's assigned rules and merges them in memory by timestamp.
 - `redis.signal_stream_batch_size`: maximum stream entries fetched per Redis round trip while catching up. Default `250`.
 - `redis.signal_stream_consumed_retention`: how long already-consumed stream entries are kept before they are trimmed. Default `30m`.
 - `redis.signal_stream_unconsumed_retention`: how long not-yet-consumed backlog can stay in the stream before it is trimmed. Default `2h`.
@@ -257,6 +259,7 @@ Distributed stream ingestion behavior:
 - Redis stream entries are acknowledged before optional shared full-log cache prefetch runs, so best-effort cache warming no longer blocks the critical ingest/merge path.
 - When `distributed.prefetch_full_logs` is enabled, cache warming runs asynchronously with its own bounded timeout.
 - Very large acknowledged stream batches skip asynchronous prefetch entirely once they exceed `distributed.prefetch_max_doc_ids`.
+- In direct `redis_stream` correlation mode, rules are assigned to workers first, then each worker reads only the signal-scoped streams referenced by its assigned rules when those streams exist. The read window is derived from the owned rules rather than a fixed shared 30-minute slice.
 
 Distributed shard correlation behavior:
 

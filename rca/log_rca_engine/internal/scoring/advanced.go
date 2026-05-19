@@ -92,9 +92,6 @@ func passesConfirmationGates(event models.CorrelationEvent, breakdown models.Sco
 	if breakdown.TimeProximity < 0.30 || breakdown.ContradictionPenalty < 0.80 {
 		return false
 	}
-	if breakdown.SeverityAlignment < minimumSeverityAlignment {
-		return false
-	}
 	return true
 }
 

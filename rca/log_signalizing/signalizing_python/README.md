@@ -103,7 +103,7 @@ Example:
 
 ```powershell
 cd "D:\Code for tutorials\rca"
-.\.venv\Scripts\python .\log_simulations\syslog_simulator.py --defaults .\log_simulations\defaults.json --dry-run
+.\.venv\Scripts\python .\log_simulations\syslog_simulator.py --defaults .\log_simulations\config\defaults.json --config .\log_simulations\config\config.yml --dry-run
 ```
 
 ## Notes

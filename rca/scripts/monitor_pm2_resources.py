@@ -28,15 +28,34 @@ def parse_args() -> argparse.Namespace:
         description="Monitor CPU and RAM usage for all PM2 services on Linux."
     )
     parser.add_argument(
+        "--mode",
+        choices=("csv", "table", "both"),
+        default="csv",
+        help=(
+            "Output mode. "
+            "'csv' appends samples only, "
+            "'table' prints the terminal summary only, "
+            "'both' does both. Default: csv."
+        ),
+    )
+    parser.add_argument(
         "--interval",
         type=float,
         default=5.0,
-        help="Refresh interval in seconds when running in watch mode.",
+        help="Refresh interval in seconds when running continuously.",
     )
     parser.add_argument(
         "--watch",
+        dest="watch",
         action="store_true",
-        help="Continuously refresh the PM2 resource view.",
+        default=True,
+        help="Continuously refresh the PM2 resource view. Default: enabled.",
+    )
+    parser.add_argument(
+        "--once",
+        dest="watch",
+        action="store_false",
+        help="Collect one sample and exit.",
     )
     parser.add_argument(
         "--show-instances",
@@ -45,8 +64,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--csv",
-        default="",
-        help="Optional CSV file path to append raw samples.",
+        default="/opt/pm2_resource.csv",
+        help="CSV file path used in csv/both mode. Default: /opt/pm2_resource.csv.",
     )
     parser.add_argument(
         "--no-clear",
@@ -214,29 +233,45 @@ def clear_screen() -> None:
     print("\033[2J\033[H", end="")
 
 
+def should_print_table(mode: str) -> bool:
+    return mode in {"table", "both"}
+
+
+def should_append_csv(mode: str) -> bool:
+    return mode in {"csv", "both"}
+
+
 def main() -> int:
     args = parse_args()
     if args.interval <= 0:
         raise SystemExit("--interval must be greater than 0")
 
-    csv_path = Path(args.csv).expanduser() if args.csv else None
+    csv_path = Path(args.csv).expanduser()
 
     try:
         while True:
             raw_processes = run_pm2_jlist()
             samples = collect_samples(raw_processes)
 
-            if args.watch and not args.no_clear:
+            if args.watch and not args.no_clear and should_print_table(args.mode):
                 clear_screen()
 
             if not samples:
                 print("No PM2 services found.")
             else:
-                print_summary(samples, args.show_instances)
-                if csv_path is not None:
+                if should_print_table(args.mode):
+                    print_summary(samples, args.show_instances)
+                if should_append_csv(args.mode):
                     append_csv(csv_path, samples)
-                    print("-" * 92)
-                    print(f"CSV appended: {csv_path}")
+                    if should_print_table(args.mode):
+                        print("-" * 92)
+                    total_cpu = sum(sample.cpu_percent for sample in samples)
+                    total_memory = sum(sample.memory_bytes for sample in samples)
+                    print(
+                        "CSV appended: "
+                        f"{csv_path}  samples={len(samples)}  "
+                        f"total_cpu={total_cpu:.1f}%  total_ram={format_bytes(total_memory)}"
+                    )
 
             if not args.watch:
                 return 0

@@ -23,6 +23,7 @@ type Correlator interface {
 
 type Engine struct {
 	logger        *slog.Logger
+	groupByFields []string
 	defaultWindow time.Duration
 	defaultMaxGap time.Duration
 
@@ -109,6 +110,7 @@ func NewEngine(cfg config.EngineConfig, logger *slog.Logger) (*Engine, error) {
 
 	return &Engine{
 		logger:        logger,
+		groupByFields: normalizeGroupByFields(cfg.GroupByFields),
 		defaultWindow: cfg.DefaultWindow,
 		defaultMaxGap: cfg.DefaultMaxGap,
 		metrics:       &EngineMetrics{},
@@ -202,13 +204,21 @@ func (e *Engine) correlateGroup(ctx context.Context, rule compiledRule, group *l
 	}
 
 	ruleCompletion, sequenceMatch := calculateCompiledMatchStats(match, rule)
+	organizationID := strings.TrimSpace(group.groupByValues["event.organization"])
+	if organizationID == "" {
+		organizationID = strings.TrimSpace(rule.requiredMetadata["event.organization"])
+	}
+	if organizationID == "" {
+		organizationID = strings.TrimSpace(rule.rule.OrganizationID)
+	}
+
 	return &models.CorrelationResult{
 		SchemaVersion:  correlationSchemaVersion,
 		LogID:          extractResultLogs(match.logs),
 		RuleCompletion: ruleCompletion,
 		RuleID:         rule.rule.ID,
 		SequenceMatch:  sequenceMatch,
-		OrganizationID: rule.rule.OrganizationID,
+		OrganizationID: organizationID,
 		Priority:       rule.rule.Priority,
 		GroupByValues:  cloneGroupByValues(group.groupByValues),
 		MatchedAt:      latestMatchTime(match.logs),
@@ -803,7 +813,7 @@ func upperBoundTimestamp(logs []models.FullLog, target time.Time) int {
 func (e *Engine) compileRulesForOrg(orgID string, rules []models.Rule) []compiledRule {
 	result := make([]compiledRule, 0)
 	for _, rule := range rules {
-		if rule.OrganizationID != orgID {
+		if orgID != "" && rule.OrganizationID != orgID {
 			continue
 		}
 
@@ -817,7 +827,10 @@ func (e *Engine) compileRulesForOrg(orgID string, rules []models.Rule) []compile
 }
 
 func (e *Engine) compileRule(rule models.Rule) (compiledRule, bool) {
-	cacheKey, err := ruleCacheKey(rule)
+	resolvedRule := rule
+	resolvedRule.GroupBy = e.resolveGroupBy(rule)
+
+	cacheKey, err := ruleCacheKey(resolvedRule)
 	if err != nil {
 		if e.logger != nil {
 			e.logger.Warn("failed to derive rule cache key", "rule_id", rule.ID, "error", err)
@@ -834,12 +847,12 @@ func (e *Engine) compileRule(rule models.Rule) (compiledRule, bool) {
 
 	compiled := compiledRule{
 		cacheKey:         cacheKey,
-		rule:             rule,
-		groupByCacheKey:  groupCacheKey(rule.GroupBy, rule.RequiredMetadata),
+		rule:             resolvedRule,
+		groupByCacheKey:  groupCacheKey(resolvedRule.GroupBy, resolvedRequiredMetadata(resolvedRule)),
 		window:           e.parseDurationOrDefault(rule.Window, e.defaultWindow),
 		steps:            make([]compiledStep, 0, len(rule.Sequence)),
 		negativeSignals:  make(map[string]struct{}, len(rule.NotSequence)),
-		requiredMetadata: normalizeRequiredMetadata(rule.RequiredMetadata),
+		requiredMetadata: resolvedRequiredMetadata(resolvedRule),
 		dedupWindow:      e.parseDurationOrDefault(rule.Deduplication.Window, 0),
 	}
 	if strings.TrimSpace(rule.MaxGapBetweenSteps) != "" {
@@ -1223,4 +1236,50 @@ func normalizeRequiredMetadata(values map[string]string) map[string]string {
 		return nil
 	}
 	return normalized
+}
+
+func normalizeGroupByFields(fields []string) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(fields))
+	normalized := make([]string, 0, len(fields))
+	for _, field := range fields {
+		trimmed := strings.TrimSpace(field)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func (e *Engine) resolveGroupBy(rule models.Rule) []string {
+	if len(e.groupByFields) > 0 {
+		return append([]string(nil), e.groupByFields...)
+	}
+	return normalizeGroupByFields(rule.GroupBy)
+}
+
+func resolvedRequiredMetadata(rule models.Rule) map[string]string {
+	required := normalizeRequiredMetadata(rule.RequiredMetadata)
+	organizationID := strings.TrimSpace(rule.OrganizationID)
+	if organizationID == "" {
+		return required
+	}
+	if required == nil {
+		required = make(map[string]string, 1)
+	}
+	if _, exists := required["event.organization"]; !exists {
+		required["event.organization"] = organizationID
+	}
+	return required
 }

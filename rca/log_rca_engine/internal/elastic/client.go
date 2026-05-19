@@ -29,6 +29,7 @@ type Client struct {
 }
 
 type searchHit struct {
+	Index  string          `json:"_index"`
 	ID     string          `json:"_id"`
 	Source json.RawMessage `json:"_source"`
 	Sort   []any           `json:"sort"`
@@ -38,6 +39,17 @@ type searchResponse struct {
 	Hits struct {
 		Hits []searchHit `json:"hits"`
 	} `json:"hits"`
+}
+
+type bulkResponse struct {
+	Errors bool                        `json:"errors"`
+	Items  []map[string]bulkItemResult `json:"items"`
+}
+
+type bulkItemResult struct {
+	ID     string          `json:"_id"`
+	Status int             `json:"status"`
+	Error  json.RawMessage `json:"error"`
 }
 
 const correlationEventSortFieldCount = 4
@@ -135,6 +147,7 @@ func (c *Client) ReadCorrelationEvents(ctx context.Context, checkpoint models.Re
 			}
 		}
 
+		event.DocumentIndex = strings.TrimSpace(hit.Index)
 		event.DocumentID = hit.ID
 		event.SortValues = append([]any(nil), hit.Sort...)
 		if strings.TrimSpace(event.IncidentID) == "" {
@@ -152,46 +165,49 @@ func (c *Client) ReadCorrelationEvents(ctx context.Context, checkpoint models.Re
 	return events, next, nil
 }
 
-func buildCorrelationEventSearchBody(pageSize int, replayStart *time.Time, searchAfter []any) map[string]any {
-	query := map[string]any{
-		"match_all": map[string]any{},
+func (c *Client) SetPageSize(size int) {
+	if size <= 0 {
+		return
 	}
+	c.pageSize = size
+}
+
+func buildCorrelationEventSearchBody(pageSize int, replayStart *time.Time, searchAfter []any) map[string]any {
+	filters := []any{unprocessedCorrelationEventFilter()}
 	if replayStart != nil {
 		replayStartValue := replayStart.UTC().Format(time.RFC3339Nano)
-		query = map[string]any{
+		filters = append(filters, map[string]any{
 			"bool": map[string]any{
-				"filter": []any{
+				"should": []any{
 					map[string]any{
-						"bool": map[string]any{
-							"should": []any{
-								map[string]any{
-									"range": map[string]any{
-										"last_seen": map[string]any{
-											"gte":    replayStartValue,
-											"format": "strict_date_optional_time_nanos",
-										},
-									},
-								},
-								map[string]any{
-									"range": map[string]any{
-										"matched_at": map[string]any{
-											"gte":    replayStartValue,
-											"format": "strict_date_optional_time_nanos",
-										},
-									},
-								},
+						"range": map[string]any{
+							"last_seen": map[string]any{
+								"gte":    replayStartValue,
+								"format": "strict_date_optional_time_nanos",
 							},
-							"minimum_should_match": 1,
+						},
+					},
+					map[string]any{
+						"range": map[string]any{
+							"matched_at": map[string]any{
+								"gte":    replayStartValue,
+								"format": "strict_date_optional_time_nanos",
+							},
 						},
 					},
 				},
+				"minimum_should_match": 1,
 			},
-		}
+		})
 	}
 
 	body := map[string]any{
-		"size":  pageSize,
-		"query": query,
+		"size": pageSize,
+		"query": map[string]any{
+			"bool": map[string]any{
+				"filter": filters,
+			},
+		},
 		"sort": []map[string]any{
 			{
 				"last_seen": map[string]any{
@@ -231,6 +247,32 @@ func buildCorrelationEventSearchBody(pageSize int, replayStart *time.Time, searc
 	return body
 }
 
+func unprocessedCorrelationEventFilter() map[string]any {
+	return map[string]any{
+		"bool": map[string]any{
+			"should": []any{
+				map[string]any{
+					"term": map[string]any{
+						"is_processed": 0,
+					},
+				},
+				map[string]any{
+					"bool": map[string]any{
+						"must_not": []any{
+							map[string]any{
+								"exists": map[string]any{
+									"field": "is_processed",
+								},
+							},
+						},
+					},
+				},
+			},
+			"minimum_should_match": 1,
+		},
+	}
+}
+
 func normalizeCorrelationSearchAfter(searchAfter []any) []any {
 	if len(searchAfter) != correlationEventSortFieldCount {
 		return nil
@@ -244,6 +286,111 @@ func (c *Client) replayStart(checkpoint models.ReaderCheckpoint) *time.Time {
 	}
 	start := checkpoint.UpdatedAt.UTC().Add(-c.replayWindow)
 	return &start
+}
+
+func (c *Client) MarkCorrelationEventsProcessed(ctx context.Context, refs []models.CorrelationEventRef) error {
+	entries := uniqueCorrelationEventRefs(refs)
+	if len(entries) == 0 {
+		return nil
+	}
+
+	requestCtx, cancel := c.requestContext(ctx)
+	defer cancel()
+
+	var payload bytes.Buffer
+	encoder := json.NewEncoder(&payload)
+	for _, entry := range entries {
+		documentID := strings.TrimSpace(entry.DocumentID)
+		documentIndex := strings.TrimSpace(entry.DocumentIndex)
+		if documentID == "" || documentIndex == "" {
+			continue
+		}
+		if err := encoder.Encode(map[string]map[string]string{
+			"update": {
+				"_index": documentIndex,
+				"_id":    documentID,
+			},
+		}); err != nil {
+			return fmt.Errorf("encode processed-event bulk metadata: %w", err)
+		}
+		if err := encoder.Encode(map[string]any{
+			"script": map[string]any{
+				"lang":   "painless",
+				"source": "if (params.result_signature == null || params.result_signature == '') { ctx._source.is_processed = params.is_processed; } else if (ctx._source.result_signature == params.result_signature) { ctx._source.is_processed = params.is_processed; } else { ctx.op = 'none'; }",
+				"params": map[string]any{
+					"is_processed":     1,
+					"result_signature": strings.TrimSpace(entry.ResultSignature),
+				},
+			},
+		}); err != nil {
+			return fmt.Errorf("encode processed-event bulk document: %w", err)
+		}
+	}
+	if payload.Len() == 0 {
+		return nil
+	}
+
+	response, err := c.client.Bulk(
+		bytes.NewReader(payload.Bytes()),
+		c.client.Bulk.WithContext(requestCtx),
+	)
+	if err != nil {
+		return fmt.Errorf("bulk mark correlation events processed: %w", err)
+	}
+	defer response.Body.Close()
+
+	rawBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return fmt.Errorf("read processed-event bulk response: %w", err)
+	}
+	if response.IsError() {
+		return fmt.Errorf("processed-event bulk update failed with status %s: %s", response.Status(), string(rawBody))
+	}
+
+	var bulkResult bulkResponse
+	if err := json.Unmarshal(rawBody, &bulkResult); err != nil {
+		return fmt.Errorf("decode processed-event bulk response: %w", err)
+	}
+	if len(bulkResult.Items) != len(entries) {
+		return fmt.Errorf("processed-event bulk response item count mismatch: got %d want %d", len(bulkResult.Items), len(entries))
+	}
+	for _, item := range bulkResult.Items {
+		updateResult, ok := item["update"]
+		if !ok {
+			return fmt.Errorf("processed-event bulk response missing update item")
+		}
+		if len(updateResult.Error) > 0 {
+			return fmt.Errorf("processed-event bulk item failed for document %s with status %d: %s", updateResult.ID, updateResult.Status, string(updateResult.Error))
+		}
+	}
+	return nil
+}
+
+func uniqueCorrelationEventRefs(refs []models.CorrelationEventRef) []models.CorrelationEventRef {
+	if len(refs) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(refs))
+	unique := make([]models.CorrelationEventRef, 0, len(refs))
+	for _, ref := range refs {
+		documentID := strings.TrimSpace(ref.DocumentID)
+		documentIndex := strings.TrimSpace(ref.DocumentIndex)
+		if documentID == "" || documentIndex == "" {
+			continue
+		}
+		key := documentIndex + "|" + documentID + "|" + strings.TrimSpace(ref.ResultSignature)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, models.CorrelationEventRef{
+			DocumentID:      documentID,
+			DocumentIndex:   documentIndex,
+			ResultSignature: strings.TrimSpace(ref.ResultSignature),
+		})
+	}
+	return unique
 }
 
 func (c *Client) FetchMatchedLogs(ctx context.Context, evidence []models.EvidenceLog) ([]models.RelatedLog, error) {

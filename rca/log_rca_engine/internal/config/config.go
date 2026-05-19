@@ -21,6 +21,30 @@ type SchedulerConfig struct {
 	RunTimeout time.Duration `yaml:"run_timeout"`
 }
 
+type AutoscalingSchedulerConfig struct {
+	MinInterval              time.Duration `yaml:"min_interval"`
+	MaxInterval              time.Duration `yaml:"max_interval"`
+	TimeoutRatio             float64       `yaml:"timeout_ratio"`
+	TargetCycleUtilization   float64       `yaml:"target_cycle_utilization"`
+	TimeoutScaleUpMultiplier float64       `yaml:"timeout_scale_up_multiplier"`
+}
+
+type AutoscalingReaderConfig struct {
+	MinPageSize      int `yaml:"min_page_size"`
+	MaxPageSize      int `yaml:"max_page_size"`
+	MaxPagesPerCycle int `yaml:"max_pages_per_cycle"`
+}
+
+type AutoscalingConfig struct {
+	Enabled                 bool                       `yaml:"enabled"`
+	InputBasis              string                     `yaml:"input_basis"`
+	InputLowWatermark       int                        `yaml:"input_low_watermark"`
+	InputHighWatermark      int                        `yaml:"input_high_watermark"`
+	ScaleDownCooldownCycles int                        `yaml:"scale_down_cooldown_cycles"`
+	Scheduler               AutoscalingSchedulerConfig `yaml:"scheduler"`
+	Reader                  AutoscalingReaderConfig    `yaml:"reader"`
+}
+
 type ElasticsearchConfig struct {
 	Addresses           []string      `yaml:"addresses"`
 	Username            string        `yaml:"username"`
@@ -35,10 +59,6 @@ type ElasticsearchConfig struct {
 
 type RulesConfig struct {
 	File string `yaml:"file"`
-}
-
-type SignalCatalogConfig struct {
-	Files []string `yaml:"files"`
 }
 
 type TopologyConfig struct {
@@ -106,9 +126,9 @@ type Config struct {
 	ServiceName   string              `yaml:"service_name"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	Scheduler     SchedulerConfig     `yaml:"scheduler"`
+	Autoscaling   AutoscalingConfig   `yaml:"autoscaling"`
 	Elasticsearch ElasticsearchConfig `yaml:"elasticsearch"`
 	Rules         RulesConfig         `yaml:"rules"`
-	SignalCatalog SignalCatalogConfig `yaml:"signal_catalog"`
 	Topology      TopologyConfig      `yaml:"topology"`
 	Storage       StorageConfig       `yaml:"storage"`
 	MongoSync     MongoSyncConfig     `yaml:"mongo_sync"`
@@ -146,6 +166,25 @@ func defaultConfig() Config {
 		Scheduler: SchedulerConfig{
 			Interval:   time.Minute,
 			RunTimeout: 50 * time.Second,
+		},
+		Autoscaling: AutoscalingConfig{
+			Enabled:                 false,
+			InputBasis:              "correlation_events",
+			InputLowWatermark:       100,
+			InputHighWatermark:      5000,
+			ScaleDownCooldownCycles: 3,
+			Scheduler: AutoscalingSchedulerConfig{
+				MinInterval:              20 * time.Second,
+				MaxInterval:              90 * time.Second,
+				TimeoutRatio:             0.9,
+				TargetCycleUtilization:   0.8,
+				TimeoutScaleUpMultiplier: 1.5,
+			},
+			Reader: AutoscalingReaderConfig{
+				MinPageSize:      100,
+				MaxPageSize:      1000,
+				MaxPagesPerCycle: 10,
+			},
 		},
 		Elasticsearch: ElasticsearchConfig{
 			Addresses:           []string{"http://localhost:9200"},
@@ -195,9 +234,6 @@ func defaultConfig() Config {
 
 func (c *Config) resolvePaths(baseDir string) {
 	c.Rules.File = resolvePath(baseDir, c.Rules.File)
-	for idx, file := range c.SignalCatalog.Files {
-		c.SignalCatalog.Files[idx] = resolvePath(baseDir, file)
-	}
 	c.Topology.File = resolvePath(baseDir, c.Topology.File)
 	c.Storage.ResultsFile = resolvePath(baseDir, c.Storage.ResultsFile)
 	c.Storage.CheckpointFile = resolvePath(baseDir, c.Storage.CheckpointFile)
@@ -215,13 +251,13 @@ func (c *Config) normalize() {
 	c.ServiceName = strings.TrimSpace(c.ServiceName)
 	c.Logging.Level = strings.TrimSpace(c.Logging.Level)
 	c.Logging.Format = strings.TrimSpace(strings.ToLower(c.Logging.Format))
+	c.Autoscaling.InputBasis = strings.TrimSpace(strings.ToLower(c.Autoscaling.InputBasis))
 	c.Elasticsearch.Username = strings.TrimSpace(c.Elasticsearch.Username)
 	c.Elasticsearch.Password = strings.TrimSpace(c.Elasticsearch.Password)
 	c.Elasticsearch.APIKey = strings.TrimSpace(c.Elasticsearch.APIKey)
 	c.Elasticsearch.CorrelationIndex = strings.TrimSpace(c.Elasticsearch.CorrelationIndex)
 	c.Elasticsearch.SourceIndexFallback = strings.TrimSpace(c.Elasticsearch.SourceIndexFallback)
 	c.Rules.File = strings.TrimSpace(c.Rules.File)
-	c.SignalCatalog.Files = trimNonEmptyStrings(c.SignalCatalog.Files)
 	c.Topology.File = strings.TrimSpace(c.Topology.File)
 	c.Storage.ResultsFile = strings.TrimSpace(c.Storage.ResultsFile)
 	c.Storage.CheckpointFile = strings.TrimSpace(c.Storage.CheckpointFile)
@@ -249,6 +285,42 @@ func (c *Config) normalize() {
 		}
 	}
 	c.Elasticsearch.Addresses = addresses
+	if c.Autoscaling.InputBasis == "" {
+		c.Autoscaling.InputBasis = "correlation_events"
+	}
+	if c.Autoscaling.InputLowWatermark <= 0 {
+		c.Autoscaling.InputLowWatermark = 100
+	}
+	if c.Autoscaling.InputHighWatermark <= 0 {
+		c.Autoscaling.InputHighWatermark = 5000
+	}
+	if c.Autoscaling.ScaleDownCooldownCycles <= 0 {
+		c.Autoscaling.ScaleDownCooldownCycles = 3
+	}
+	if c.Autoscaling.Scheduler.MinInterval <= 0 {
+		c.Autoscaling.Scheduler.MinInterval = 20 * time.Second
+	}
+	if c.Autoscaling.Scheduler.MaxInterval <= 0 {
+		c.Autoscaling.Scheduler.MaxInterval = 90 * time.Second
+	}
+	if c.Autoscaling.Scheduler.TimeoutRatio <= 0 {
+		c.Autoscaling.Scheduler.TimeoutRatio = 0.9
+	}
+	if c.Autoscaling.Scheduler.TargetCycleUtilization <= 0 {
+		c.Autoscaling.Scheduler.TargetCycleUtilization = 0.8
+	}
+	if c.Autoscaling.Scheduler.TimeoutScaleUpMultiplier <= 0 {
+		c.Autoscaling.Scheduler.TimeoutScaleUpMultiplier = 1.5
+	}
+	if c.Autoscaling.Reader.MinPageSize <= 0 {
+		c.Autoscaling.Reader.MinPageSize = 100
+	}
+	if c.Autoscaling.Reader.MaxPageSize <= 0 {
+		c.Autoscaling.Reader.MaxPageSize = 1000
+	}
+	if c.Autoscaling.Reader.MaxPagesPerCycle <= 0 {
+		c.Autoscaling.Reader.MaxPagesPerCycle = 10
+	}
 }
 
 func trimNonEmptyStrings(values []string) []string {
@@ -276,6 +348,45 @@ func (c Config) Validate() error {
 	}
 	if c.Scheduler.RunTimeout > c.Scheduler.Interval {
 		return errors.New("scheduler.run_timeout must be less than or equal to scheduler.interval")
+	}
+	if c.Autoscaling.InputBasis != "correlation_events" {
+		return errors.New("autoscaling.input_basis must be correlation_events")
+	}
+	if c.Autoscaling.InputLowWatermark > c.Autoscaling.InputHighWatermark {
+		return errors.New("autoscaling.input_low_watermark must be less than or equal to autoscaling.input_high_watermark")
+	}
+	if c.Autoscaling.ScaleDownCooldownCycles <= 0 {
+		return errors.New("autoscaling.scale_down_cooldown_cycles must be greater than zero")
+	}
+	if c.Autoscaling.Scheduler.MinInterval < 10*time.Second {
+		return errors.New("autoscaling.scheduler.min_interval must be greater than or equal to 10s")
+	}
+	if c.Autoscaling.Scheduler.MaxInterval > 90*time.Second {
+		return errors.New("autoscaling.scheduler.max_interval must be less than or equal to 90s")
+	}
+	if c.Autoscaling.Scheduler.MinInterval > c.Autoscaling.Scheduler.MaxInterval {
+		return errors.New("autoscaling.scheduler.min_interval must be less than or equal to autoscaling.scheduler.max_interval")
+	}
+	if c.Autoscaling.Scheduler.TimeoutRatio <= 0 || c.Autoscaling.Scheduler.TimeoutRatio >= 1 {
+		return errors.New("autoscaling.scheduler.timeout_ratio must be greater than zero and less than one")
+	}
+	if c.Autoscaling.Scheduler.TargetCycleUtilization <= 0 || c.Autoscaling.Scheduler.TargetCycleUtilization >= 1 {
+		return errors.New("autoscaling.scheduler.target_cycle_utilization must be greater than zero and less than one")
+	}
+	if c.Autoscaling.Scheduler.TimeoutScaleUpMultiplier < 1 {
+		return errors.New("autoscaling.scheduler.timeout_scale_up_multiplier must be greater than or equal to one")
+	}
+	if c.Autoscaling.Reader.MinPageSize < 10 || c.Autoscaling.Reader.MinPageSize > 10000 {
+		return errors.New("autoscaling.reader.min_page_size must be between 10 and 10000")
+	}
+	if c.Autoscaling.Reader.MaxPageSize < 10 || c.Autoscaling.Reader.MaxPageSize > 10000 {
+		return errors.New("autoscaling.reader.max_page_size must be between 10 and 10000")
+	}
+	if c.Autoscaling.Reader.MinPageSize > c.Autoscaling.Reader.MaxPageSize {
+		return errors.New("autoscaling.reader.min_page_size must be less than or equal to autoscaling.reader.max_page_size")
+	}
+	if c.Autoscaling.Reader.MaxPagesPerCycle <= 0 {
+		return errors.New("autoscaling.reader.max_pages_per_cycle must be greater than zero")
 	}
 	if len(c.Elasticsearch.Addresses) == 0 {
 		return errors.New("elasticsearch.addresses must contain at least one value")

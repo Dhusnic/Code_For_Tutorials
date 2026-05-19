@@ -78,3 +78,16 @@ rules:
         field: message
         op: contains
         value: apr my server name
+    - id: AUTH_AUTO_MAY_LOCALHOST_SSHD_KEX_37E9B0E4
+      signal_key: auth_auto_may_localhost_sshd_kex_37e9
+      level: critical
+      description: 'Auto-learned from recurring unclassified critical logs: may localhost sshd kex'
+      tags:
+        - auto_generated
+        - unclassified_learning
+        - auth
+        - critical
+      condition:
+        field: message
+        op: contains
+        value: may localhost sshd kex
