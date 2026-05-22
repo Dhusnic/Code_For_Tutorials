@@ -153,6 +153,18 @@ def chunked(values: list[str], size: int) -> Iterable[list[str]]:
         yield values[index : index + size]
 
 
+def unique_non_empty(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for raw in values:
+        value = raw.strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
 class RedisClient:
     def __init__(self, address: str, username: str, password: str, database: int) -> None:
         if ":" not in address:
@@ -623,7 +635,18 @@ def main() -> int:
     kafka_start_offset = read_yaml_section_value(signalizing_config, "kafka", "start_offset") or "latest"
     kafka_reset_enabled = kafka_source == "kafka" and bool(kafka_brokers and kafka_group_id)
 
-    redis_pattern = f"{redis_key_prefix.rstrip(':')}:*"
+    signal_stream_dedup_prefix = (
+        read_yaml_section_value(signalizing_config, "signal_stream", "publish_dedup_key_prefix")
+        or "Rca:signal_stream:dedupe:"
+    )
+    redis_patterns = unique_non_empty(
+        [
+            f"{redis_key_prefix.rstrip(':')}:*",
+            f"{signal_stream_dedup_prefix.rstrip(':')}:*",
+            "rca:signal_stream:dedupe:*",
+            "Rca:signal_stream:dedupe:*",
+        ]
+    )
     elastic_patterns: set[str] = set()
     for value in (correlation_index, current_correlation_index, rca_correlation_index):
         if not value:
@@ -635,7 +658,9 @@ def main() -> int:
 
     targets: list[str] = []
     if not args.skip_redis:
-        targets.append(f"Redis keys matching {redis_pattern} on {redis_address} (db {redis_db})")
+        targets.append(
+            f"Redis keys matching {', '.join(redis_patterns)} on {redis_address} (db {redis_db})"
+        )
     if not args.skip_elasticsearch:
         targets.append(f"Elasticsearch index patterns: {', '.join(elastic_index_patterns)}")
     if not args.skip_kafka and kafka_reset_enabled:
@@ -673,12 +698,15 @@ def main() -> int:
             log("info", f"resetting redis keys on {redis_address}")
             client = RedisClient(redis_address, redis_username, redis_password, redis_db)
             try:
-                keys = client.scan_keys(redis_pattern)
+                keys: set[str] = set()
+                for pattern in redis_patterns:
+                    for key in client.scan_keys(pattern):
+                        keys.add(key)
                 if not keys:
                     log("info", "no matching redis keys found")
                 else:
-                    deleted = client.delete_keys(keys)
-                    log("info", f"deleted {deleted} redis keys")
+                    deleted = client.delete_keys(sorted(keys))
+                    log("info", f"deleted {deleted} redis keys across {len(redis_patterns)} redis patterns")
             finally:
                 client.close()
 

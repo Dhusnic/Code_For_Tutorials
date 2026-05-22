@@ -1,5 +1,5 @@
 // Load generated load-test correlation rules into MongoDB, refresh the active
-// snapshot, and bump the correlation config revision.
+// snapshot, bump the correlation config revision, and mark the config as pending sync.
 //
 // Usage:
 //   mongosh "$MONGO_URI" scripts/import_load_test_rules_to_mongo.js
@@ -102,6 +102,7 @@ function main() {
       $inc: { revision: 1 },
       $set: {
         name: STATE_NAME,
+        is_synced: false,
         updated_at: importedAt,
       },
       $setOnInsert: {
@@ -135,6 +136,7 @@ function main() {
     upsert_operations: upserted,
     enabled_rules_in_snapshot: enabledRules.length,
     revision: state.revision,
+    is_synced: state.is_synced,
     snapshot_name: SNAPSHOT_NAME,
   }, null, 2));
 }

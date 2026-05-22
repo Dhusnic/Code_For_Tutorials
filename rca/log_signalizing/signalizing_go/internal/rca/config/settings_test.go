@@ -314,8 +314,8 @@ signal_stream:
   enabled: true
   address: "127.0.0.1:6379"
   publish_dedup_enabled: true
-  publish_dedup_ttl_seconds: "24h"
-  publish_dedup_key_prefix: "rca:signal_stream:dedupe:"
+  publish_dedup_ttl_seconds: "30m"
+  publish_dedup_key_prefix: "Rca:signal_stream:dedupe:"
 
 pipeline:
   services: []
@@ -350,7 +350,10 @@ pipeline:
 	if !appConfig.SignalStream.PublishDedupEnabled {
 		t.Fatal("expected signal stream dedup to be enabled")
 	}
-	if appConfig.SignalStream.PublishDedupTTLSeconds != 86400 {
-		t.Fatalf("expected dedup ttl 86400 seconds, got %d", appConfig.SignalStream.PublishDedupTTLSeconds)
+	if appConfig.SignalStream.PublishDedupTTLSeconds != 1800 {
+		t.Fatalf("expected dedup ttl 1800 seconds, got %d", appConfig.SignalStream.PublishDedupTTLSeconds)
+	}
+	if appConfig.SignalStream.PublishDedupKeyPrefix != "Rca:signal_stream:dedupe:" {
+		t.Fatalf("expected dedup key prefix to use Rca namespace, got %q", appConfig.SignalStream.PublishDedupKeyPrefix)
 	}
 }

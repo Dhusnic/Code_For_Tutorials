@@ -714,3 +714,77 @@ S/N  Incident ID               Rule ID                       Status   Logs  Log-
 67   10481bc4c002ce4edbbc7...  CORR_PROD_MONGODB_DOWN_TO...  open     1     15.75 s          21.31 s          10.85 s   47.91 s    -      
 
 ```
+
+## Section 4
+
+```text
+(.venv) PS D:\Code for tutorials\rca\scripts> python .\report_rca_step_latency.py
+RCA Step Latency Report
+=======================
+Results file      : D:\Code for tutorials\rca\log_rca_engine\data\results\rca_results.json
+Data source       : MongoDB (dhusnic_test_db.rca_results via mongosh)
+Signalizing input : elasticsearch
+Kafka topic       : linux-logs
+Source index key  : source_rca_index
+Source index fall.: linux-logs
+Redis stream mode : on
+Redis stream base : Rca:signalized_log_events:signal:<signal>
+Correlation mode  : redis_stream
+Correlation index : rca_correlated_incidents_current
+Corr interval     : 35s
+RCA reads index   : rca_correlated_incidents_current*
+RCA results store : MongoDB dhusnic_test_db.rca_results, file ../data/results/rca_results.json
+RCA records found : 25
+Records selected  : 25
+Records analyzed  : 25
+Records skipped   : 0
+Partial mode      : on
+Selection mode    : per-signature
+Open-only mode    : off
+Workflow note     : Signal stream entries are written to per-signal Redis streams using the base prefix Rca:signalized_log_events:signal:<signal>.
+Workflow note     : Signalizing -> correlation latency is measured from source-doc signalized_at to correlation correlated_at; it includes Redis dwell time and the correlation scheduler wait.
+Workflow note     : Redis publish time is not persisted as a standalone timestamp, so it is folded into the signalizing stage.
+Note              : Primary RCA results file was empty, checking worker result files next.
+Note              : Latency is computed from the incident creation snapshot when trigger_* and first_* RCA fields are available; otherwise the report falls back to the latest RCA snapshot fields.
+Note              : Elasticsearch hydration resolved 30 doc/index timestamp entries.
+Note              : Correlation incident hydration resolved 8 incident timestamp entries.
+
+Step-wise summary
+-----------------
+Source log -> signalized doc  : 54.27 s average
+Signalized doc -> incident    : 21.06 s average
+Incident -> RCA result        : 7.69 s average
+End-to-end total              : 1m 23.0s average
+End-to-end median             : 1m 18.7s
+Partial records               : 0
+
+Per-incident latency
+--------------------
+S/N  Incident ID               Rule ID                       Status   Logs  Log->Signalized  Signalized->Inc  Inc->RCA  Total     Missing
+---  ------------------------  ----------------------------  -------  ----  ---------------  ---------------  --------  --------  -------
+1    3fee08356c52b11a8e681...  CORR_PROD_MONGODB_AUTH_TO...  open     5     17.38 s          1m 35.9s         37.81 s   2m 31.1s  -      
+2    d8a7362339f28e650b2f7...  CORR_PROD_SYSTEM_RAID_DEG...  updated  2     1m 00.2s         29.20 s          6.75 s    1m 36.1s  -      
+3    d8a7362339f28e650b2f7...  CORR_PROD_SYSTEM_RAID_DEG...  updated  2     1m 00.2s         29.20 s          6.75 s    1m 36.1s  -      
+4    d8a7362339f28e650b2f7...  CORR_PROD_SYSTEM_RAID_DEG...  updated  2     1m 00.2s         29.20 s          6.75 s    1m 36.1s  -      
+5    d8a7362339f28e650b2f7...  CORR_PROD_SYSTEM_RAID_DEG...  updated  2     1m 00.2s         29.20 s          6.75 s    1m 36.1s  -      
+6    d8a7362339f28e650b2f7...  CORR_PROD_SYSTEM_RAID_DEG...  updated  2     1m 00.2s         29.20 s          6.75 s    1m 36.1s  -      
+7    d8a7362339f28e650b2f7...  CORR_PROD_SYSTEM_RAID_DEG...  updated  2     1m 00.2s         29.20 s          6.75 s    1m 36.1s  -      
+8    d8a7362339f28e650b2f7...  CORR_PROD_SYSTEM_RAID_DEG...  updated  2     1m 00.2s         29.20 s          6.75 s    1m 36.1s  -      
+9    d8a7362339f28e650b2f7...  CORR_PROD_SYSTEM_RAID_DEG...  updated  2     1m 00.2s         29.20 s          6.75 s    1m 36.1s  -      
+10   d8a7362339f28e650b2f7...  CORR_PROD_SYSTEM_RAID_DEG...  open     2     1m 00.2s         29.20 s          6.75 s    1m 36.1s  -      
+11   9058bee93fda17676596d...  CORR_PROD_NGINX_BACKEND_C...  updated  4     1m 00.1s         17.03 s          10.34 s   1m 27.5s  -      
+12   9058bee93fda17676596d...  CORR_PROD_NGINX_BACKEND_C...  open     4     1m 00.1s         17.03 s          10.34 s   1m 27.5s  -      
+13   d656e1fea78ad5c1b391f...  CORR_PROD_MONGODB_AUTH_TO...  open     5     1m 00.1s         12.28 s          6.29 s    1m 18.7s  -      
+14   d656e1fea78ad5c1b391f...  CORR_PROD_MONGODB_AUTH_TO...  closed   5     1m 00.1s         12.28 s          6.29 s    1m 18.7s  -      
+15   d656e1fea78ad5c1b391f...  CORR_PROD_MONGODB_AUTH_TO...  updated  5     1m 00.1s         12.28 s          6.29 s    1m 18.7s  -      
+16   d656e1fea78ad5c1b391f...  CORR_PROD_MONGODB_AUTH_TO...  updated  5     1m 00.1s         12.28 s          6.29 s    1m 18.7s  -      
+17   d656e1fea78ad5c1b391f...  CORR_PROD_MONGODB_AUTH_TO...  open     5     1m 00.1s         12.28 s          6.29 s    1m 18.7s  -      
+18   8571406ba46dfdf95194b...  CORR_PROD_MONGODB_DOWN_TO...  open     3     1m 00.1s         11.40 s          5.89 s    1m 17.4s  -      
+19   8571406ba46dfdf95194b...  CORR_PROD_MONGODB_DOWN_TO...  closed   3     1m 00.1s         11.40 s          5.89 s    1m 17.4s  -      
+20   8571406ba46dfdf95194b...  CORR_PROD_MONGODB_DOWN_TO...  updated  3     1m 00.1s         11.40 s          5.89 s    1m 17.4s  -      
+21   8571406ba46dfdf95194b...  CORR_PROD_MONGODB_DOWN_TO...  updated  3     1m 00.1s         11.40 s          5.89 s    1m 17.4s  -      
+22   8571406ba46dfdf95194b...  CORR_PROD_MONGODB_DOWN_TO...  open     3     1m 00.1s         11.40 s          5.89 s    1m 17.4s  -      
+23   8749a5bd87f493fa00d51...  CORR_PROD_RABBITMQ_CONNEC...  open     1     25.40 s          5.03 s           4.09 s    34.52 s   -      
+24   dc883af2932ca84253dee...  CORR_PROD_RABBITMQ_CONNEC...  open     1     25.40 s          5.56 s           3.55 s    34.52 s   -      
+25   3f212732f6e2236a02149...  CORR_PROD_RABBITMQ_CONNEC...  open     1     25.40 s          4.83 s           4.28 s    34.52 s   -     
+```

@@ -33,7 +33,7 @@ func TestSignalStreamEventMarshalOmitsNonRedisFields(t *testing.T) {
 }
 
 func TestBuildDedupKeyUsesOnlyDocIDAndSignal(t *testing.T) {
-	publisher := &Publisher{dedupKeyPrefix: "rca:signal_stream:dedupe:"}
+	publisher := &Publisher{dedupKeyPrefix: "Rca:signal_stream:dedupe:"}
 
 	first := publisher.buildDedupKey(Event{
 		OrganizationID: "org-1",

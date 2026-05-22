@@ -1,5 +1,5 @@
 // Delete correlation rules tagged with load_test: true from MongoDB, refresh
-// the active snapshot, and bump the correlation config revision.
+// the active snapshot, bump the correlation config revision, and mark the config as pending sync.
 //
 // Usage:
 //   mongosh "$MONGO_URI" scripts/delete_load_test_rules_from_mongo.js
@@ -55,6 +55,7 @@ function main() {
       $inc: { revision: 1 },
       $set: {
         name: STATE_NAME,
+        is_synced: false,
         updated_at: updatedAt,
       },
       $setOnInsert: {
@@ -87,6 +88,7 @@ function main() {
     load_test_batch: LOAD_TEST_BATCH || null,
     enabled_rules_in_snapshot: enabledRules.length,
     revision: state.revision,
+    is_synced: state.is_synced,
     snapshot_name: SNAPSHOT_NAME,
   }, null, 2));
 }

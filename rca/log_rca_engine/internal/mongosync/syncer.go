@@ -91,7 +91,7 @@ func (s *Syncer) Sync(ctx context.Context) (bool, error) {
 		s.resetClient(ctx)
 		return false, err
 	}
-	if !s.needsSync(state.Revision, hasState) {
+	if !s.needsSync(state, hasState) {
 		return false, nil
 	}
 
@@ -111,13 +111,21 @@ func (s *Syncer) Sync(ctx context.Context) (bool, error) {
 				return false, err
 			}
 			changed := rulesChanged || topologyChanged
-			s.markSynced(state.Revision, true)
+			acknowledged, err := s.updateStateSynced(syncCtx, database, state.Revision)
+			if err != nil {
+				return false, err
+			}
+			if acknowledged {
+				s.markSynced(state.Revision, true)
+			}
 			if s.logger != nil {
 				s.logger.Info(
 					"synced RCA rules and topology from MongoDB snapshot",
 					"database", s.cfg.Database,
 					"snapshot_collection", s.cfg.SnapshotCollection,
 					"revision", state.Revision,
+					"is_synced", state.IsSynced,
+					"state_acknowledged", acknowledged,
 					"rules", len(rules),
 					"linked_topologies", countTopologies(topologyDoc),
 					"changed", changed,
@@ -155,8 +163,30 @@ func (s *Syncer) Sync(ctx context.Context) (bool, error) {
 
 	changed := rulesChanged || topologyChanged
 	if hasState {
-		s.markSynced(state.Revision, true)
+		acknowledged, err := s.updateStateSynced(syncCtx, database, state.Revision)
+		if err != nil {
+			return false, err
+		}
+		if acknowledged {
+			s.markSynced(state.Revision, true)
+		}
+		if s.logger != nil {
+			s.logger.Info(
+				"synced RCA rules and topology from MongoDB",
+				"database", s.cfg.Database,
+				"rules_collection", s.cfg.RulesCollection,
+				"topology_collection", s.cfg.TopologyCollection,
+				"revision", state.Revision,
+				"is_synced", state.IsSynced,
+				"state_acknowledged", acknowledged,
+				"rules", len(rules),
+				"linked_topologies", countTopologies(topologyDoc),
+				"changed", changed,
+			)
+		}
+		return changed, nil
 	}
+	s.markPending(state.Revision)
 	if s.logger != nil {
 		s.logger.Info(
 			"synced RCA rules and topology from MongoDB",
@@ -164,7 +194,8 @@ func (s *Syncer) Sync(ctx context.Context) (bool, error) {
 			"rules_collection", s.cfg.RulesCollection,
 			"topology_collection", s.cfg.TopologyCollection,
 			"revision", state.Revision,
-			"revision_tracked", hasState,
+			"is_synced", state.IsSynced,
+			"state_acknowledged", false,
 			"rules", len(rules),
 			"linked_topologies", countTopologies(topologyDoc),
 			"changed", changed,
@@ -175,6 +206,7 @@ func (s *Syncer) Sync(ctx context.Context) (bool, error) {
 
 type configState struct {
 	Revision int64
+	IsSynced bool
 }
 
 func (s *Syncer) loadState(ctx context.Context, database *mongo.Database) (configState, bool, error) {
@@ -198,20 +230,26 @@ func (s *Syncer) loadState(ctx context.Context, database *mongo.Database) (confi
 	if revision <= 0 {
 		return configState{}, false, fmt.Errorf("MongoDB config state %s/%s must contain a positive revision", s.cfg.StateCollection, s.cfg.StateName)
 	}
-	return configState{Revision: revision}, true, nil
+	return configState{
+		Revision: revision,
+		IsSynced: boolValue(doc["is_synced"]),
+	}, true, nil
 }
 
-func (s *Syncer) needsSync(revision int64, hasRevision bool) bool {
+func (s *Syncer) needsSync(state configState, hasState bool) bool {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 	if s.forceFull {
 		s.forceFull = false
 		return true
 	}
-	if !hasRevision {
+	if !hasState {
 		return true
 	}
-	return !s.revKnown || s.lastRev != revision
+	if state.IsSynced {
+		return false
+	}
+	return !s.revKnown || s.lastRev != state.Revision
 }
 
 func (s *Syncer) markSynced(revision int64, hasRevision bool) {
@@ -222,6 +260,38 @@ func (s *Syncer) markSynced(revision int64, hasRevision bool) {
 	defer s.stateMu.Unlock()
 	s.lastRev = revision
 	s.revKnown = true
+}
+
+func (s *Syncer) markPending(revision int64) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.lastRev = revision
+	s.revKnown = true
+}
+
+func (s *Syncer) updateStateSynced(ctx context.Context, database *mongo.Database, revision int64) (bool, error) {
+	collection := database.Collection(s.cfg.StateCollection)
+	now := time.Now().UTC()
+	result, err := collection.UpdateOne(
+		ctx,
+		bson.M{
+			"name":     s.cfg.StateName,
+			"revision": revision,
+			"$or": []bson.M{
+				{"is_synced": false},
+				{"is_synced": bson.M{"$exists": false}},
+			},
+		},
+		bson.M{"$set": bson.M{
+			"is_synced": true,
+			"synced_at":  now,
+			"updated_at": now,
+		}},
+	)
+	if err != nil {
+		return false, fmt.Errorf("mark MongoDB config state synced: %w", err)
+	}
+	return result.MatchedCount > 0, nil
 }
 
 func (s *Syncer) loadSnapshot(ctx context.Context, database *mongo.Database, revision int64) ([]map[string]any, models.TopologyDocument, bool, error) {
@@ -632,6 +702,32 @@ func stringValue(value any) string {
 		return strings.TrimSpace(typed)
 	default:
 		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func boolValue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.TrimSpace(strings.ToLower(typed)) {
+		case "true", "1", "yes", "on":
+			return true
+		default:
+			return false
+		}
+	case int:
+		return typed != 0
+	case int32:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case float32:
+		return typed != 0
+	case float64:
+		return typed != 0
+	default:
+		return false
 	}
 }
 

@@ -351,7 +351,7 @@ func LoadAppConfig(path string) (AppConfig, error) {
 	if err != nil {
 		return AppConfig{}, err
 	}
-	signalStreamDedupTTLSeconds, err := coerceSecondsInt(getOrDefault(signalStreamRaw, "publish_dedup_ttl_seconds", 86400), "signal_stream.publish_dedup_ttl_seconds", 1)
+	signalStreamDedupTTLSeconds, err := coerceSecondsInt(getOrDefault(signalStreamRaw, "publish_dedup_ttl_seconds", 1800), "signal_stream.publish_dedup_ttl_seconds", 1)
 	if err != nil {
 		return AppConfig{}, err
 	}
@@ -460,7 +460,7 @@ func LoadAppConfig(path string) (AppConfig, error) {
 			OrganizationFieldPath:  stringify(getOrDefault(signalStreamRaw, "organization_field", "event.organization")),
 			PublishDedupEnabled:    boolDefault(signalStreamRaw, "publish_dedup_enabled", false),
 			PublishDedupTTLSeconds: signalStreamDedupTTLSeconds,
-			PublishDedupKeyPrefix:  stringify(getOrDefault(signalStreamRaw, "publish_dedup_key_prefix", "rca:signal_stream:dedupe:")),
+			PublishDedupKeyPrefix:  stringify(getOrDefault(signalStreamRaw, "publish_dedup_key_prefix", "Rca:signal_stream:dedupe:")),
 		},
 		Pipeline: PipelineConfig{
 			BatchSize:                           intDefault(pipeRaw, "batch_size", 2000),

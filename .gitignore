@@ -57,3 +57,16 @@ large_datasets/
 #logs and exe files
 *.log
 *.exe
+*.bin
+*.xls
+*.xlsx
+*.tsv
+*.pem
+*.sqlite
+*.db
+*.sqlite3
+*.csv
+*.json
+*.xml
+*.zip
+ca-cert

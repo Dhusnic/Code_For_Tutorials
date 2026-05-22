@@ -1,0 +1,92 @@
+app:
+  default_organization_id: 135098068173316952064
+  max_hops: 4
+  default_thread_id: cli-thread
+
+elasticsearch:
+  hosts:
+    - http://10.0.5.60:9200
+  index: linux*,network-*
+  username: elastic
+  password: elastic
+  api_key:
+  verify_certs: false
+  ca_certs:
+  request_timeout_seconds: 30
+  timestamp_field: "@timestamp"
+  organization_field: event.organization
+  service_field: event.module
+  host_field: host.name
+  ip_field: host.ip
+  signal_field: signal
+  message_field: message
+  severity_field: log.level
+  vendor_field: vendor
+  domain_field: domain
+  searchable_fields:
+    - message
+    - signal
+    - event.module
+    - host.name
+    - vendor
+    - domain
+  source_fields:
+    - doc_id
+    - "@timestamp"
+    - event.organization
+    - event.module
+    - host.name
+    - host.ip
+    - signal
+    - message
+    - log.level
+    - vendor
+    - domain
+    - metadata
+  search_page_size: 250
+  max_records_per_query: 1000
+  use_point_in_time: true
+  point_in_time_keep_alive: 2m
+
+mongo:
+  uri: mongodb://infraondns:InfraonMongodb321@10.0.4.72:27017/dhusnic_test_db?retryWrites=false&authSource=infraon_default_db&authMechanism=SCRAM-SHA-1
+  database: dhusnic_test_db
+  collection: agent_topology_data
+  organization_field: organization_id
+  topology_field: topology
+  schema_version_field: schema_version
+  default_schema_version: 1
+  request_timeout_ms: 5000
+
+openai:
+  api_key_env: OPENAI_API_KEY
+  model: gpt-4o-mini
+  reasoning_effort: medium
+  text_verbosity: low
+  max_output_tokens: 800
+  planner_enabled: true
+  planner_mode: hybrid
+  planner_max_output_tokens: 260
+  critic_enabled: true
+  critic_max_output_tokens: 260
+  scope_resolution_enabled: true
+  scope_resolution_max_output_tokens: 220
+  scope_resolution_confidence_threshold: 0.6
+  timeout_seconds: 60
+  instructions: >
+    You are an industrial site reliability analyst. Write concise root cause
+    analysis summaries using only the supplied evidence, avoid speculation, and
+    call out unknowns when the data does not fully support a conclusion.
+
+rag:
+  vector_enabled: true
+  vector_db_root: rag_db
+  semantic_top_k: 8
+  global_scope_fanout: 6
+
+logging:
+  level: INFO
+  logger_name: logs_only_investigator
+  log_inputs: true
+  log_outputs: true
+  payload_preview_chars: 1200

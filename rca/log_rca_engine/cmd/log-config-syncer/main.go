@@ -23,7 +23,7 @@ func main() {
 
 	configPath := flag.String("config", filepath.Join(".", "config", "config.yml"), "Path to the YAML configuration file.")
 	runOnce := flag.Bool("run-once", false, "Run one config sync and exit.")
-	interval := flag.Duration("interval", 30*time.Second, "Polling interval for revision checks.")
+	interval := flag.Duration("interval", 30*time.Second, "Polling interval for Mongo sync-state checks.")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)

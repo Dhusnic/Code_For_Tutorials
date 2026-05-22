@@ -110,8 +110,8 @@ signal_stream:
   organization_field: "event.organization"
   # Prevent duplicate Redis stream entries when Kafka redelivers or a worker retries after partial success.
   publish_dedup_enabled: true
-  publish_dedup_ttl_seconds: "24h"
-  publish_dedup_key_prefix: "rca:signal_stream:dedupe:"
+  publish_dedup_ttl_seconds: "30m"
+  publish_dedup_key_prefix: "Rca:signal_stream:dedupe:"
 
 # Root directory containing rule files.
 rules_directory: "rules"

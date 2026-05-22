@@ -118,9 +118,9 @@ mongo_sync:
   database: dhusnic_test_db
   # Collection that contains the correlation rule documents.
   rules_collection: correlation_rules
-  # Collection used to track the active ruleset revision.
+  # Collection used to track the active ruleset sync state.
   state_collection: rca_config_state
-  # State document name that identifies the live correlation ruleset.
+  # State document name that identifies the live correlation ruleset and is_synced flag.
   state_name: prod_rules_topology
   # Timeout for one Mongo sync operation.
   timeout: 5s

@@ -85,7 +85,7 @@ func (s *RuleSyncer) Sync(ctx context.Context) (bool, error) {
 		s.resetClient(ctx)
 		return false, err
 	}
-	if !s.needsSync(state.Revision, hasState) {
+	if !s.needsSync(state, hasState) {
 		return false, nil
 	}
 
@@ -107,6 +107,7 @@ func (s *RuleSyncer) Sync(ctx context.Context) (bool, error) {
 					"database", s.cfg.Database,
 					"snapshot_collection", s.cfg.SnapshotCollection,
 					"revision", state.Revision,
+					"is_synced", state.IsSynced,
 					"rules", len(rules),
 					"changed", changed,
 				)
@@ -140,7 +141,7 @@ func (s *RuleSyncer) Sync(ctx context.Context) (bool, error) {
 			"database", s.cfg.Database,
 			"collection", s.cfg.RulesCollection,
 			"revision", state.Revision,
-			"revision_tracked", hasState,
+			"is_synced", state.IsSynced,
 			"rules", len(rules),
 			"changed", changed,
 		)
@@ -150,6 +151,7 @@ func (s *RuleSyncer) Sync(ctx context.Context) (bool, error) {
 
 type configState struct {
 	Revision int64
+	IsSynced bool
 }
 
 func (s *RuleSyncer) loadState(ctx context.Context, database *mongo.Database) (configState, bool, error) {
@@ -173,20 +175,26 @@ func (s *RuleSyncer) loadState(ctx context.Context, database *mongo.Database) (c
 	if revision <= 0 {
 		return configState{}, false, fmt.Errorf("MongoDB config state %s/%s must contain a positive revision", s.cfg.StateCollection, s.cfg.StateName)
 	}
-	return configState{Revision: revision}, true, nil
+	return configState{
+		Revision: revision,
+		IsSynced: boolValue(doc["is_synced"]),
+	}, true, nil
 }
 
-func (s *RuleSyncer) needsSync(revision int64, hasRevision bool) bool {
+func (s *RuleSyncer) needsSync(state configState, hasState bool) bool {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 	if s.forceFull {
 		s.forceFull = false
 		return true
 	}
-	if !hasRevision {
+	if !hasState {
 		return true
 	}
-	return !s.revKnown || s.lastRev != revision
+	if state.IsSynced {
+		return false
+	}
+	return !s.revKnown || s.lastRev != state.Revision
 }
 
 func (s *RuleSyncer) markSynced(revision int64, hasRevision bool) {
@@ -453,6 +461,32 @@ func stringValue(value any) string {
 		return strings.TrimSpace(typed)
 	default:
 		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func boolValue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.TrimSpace(strings.ToLower(typed)) {
+		case "true", "1", "yes", "on":
+			return true
+		default:
+			return false
+		}
+	case int:
+		return typed != 0
+	case int32:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case float32:
+		return typed != 0
+	case float64:
+		return typed != 0
+	default:
+		return false
 	}
 }
 

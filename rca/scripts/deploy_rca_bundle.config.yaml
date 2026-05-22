@@ -1,4 +1,4 @@
-remote_host: 10.0.5.60
+remote_host: 10.0.4.203
 user: root
 port: 22
 
