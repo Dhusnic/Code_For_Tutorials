@@ -6,6 +6,7 @@ import asyncio
 import os
 import logging
 import inspect
+import mimetypes
 import threading
 import time
 import json
@@ -36,7 +37,14 @@ def configure_logging() -> None:
     )
 
 
+def configure_static_mime_types() -> None:
+    """Ensure local static assets use browser-safe MIME types on Windows."""
+    mimetypes.add_type("application/javascript", ".js")
+    mimetypes.add_type("text/css", ".css")
+
+
 configure_logging()
+configure_static_mime_types()
 LOGGER = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent

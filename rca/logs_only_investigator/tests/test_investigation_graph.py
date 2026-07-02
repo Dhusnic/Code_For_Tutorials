@@ -39,10 +39,17 @@ class StubScopeResolutionGenerator:
 
 
 class StubPlannerGenerator:
-    def __init__(self, payload: dict[str, object]) -> None:
+    def __init__(self, payload) -> None:
         self.payload = payload
+        self._index = 0
 
     def choose_next_action(self, context: dict[str, object]) -> dict[str, object]:
+        if callable(self.payload):
+            return dict(self.payload(context))
+        if isinstance(self.payload, list):
+            selected_index = min(self._index, len(self.payload) - 1)
+            self._index += 1
+            return dict(self.payload[selected_index])
         return dict(self.payload)
 
 
@@ -224,6 +231,32 @@ def test_hybrid_planner_records_llm_trace_and_falls_back_when_invalid() -> None:
     log_store = FakeLogStore.from_json(FIXTURE_ROOT / "samples" / "logs.json")
     catalogs = CatalogRepository(FIXTURE_ROOT / "rag")
     topology = TopologyGraph.from_json(FIXTURE_ROOT / "samples" / "topology.json")
+    def _planner_payload(context: dict[str, object]) -> dict[str, object]:
+        available = {
+            str(item.get("tool_name"))
+            for item in context.get("available_tools", [])
+            if isinstance(item, dict) and item.get("tool_name")
+        }
+        if "aggregate_discovery" in available:
+            return {
+                "thought": "Run hotspot discovery before building the anchor.",
+                "action": "tool_call",
+                "tool_name": "aggregate_discovery",
+                "tool_args": None,
+                "stop_reason": None,
+                "confidence_note": "The query is broad enough that discovery may help.",
+                "request": {"model": "stub"},
+            }
+        return {
+            "thought": "Resolve the scope first from the user query.",
+            "action": "tool_call",
+            "tool_name": "resolve_scope",
+            "tool_args": None,
+            "stop_reason": None,
+            "confidence_note": "This is the required first step.",
+            "request": {"model": "stub"},
+        }
+
     graph = build_graph(
         log_store=log_store,
         catalogs=catalogs,
@@ -246,17 +279,7 @@ def test_hybrid_planner_records_llm_trace_and_falls_back_when_invalid() -> None:
             timeout_seconds=60,
             instructions="",
         ),
-        planner_generator=StubPlannerGenerator(
-            {
-                "thought": "Resolve the scope first from the user query.",
-                "action": "tool_call",
-                "tool_name": "resolve_scope",
-                "tool_args": None,
-                "stop_reason": None,
-                "confidence_note": "This is the required first step.",
-                "request": {"model": "stub"},
-            }
-        ),
+        planner_generator=StubPlannerGenerator(_planner_payload),
         max_hops=4,
     )
 
@@ -270,7 +293,8 @@ def test_hybrid_planner_records_llm_trace_and_falls_back_when_invalid() -> None:
 
     planner_trace = result["planner_trace"]
     assert planner_trace[0]["selected_tool_name"] == "resolve_scope"
-    assert planner_trace[0]["selection_source"] == "llm_hybrid"
+    assert planner_trace[0]["selection_source"] == "forced_single_option"
+    assert any(item["selection_source"] == "llm_hybrid" for item in planner_trace[1:])
     assert any(item["selection_source"] == "deterministic_fallback" for item in planner_trace[1:])
     assert any(item["selection_source"] == "forced_single_option" for item in planner_trace)
     assert "confidence_breakdown" in result["report"]

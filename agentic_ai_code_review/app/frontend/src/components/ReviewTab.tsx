@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ReviewConfig } from "../lib/types";
-import { reviewDiffs, runFullReview, runStaticChecks } from "../lib/wails-api";
+import { getUsageMetrics, reviewDiffs, runFullReview, runStaticChecks } from "../lib/wails-api";
 
 const defaultConfig: ReviewConfig = {
   repo_path: "D:\\Product\\Infraon",
@@ -21,7 +21,7 @@ export default function ReviewTab() {
 
   const canRun = useMemo(() => Boolean(config.repo_path.trim()), [config.repo_path]);
 
-  async function execute(action: "review" | "full" | "checks") {
+  async function execute(action: "review" | "full" | "checks" | "usage") {
     if (!canRun || running) {
       return;
     }
@@ -29,7 +29,9 @@ export default function ReviewTab() {
     setOutput(`Running ${action}...`);
     try {
       const payload =
-        action === "review"
+        action === "usage"
+          ? await getUsageMetrics()
+          : action === "review"
           ? await reviewDiffs(config, false)
           : action === "full"
             ? await runFullReview(config, false)
@@ -118,6 +120,9 @@ export default function ReviewTab() {
         </button>
         <button className="btn" disabled={!canRun || running} onClick={() => execute("checks")}>
           Static Checks
+        </button>
+        <button className="btn" disabled={running} onClick={() => execute("usage")}>
+          Usage Metrics
         </button>
       </div>
 

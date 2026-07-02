@@ -2,16 +2,20 @@ package desktop
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"agenticai/desktop/internal/contracts"
 	"agenticai/desktop/internal/core/config"
 	"agenticai/desktop/internal/core/events"
 	"agenticai/desktop/internal/core/jobs"
+	"agenticai/desktop/internal/core/legacyruntime"
 	"agenticai/desktop/internal/core/logging"
 	"agenticai/desktop/internal/core/secrets"
+	"agenticai/desktop/internal/services/legacy"
 	"agenticai/desktop/internal/services"
 	"agenticai/desktop/internal/services/native"
 )
@@ -22,6 +26,7 @@ type App struct {
 	configPath  string
 	service     services.DesktopService
 	secretStore secrets.Store
+	legacyMgr   *legacyruntime.Manager
 	jobManager  *jobs.Manager
 	eventBus    *events.Bus
 }
@@ -34,7 +39,7 @@ func New(configPath string) (*App, error) {
 
 	logger := logging.New(settings.LogLevel)
 	jobManager := jobs.NewManager(2 * time.Hour)
-	service := buildService(logger, jobManager)
+	service, legacyMgr := buildRuntime(settings, logger, jobManager)
 
 	app := &App{
 		logger:      logger,
@@ -42,6 +47,7 @@ func New(configPath string) (*App, error) {
 		configPath:  resolvedPath,
 		service:     service,
 		secretStore: secrets.NewDefaultStore(logger),
+		legacyMgr:   legacyMgr,
 		jobManager:  jobManager,
 		eventBus:    events.NewBus(),
 	}
@@ -49,23 +55,39 @@ func New(configPath string) (*App, error) {
 }
 
 func (a *App) Health() map[string]any {
-	return map[string]any{
+	health := map[string]any{
 		"status":       "healthy",
 		"service":      "agentic-ai-code-review-desktop",
 		"service_mode": a.settings.ServiceMode,
+		"request_timeout_seconds": a.settings.RequestTimeoutSeconds,
+		"runtime":                "wails-native",
+		"secret_store":           secretStoreMetadata(a.secretStore),
 	}
+	if a.legacyMgr != nil {
+		health["compatibility_backend"] = a.legacyMgr.Status(a.context())
+	}
+	return health
 }
 
 func (a *App) GetSettings() map[string]any {
 	return map[string]any{
 		"path": a.configPath,
 		"config": map[string]any{
-			"service_mode":              a.settings.ServiceMode,
-			"request_timeout_seconds":   a.settings.RequestTimeoutSeconds,
-			"log_level":                 a.settings.LogLevel,
-			"runtime":                   "wails-native",
-			"external_backend_required": false,
+			"service_mode":                    a.settings.ServiceMode,
+			"legacy_api_base_url":             a.settings.LegacyAPIBaseURL,
+			"request_timeout_seconds":         a.settings.RequestTimeoutSeconds,
+			"log_level":                       a.settings.LogLevel,
+			"auto_start_legacy_api":           a.settings.AutoStartLegacyAPI,
+			"legacy_api_python_bin":           a.settings.LegacyAPIPythonBin,
+			"legacy_api_script_path":          a.settings.LegacyAPIScriptPath,
+			"legacy_startup_timeout_seconds":  a.settings.LegacyStartupTimeoutSeconds,
+			"auto_install_legacy_deps":        a.settings.AutoInstallLegacyDeps,
+			"runtime":                         "wails-native",
+			"external_backend_required":       a.settings.ServiceMode != config.ServiceModeNative,
+			"compatibility_backend_supported": true,
+			"secret_store":                    secretStoreMetadata(a.secretStore),
 		},
+		"health": a.Health(),
 	}
 }
 
@@ -89,12 +111,46 @@ func (a *App) SaveSettings(input map[string]any) (map[string]any, error) {
 			next.RequestTimeoutSeconds = parsed
 		}
 	}
+	if value, ok := input["legacy_api_base_url"].(string); ok {
+		next.LegacyAPIBaseURL = value
+	}
+	if value, ok := input["auto_start_legacy_api"]; ok {
+		next.AutoStartLegacyAPI = coerceBool(value, next.AutoStartLegacyAPI)
+	}
+	if value, ok := input["legacy_api_python_bin"].(string); ok {
+		next.LegacyAPIPythonBin = value
+	}
+	if value, ok := input["legacy_api_script_path"].(string); ok {
+		next.LegacyAPIScriptPath = value
+	}
+	if value, ok := input["legacy_startup_timeout_seconds"].(float64); ok {
+		next.LegacyStartupTimeoutSeconds = int(value)
+	}
+	if value, ok := input["legacy_startup_timeout_seconds"].(int); ok {
+		next.LegacyStartupTimeoutSeconds = value
+	}
+	if value, ok := input["legacy_startup_timeout_seconds"].(string); ok {
+		parsed, err := strconv.Atoi(value)
+		if err == nil {
+			next.LegacyStartupTimeoutSeconds = parsed
+		}
+	}
+	if value, ok := input["auto_install_legacy_deps"]; ok {
+		next.AutoInstallLegacyDeps = coerceBool(value, next.AutoInstallLegacyDeps)
+	}
 	if err := config.Save(a.configPath, next); err != nil {
 		return nil, err
 	}
+	loadedSettings, _, err := config.Load(a.configPath)
+	if err != nil {
+		return nil, err
+	}
 
-	a.settings = next
-	a.service = buildService(a.logger, a.jobManager)
+	if a.legacyMgr != nil {
+		_ = a.legacyMgr.Stop()
+	}
+	a.settings = loadedSettings
+	a.service, a.legacyMgr = buildRuntime(a.settings, a.logger, a.jobManager)
 	return a.GetSettings(), nil
 }
 
@@ -178,10 +234,72 @@ func (a *App) DeleteSecret(key string) map[string]any {
 	return map[string]any{"ok": true}
 }
 
+func (a *App) Shutdown() {
+	if a.legacyMgr != nil {
+		_ = a.legacyMgr.Stop()
+	}
+}
+
 func (a *App) context() context.Context {
 	return context.Background()
 }
 
-func buildService(logger *slog.Logger, jobManager *jobs.Manager) services.DesktopService {
-	return native.NewService(logger, jobManager)
+func buildRuntime(settings config.Settings, logger *slog.Logger, jobManager *jobs.Manager) (services.DesktopService, *legacyruntime.Manager) {
+	nativeService := native.NewService(logger, jobManager)
+	legacyManager := legacyruntime.NewManager(settings, logger)
+	legacyService := legacy.NewClient(
+		settings.LegacyAPIBaseURL,
+		config.Timeout(settings),
+		logger,
+		legacyManager.EnsureRunning,
+	)
+
+	switch settings.ServiceMode {
+	case config.ServiceModeLegacy:
+		return legacyService, legacyManager
+	case config.ServiceModeNative:
+		return nativeService, legacyManager
+	default:
+		return services.NewRouter(settings.ServiceMode, nativeService, legacyService), legacyManager
+	}
+}
+
+func coerceBool(value any, fallback bool) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		normalized := strings.ToLower(strings.TrimSpace(typed))
+		switch normalized {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		}
+	case float64:
+		return typed != 0
+	case int:
+		return typed != 0
+	}
+	return fallback
+}
+
+func secretStoreMetadata(store secrets.Store) map[string]any {
+	typeName := fmt.Sprintf("%T", store)
+	metadata := map[string]any{
+		"type":           typeName,
+		"read_supported": true,
+	}
+	switch store.(type) {
+	case *secrets.MemoryStore:
+		metadata["kind"] = "memory"
+	default:
+		if strings.Contains(typeName, "WindowsCredentialStore") {
+			metadata["kind"] = "credential_store"
+			metadata["read_supported"] = false
+			break
+		}
+		metadata["kind"] = "credential_store"
+	}
+	return metadata
 }

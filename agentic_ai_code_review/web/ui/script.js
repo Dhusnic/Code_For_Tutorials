@@ -1,4 +1,9 @@
-const API_BASE = window.location?.origin || "http://127.0.0.1:8000";
+const LOCAL_API_BASE = "http://127.0.0.1:8000";
+const browserOrigin = window.location?.origin;
+const API_BASE =
+  window.location?.protocol === "file:" || !browserOrigin || browserOrigin === "null"
+    ? LOCAL_API_BASE
+    : browserOrigin;
 const MAX_RENDER_LINES_PER_PANE = 500;
 const JOB_POLL_INTERVAL_MS = 1000;
 const JOB_MAX_WAIT_MS = 15 * 60 * 1000;
@@ -64,7 +69,11 @@ const settingsState = {
 };
 const PR_FORM_STORAGE_KEY = "pr-workflow-form-v1";
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  const redirectedToHostedUi = await redirectToHostedUiIfNeeded();
+  if (redirectedToHostedUi) {
+    return;
+  }
   initializeMarkdownRenderer();
   initializeTheme();
   initializeSettingsDrawer();
@@ -75,6 +84,37 @@ document.addEventListener("DOMContentLoaded", () => {
   bindUsageMonitorToggle();
   renderStaticCheckRunState();
 });
+
+async function redirectToHostedUiIfNeeded() {
+  if (window.location?.protocol !== "file:") {
+    return false;
+  }
+
+  try {
+    const response = await fetch(`${LOCAL_API_BASE}/api/health`);
+    if (!response.ok) {
+      return false;
+    }
+    window.location.replace(`${LOCAL_API_BASE}/`);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function normalizeNetworkError(error, path) {
+  if (!(error instanceof TypeError)) {
+    return error;
+  }
+
+  if (window.location?.protocol === "file:") {
+    return new Error(
+      `Cannot reach ${API_BASE}${path} from the local file page. Start the backend and open ${LOCAL_API_BASE}/ instead of index.html directly.`
+    );
+  }
+
+  return new Error(`Cannot reach ${API_BASE}${path}. Make sure the backend is running and accessible.`);
+}
 
 async function runReview() {
   const logs = document.getElementById("logs");
@@ -681,11 +721,16 @@ function renderStaticCheckRunState() {
 }
 
 async function apiPost(path, payload) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    throw normalizeNetworkError(error, path);
+  }
 
   if (!response.ok) {
     let detail = response.statusText;
@@ -723,11 +768,16 @@ async function apiPost(path, payload) {
 }
 
 async function apiPut(path, payload) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    throw normalizeNetworkError(error, path);
+  }
 
   if (!response.ok) {
     let detail = response.statusText;
@@ -1283,10 +1333,15 @@ function createPrApprovalLineCell(lineNumberValue, textValue, side) {
 }
 
 async function apiGet(path) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" }
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" }
+    });
+  } catch (error) {
+    throw normalizeNetworkError(error, path);
+  }
   if (!response.ok) {
     let detail = response.statusText;
     try {

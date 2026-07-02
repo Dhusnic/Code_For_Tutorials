@@ -723,9 +723,7 @@ def _available_tool_calls(
                 "discovery_summary_json": None,
             },
         }
-        return available
-
-    if "build_initial_anchor" not in tool_results:
+    elif "build_initial_anchor" not in tool_results:
         available["build_initial_anchor"] = {
             "name": "build_initial_anchor",
             "thought": "Building the first anchor from the active scope and the ranked signal set.",
@@ -738,10 +736,9 @@ def _available_tool_calls(
                 else None,
             },
         }
-        return available
 
-    anchor_payload = tool_results["build_initial_anchor"]
-    if "first_circle_search" not in tool_results:
+    anchor_payload = tool_results.get("build_initial_anchor")
+    if isinstance(anchor_payload, dict) and "first_circle_search" not in tool_results:
         available["first_circle_search"] = {
             "name": "first_circle_search",
             "thought": "Searching the first evidence circle around the active anchor.",
@@ -751,32 +748,31 @@ def _available_tool_calls(
                 "organization_id": resolved["scope"]["organization_id"],
             },
         }
-        return available
 
-    if "topology_walk" not in tool_results:
+    first_circle_payload = tool_results.get("first_circle_search")
+    if isinstance(first_circle_payload, dict) and "topology_walk" not in tool_results:
         available["topology_walk"] = {
             "name": "topology_walk",
             "thought": "Walking topology hop by hop to test upstream and underlay explanations.",
             "args": {
-                "anchor_json": json.dumps(tool_results["first_circle_search"]["anchor"]),
-                "first_circle_json": json.dumps(tool_results["first_circle_search"]["first_circle"]),
+                "anchor_json": json.dumps(first_circle_payload["anchor"]),
+                "first_circle_json": json.dumps(first_circle_payload["first_circle"]),
                 "parsed_query_json": json.dumps(resolved["parsed_query"]),
                 "scope_json": json.dumps(resolved["scope"]),
             },
         }
-        return available
 
-    if "raw_log_context" not in tool_results:
+    topology_walk_payload = tool_results.get("topology_walk")
+    if isinstance(first_circle_payload, dict) and isinstance(topology_walk_payload, dict) and "raw_log_context" not in tool_results:
         available["raw_log_context"] = {
             "name": "raw_log_context",
             "thought": "Adding a small raw-log context slice near the validated evidence path.",
             "args": {
                 "scope_json": json.dumps(resolved["scope"]),
-                "first_circle_json": json.dumps(tool_results["first_circle_search"]["first_circle"]),
-                "topology_walk_json": json.dumps(tool_results["topology_walk"]),
+                "first_circle_json": json.dumps(first_circle_payload["first_circle"]),
+                "topology_walk_json": json.dumps(topology_walk_payload),
             },
         }
-        return available
 
     provisional_confidence, provisional_classification, _ = _score_tool_state_for_followups(tool_results)
     healthy_required = _needs_healthy_window_followup(
@@ -784,61 +780,79 @@ def _available_tool_calls(
         classification=provisional_classification,
         tool_results=tool_results,
     )
-    if healthy_required and "healthy_window_comparison" not in tool_results:
+    if (
+        healthy_required
+        and "healthy_window_comparison" not in tool_results
+        and isinstance(anchor_payload, dict)
+        and isinstance(first_circle_payload, dict)
+        and isinstance(topology_walk_payload, dict)
+    ):
         available["healthy_window_comparison"] = {
             "name": "healthy_window_comparison",
             "thought": "Comparing the incident window against a nearby healthy baseline for the same scoped entity.",
             "args": {
                 "scope_json": json.dumps(resolved["scope"]),
-                "anchor_json": json.dumps(tool_results["first_circle_search"]["anchor"]),
-                "first_circle_json": json.dumps(tool_results["first_circle_search"]["first_circle"]),
-                "topology_walk_json": json.dumps(tool_results["topology_walk"]),
+                "anchor_json": json.dumps(first_circle_payload["anchor"]),
+                "first_circle_json": json.dumps(first_circle_payload["first_circle"]),
+                "topology_walk_json": json.dumps(topology_walk_payload),
             },
         }
-        return available
 
     critic_required = _needs_critic_followup(
         confidence=provisional_confidence,
         classification=provisional_classification,
         tool_results=tool_results,
     )
-    if critic_required and "critic_pass" not in tool_results:
+    raw_context_payload = tool_results.get("raw_log_context")
+    if (
+        critic_required
+        and "critic_pass" not in tool_results
+        and isinstance(anchor_payload, dict)
+        and isinstance(first_circle_payload, dict)
+        and isinstance(topology_walk_payload, dict)
+        and isinstance(raw_context_payload, dict)
+    ):
         available["critic_pass"] = {
             "name": "critic_pass",
             "thought": "Running the weak-RCA critic to pressure-test the current explanation before finalizing the report.",
             "args": {
                 "query": query,
                 "scope_json": json.dumps(resolved["scope"]),
-                "anchor_json": json.dumps(tool_results["first_circle_search"]["anchor"]),
-                "first_circle_json": json.dumps(tool_results["first_circle_search"]["first_circle"]),
-                "topology_walk_json": json.dumps(tool_results["topology_walk"]),
-                "raw_context_json": json.dumps(tool_results["raw_log_context"]["raw_context"]),
+                "anchor_json": json.dumps(first_circle_payload["anchor"]),
+                "first_circle_json": json.dumps(first_circle_payload["first_circle"]),
+                "topology_walk_json": json.dumps(topology_walk_payload),
+                "raw_context_json": json.dumps(raw_context_payload["raw_context"]),
                 "healthy_window_json": json.dumps(tool_results["healthy_window_comparison"])
                 if "healthy_window_comparison" in tool_results
                 else None,
             },
         }
-        return available
 
-    available["compose_report"] = {
-        "name": "compose_report",
-        "thought": "Composing the final RCA report and updating thread memory for follow-up turns.",
-        "args": {
-            "scope_json": json.dumps(resolved["scope"]),
-            "rag_scope_json": json.dumps(candidate_payload["rag_scope"]),
-            "candidate_signals_json": json.dumps(candidate_payload["candidate_signals"]),
-            "anchor_json": json.dumps(tool_results["first_circle_search"]["anchor"]),
-            "first_circle_json": json.dumps(tool_results["first_circle_search"]["first_circle"]),
-            "topology_walk_json": json.dumps(tool_results["topology_walk"]),
-            "raw_context_json": json.dumps(tool_results["raw_log_context"]["raw_context"]),
-            "investigation_trace_json": json.dumps(_collect_trace(tool_results)),
-            "healthy_window_json": json.dumps(tool_results["healthy_window_comparison"])
-            if "healthy_window_comparison" in tool_results
-            else None,
-            "critic_pass_json": json.dumps(tool_results["critic_pass"]) if "critic_pass" in tool_results else None,
-            "session_memory_json": json.dumps(session_memory),
-        },
-    }
+    if (
+        isinstance(anchor_payload, dict)
+        and isinstance(first_circle_payload, dict)
+        and isinstance(topology_walk_payload, dict)
+        and isinstance(raw_context_payload, dict)
+    ):
+        available["compose_report"] = {
+            "name": "compose_report",
+            "thought": "Composing the final RCA report and updating thread memory for follow-up turns.",
+            "args": {
+                "scope_json": json.dumps(resolved["scope"]),
+                "rag_scope_json": json.dumps(candidate_payload["rag_scope"]),
+                "candidate_signals_json": json.dumps(candidate_payload["candidate_signals"]),
+                "anchor_json": json.dumps(first_circle_payload["anchor"]),
+                "first_circle_json": json.dumps(first_circle_payload["first_circle"]),
+                "topology_walk_json": json.dumps(topology_walk_payload),
+                "raw_context_json": json.dumps(raw_context_payload["raw_context"]),
+                "investigation_trace_json": json.dumps(_collect_trace(tool_results)),
+                "healthy_window_json": json.dumps(tool_results["healthy_window_comparison"])
+                if "healthy_window_comparison" in tool_results
+                else None,
+                "critic_pass_json": json.dumps(tool_results["critic_pass"]) if "critic_pass" in tool_results else None,
+                "session_memory_json": json.dumps(session_memory),
+            },
+        }
     return available
 
 
@@ -882,6 +896,13 @@ def _build_planner_context(
     tool_results: dict[str, Any],
     available_tool_calls: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
+    recommended = _next_tool_call(
+        query=query,
+        request=request,
+        session_memory=session_memory,
+        tool_results=tool_results,
+        available_tool_calls=available_tool_calls,
+    )
     return {
         "user_query": query,
         "request_options": request,
@@ -900,6 +921,10 @@ def _build_planner_context(
             }
             for payload in available_tool_calls.values()
         ],
+        "recommended_next_tool": {
+            "tool_name": recommended["name"],
+            "reason": recommended["thought"],
+        },
         "current_findings": _summarize_tool_results_for_planner(tool_results),
         "tool_dependency_hints": _planner_tool_dependency_hints(),
     }
@@ -980,8 +1005,10 @@ def _planner_tool_dependency_hints() -> dict[str, str]:
         "build_initial_anchor": "Use once scope and candidate signals are ready.",
         "first_circle_search": "Use to fetch the first local evidence ring around the anchor.",
         "topology_walk": "Use after first_circle_search to test upstream and underlay explanations.",
-        "raw_log_context": "Use after topology_walk to fetch a compact human-readable context slice.",
-        "compose_report": "Use only after enough evidence has been gathered for the final RCA output.",
+        "raw_log_context": "Use after topology_walk to fetch a compact human-readable context slice. Usually helpful before finalizing or running the critic.",
+        "healthy_window_comparison": "Use after topology_walk when the RCA is still weak, ambiguous, or lacks a strong incident-vs-healthy contrast.",
+        "critic_pass": "Use after raw_log_context when the current RCA is weak or you want the model to pressure-test the explanation before finishing.",
+        "compose_report": "Use after raw_log_context when the current evidence is already sufficient for a final RCA output.",
     }
 
 

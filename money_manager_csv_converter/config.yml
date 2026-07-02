@@ -31,6 +31,12 @@ money_manager:
   note_include_vpa: true
   fallback_account_prefix: HDFC
 
+shared_expense:
+  keywords:
+    - SPLIT
+  debt_category: "Dept given by Me 💸"
+  debt_subcategory: ""
+
 history:
   enabled: true
   reference_export: outputs/01-01-25_31-12-25.xlsx
@@ -58,8 +64,9 @@ statement_sources:
     file_match:
       filename_contains:
         - HDFC_acc
-        - HDFC_acc_apr
+        - HDFC_acc_may
         - HDFC_acc_mar
+        - HDFC_acc_jun
         - HDFC_account
         - HDFC_statement
       extensions:
@@ -74,8 +81,9 @@ statement_sources:
     file_match:
       filename_contains:
         - HDFC_credit_card
-        - HDFC_credit_apr
+        - HDFC_credit_may
         - HDFC_credit_mar
+        - HDFC_credit_jun
         - credit_card
       extensions:
         - .xls
@@ -89,8 +97,9 @@ statement_sources:
     file_match:
       filename_contains:
         - SBI_acc
-        - SBI_acc_apr
+        - SBI_acc_may
         - SBI_acc_mar
+        - SBI_acc_jun
         - SBI_account
         - SBI_statement
       extensions:

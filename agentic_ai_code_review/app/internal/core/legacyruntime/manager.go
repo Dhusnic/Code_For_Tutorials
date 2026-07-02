@@ -31,6 +31,7 @@ type Manager struct {
 	logFile       *os.File
 	depsCheckDone bool
 	depsReady     bool
+	lastError     string
 }
 
 func NewManager(settings config.Settings, logger *slog.Logger) *Manager {
@@ -54,7 +55,9 @@ func (m *Manager) EnsureRunning(ctx context.Context) error {
 		return nil
 	}
 	if !m.autoStart {
-		return errors.New("legacy API is not running and auto-start is disabled")
+		err := errors.New("legacy API is not running and auto-start is disabled")
+		m.setLastError(err)
+		return err
 	}
 
 	m.mu.Lock()
@@ -69,18 +72,23 @@ func (m *Manager) EnsureRunning(ctx context.Context) error {
 
 	repoRoot, err := m.resolveRepoRoot()
 	if err != nil {
+		m.setLastErrorLocked(err)
 		return err
 	}
 	scriptAbs := filepath.Join(repoRoot, filepath.FromSlash(m.scriptPath))
 	if _, statErr := os.Stat(scriptAbs); statErr != nil {
-		return fmt.Errorf("legacy API script not found: %s", scriptAbs)
+		err = fmt.Errorf("legacy API script not found: %s", scriptAbs)
+		m.setLastErrorLocked(err)
+		return err
 	}
 	if depsErr := m.ensurePythonDependencies(ctx, repoRoot); depsErr != nil {
+		m.setLastErrorLocked(depsErr)
 		return depsErr
 	}
 
 	logPath, logFile, logErr := m.openLogFile(repoRoot)
 	if logErr != nil {
+		m.setLastErrorLocked(logErr)
 		return logErr
 	}
 	m.logFilePath = logPath
@@ -95,7 +103,9 @@ func (m *Manager) EnsureRunning(ctx context.Context) error {
 	if startErr := cmd.Start(); startErr != nil {
 		_ = logFile.Close()
 		m.logFile = nil
-		return fmt.Errorf("failed to start legacy API process: %w", startErr)
+		err = fmt.Errorf("failed to start legacy API process: %w", startErr)
+		m.setLastErrorLocked(err)
+		return err
 	}
 	m.cmd = cmd
 	if m.logger != nil {
@@ -105,8 +115,11 @@ func (m *Manager) EnsureRunning(ctx context.Context) error {
 	go m.waitProcessExit(cmd, logFile)
 	waitErr := m.waitForHealth(ctx, m.startupTimeout)
 	if waitErr != nil {
-		return fmt.Errorf("%w. startup logs: %s", waitErr, logPath)
+		err = fmt.Errorf("%w. startup logs: %s", waitErr, logPath)
+		m.setLastErrorLocked(err)
+		return err
 	}
+	m.setLastErrorLocked(nil)
 	return nil
 }
 
@@ -126,10 +139,12 @@ func (m *Manager) ensurePythonDependencies(ctx context.Context, repoRoot string)
 	}
 
 	if !m.autoInstallDeps {
-		return errors.New(
+		err := errors.New(
 			"legacy API dependencies are missing. Install them with: " +
 				"python -m pip install fastapi uvicorn pydantic openai requests GitPython tiktoken pyyaml",
 		)
+		m.setLastErrorLocked(err)
+		return err
 	}
 
 	if m.logger != nil {
@@ -153,13 +168,18 @@ func (m *Manager) ensurePythonDependencies(ctx context.Context, repoRoot string)
 		"pyyaml",
 	}
 	if err := m.runPythonCommand(installCtx, repoRoot, installArgs...); err != nil {
-		return fmt.Errorf("desktop-managed dependency install failed: %w", err)
+		wrapped := fmt.Errorf("desktop-managed dependency install failed: %w", err)
+		m.setLastErrorLocked(wrapped)
+		return wrapped
 	}
 	if err := m.runPythonCommand(ctx, repoRoot, importCheck...); err != nil {
-		return fmt.Errorf("legacy dependencies still unavailable after install: %w", err)
+		wrapped := fmt.Errorf("legacy dependencies still unavailable after install: %w", err)
+		m.setLastErrorLocked(wrapped)
+		return wrapped
 	}
 	m.depsCheckDone = true
 	m.depsReady = true
+	m.setLastErrorLocked(nil)
 	return nil
 }
 
@@ -211,6 +231,55 @@ func (m *Manager) healthCheck(ctx context.Context) bool {
 	}
 	defer response.Body.Close()
 	return response.StatusCode >= 200 && response.StatusCode < 300
+}
+
+func (m *Manager) Status(ctx context.Context) map[string]any {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	processRunning := m.cmd != nil && m.cmd.Process != nil && m.cmd.ProcessState == nil
+	status := map[string]any{
+		"base_url":                 defaultBaseURL(m.baseURL),
+		"auto_start":               m.autoStart,
+		"auto_install_deps":        m.autoInstallDeps,
+		"python_bin":               m.pythonBin,
+		"script_path":              m.scriptPath,
+		"startup_timeout_seconds":  int(m.startupTimeout / time.Second),
+		"log_file_path":            m.logFilePath,
+		"process_running":          processRunning,
+		"deps_check_completed":     m.depsCheckDone,
+		"deps_ready":               m.depsReady,
+		"last_error":               m.lastError,
+		"health_endpoint_reachable": false,
+	}
+	status["health_endpoint_reachable"] = m.healthCheck(ctx)
+	return status
+}
+
+func (m *Manager) Stop() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.cmd == nil || m.cmd.Process == nil || m.cmd.ProcessState != nil {
+		if m.logFile != nil {
+			_ = m.logFile.Close()
+			m.logFile = nil
+		}
+		return nil
+	}
+
+	err := m.cmd.Process.Kill()
+	if m.logFile != nil {
+		_ = m.logFile.Close()
+		m.logFile = nil
+	}
+	m.cmd = nil
+	if err != nil {
+		m.lastError = err.Error()
+		return err
+	}
+	m.lastError = ""
+	return nil
 }
 
 func (m *Manager) resolveRepoRoot() (string, error) {
@@ -296,4 +365,26 @@ func (m *Manager) runPythonCommand(ctx context.Context, workingDir string, args 
 		return fmt.Errorf("python command failed: %s %s :: %w :: %s", m.pythonBin, strings.Join(args, " "), err, string(output))
 	}
 	return nil
+}
+
+func (m *Manager) setLastError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setLastErrorLocked(err)
+}
+
+func (m *Manager) setLastErrorLocked(err error) {
+	if err == nil {
+		m.lastError = ""
+		return
+	}
+	m.lastError = err.Error()
+}
+
+func defaultBaseURL(value string) string {
+	base := strings.TrimSpace(value)
+	if base == "" {
+		return "http://127.0.0.1:8000"
+	}
+	return base
 }

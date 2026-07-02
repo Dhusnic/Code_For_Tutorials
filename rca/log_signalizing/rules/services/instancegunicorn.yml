@@ -1,0 +1,367 @@
+service: instancegunicorn
+rules:
+  - id: A_INSTANCEGUNICORN_UNCLASSIFIED_FAILURE
+    signal_key: instancegunicorn_unclassified_failure
+    level: critical
+    description: Instancegunicorn emitted an error-level failure but no specific backend signature matched.
+    tags: [fallback, unclassified, instancegunicorn, backend, critical, triage]
+    condition:
+      or:
+        - field: log.level
+          op: in
+          value: [critical, crit, error, err, fatal, panic, emergency, alert]
+        - field: level
+          op: in
+          value: [critical, crit, error, err, fatal, panic, emergency, alert]
+        - field: message
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|SEVERE|ERROR|Traceback \()'
+        - field: msg
+          op: regex
+          value: '(FATAL|PANIC|CRITICAL|SEVERE|ERROR|Traceback \()'
+
+  - id: INSTANCEGUNICORN_PAGE_FILTERED_DATA_INDEX_ERROR
+    signal_key: instancegunicorn_page_filtered_data_index_error
+    level: warning
+    description: BaseController page-filtering flow is throwing repeated IndexError exceptions and breaking filtered-data requests.
+    tags: [instancegunicorn, application, controller, filtering, traceback]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: 'Method get_page_filtered_data on BaseController:list index out of range'
+        - field: msg
+          op: contains
+          value: 'Method get_page_filtered_data on BaseController:list index out of range'
+
+  - id: INSTANCEGUNICORN_LICENSE_EXPIRY_TYPE_ERROR
+    signal_key: instancegunicorn_license_expiry_type_error
+    level: warning
+    description: License expiry status calculation is using a string instead of a date and failing user-facing license checks.
+    tags: [instancegunicorn, application, license, typeerror]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: "Error in get_license_expiry_status : unsupported operand type(s) for -: 'str' and 'datetime.date'"
+        - field: msg
+          op: contains
+          value: "Error in get_license_expiry_status : unsupported operand type(s) for -: 'str' and 'datetime.date'"
+
+  - id: INSTANCEGUNICORN_SETTING_DOMAIN_UNDEFINED
+    signal_key: instancegunicorn_setting_domain_undefined
+    level: warning
+    description: Runtime configuration is missing INFRAON_URL_DOMAIN, causing repeated setting-resolution failures.
+    tags: [instancegunicorn, configuration, settings, missing_env]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: "Error in get_setting_data on utility: name 'INFRAON_URL_DOMAIN' is not defined"
+        - field: msg
+          op: contains
+          value: "Error in get_setting_data on utility: name 'INFRAON_URL_DOMAIN' is not defined"
+
+  - id: INSTANCEGUNICORN_LOG_SEARCH_TIMESTAMP_CONVERSION_ERROR
+    signal_key: instancegunicorn_log_search_timestamp_conversion_error
+    level: warning
+    description: Log-search timestamp parsing is failing because the incoming ISO timestamp is too short.
+    tags: [instancegunicorn, logmanagement, parsing, timestamp]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: 'Error converting timestamp: Error converting timestamp: ISO string too short'
+        - field: msg
+          op: contains
+          value: 'Error converting timestamp: Error converting timestamp: ISO string too short'
+
+  - id: INSTANCEGUNICORN_FORMAT_UTC_DATETIME_TYPE_ERROR
+    signal_key: instancegunicorn_format_utc_datetime_type_error
+    level: warning
+    description: Date formatting code is receiving an integer instead of a timezone-aware datetime object.
+    tags: [instancegunicorn, application, datetime, typeerror]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: 'Error in format_utc_datetime - -1, zone .* error: ''int'' object has no attribute ''tzinfo'''
+        - field: msg
+          op: regex
+          value: 'Error in format_utc_datetime - -1, zone .* error: ''int'' object has no attribute ''tzinfo'''
+
+  - id: INSTANCEGUNICORN_DASHBOARD_SYNC_CONFIG_MISSING
+    signal_key: instancegunicorn_dashboard_sync_config_missing
+    level: warning
+    description: Remote dashboard sync flows are failing because DashboardSyncConfig records are missing.
+    tags: [instancegunicorn, dashboard, configuration, missing_data]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: 'Method get_remote_dashboard(s)?(_view)? on Dashboard Controller DashboardSyncConfig matching query does not exist'
+        - field: msg
+          op: regex
+          value: 'Method get_remote_dashboard(s)?(_view)? on Dashboard Controller DashboardSyncConfig matching query does not exist'
+
+  - id: INSTANCEGUNICORN_DASHBOARD_INDEX_CONFLICT
+    signal_key: instancegunicorn_dashboard_index_conflict
+    level: warning
+    description: Dashboard synchronization is attempting to create MongoDB indexes that conflict with existing definitions.
+    tags: [instancegunicorn, dashboard, mongodb, index_conflict]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: 'Method get_remote_dashboard(s)?(_view)? on Dashboard Controller .*IndexKeySpecsConflict'
+        - field: msg
+          op: regex
+          value: 'Method get_remote_dashboard(s)?(_view)? on Dashboard Controller .*IndexKeySpecsConflict'
+
+  - id: INSTANCEGUNICORN_LOGMANAGEMENT_LLM_HANDLER_MISSING
+    signal_key: instancegunicorn_logmanagement_llm_handler_missing
+    level: warning
+    description: Log-management NQL generation is calling a missing get_llm_to_query handler and cannot build AI queries.
+    tags: [instancegunicorn, logmanagement, ai, missing_method]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: "Error getting nql query: 'LogmanagementAiController' object has no attribute 'get_llm_to_query'"
+        - field: msg
+          op: contains
+          value: "Error getting nql query: 'LogmanagementAiController' object has no attribute 'get_llm_to_query'"
+
+  - id: INSTANCEGUNICORN_LOGMANAGEMENT_PROVIDER_CONFIG_MISSING
+    signal_key: instancegunicorn_logmanagement_provider_config_missing
+    level: warning
+    description: AI-backed log-management features are unavailable because provider configuration or active GenAI keys are missing.
+    tags: [instancegunicorn, logmanagement, ai, configuration]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: 'No provider config found for feature logmangement_nql'
+        - field: msg
+          op: contains
+          value: 'No provider config found for feature logmangement_nql'
+        - field: message
+          op: contains
+          value: 'No active GenAI keys found for organization'
+        - field: msg
+          op: contains
+          value: 'No active GenAI keys found for organization'
+
+  - id: INSTANCEGUNICORN_DEFAULT_DASHBOARD_MISSING
+    signal_key: instancegunicorn_default_dashboard_missing
+    level: warning
+    description: Users are hitting a missing default dashboard mapping during backend page load or login flows.
+    tags: [instancegunicorn, dashboard, missing_data, user_experience]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: 'Method get_default_dashboard on Basecontroller:Dashboard matching query does not exist'
+        - field: msg
+          op: contains
+          value: 'Method get_default_dashboard on Basecontroller:Dashboard matching query does not exist'
+
+  - id: INSTANCEGUNICORN_ACTIVE_USERS_DUPLICATE_MONGO
+    signal_key: instancegunicorn_active_users_duplicate_mongo
+    level: warning
+    description: Active-user tracking found duplicate MongoDB records instead of a single authoritative user entry.
+    tags: [instancegunicorn, mongodb, duplicate_data, users]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: 'Method save_active_users on User Profile Controller: Found more than one entry in mongo'
+        - field: msg
+          op: contains
+          value: 'Method save_active_users on User Profile Controller: Found more than one entry in mongo'
+
+  - id: INSTANCEGUNICORN_ORGANIZATION_VIDEO_LIST_ATTRIBUTE_ERROR
+    signal_key: instancegunicorn_organization_video_list_attribute_error
+    level: warning
+    description: Organization video-list retrieval is dereferencing a None object and failing the controller path.
+    tags: [instancegunicorn, application, organization, attributeerror]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: "Error in get_getting_video_list on OrganizationController: 'NoneType' object has no attribute 'exceptions'"
+        - field: msg
+          op: contains
+          value: "Error in get_getting_video_list on OrganizationController: 'NoneType' object has no attribute 'exceptions'"
+
+  - id: INSTANCEGUNICORN_PAGE_CONFIG_UNDEFINED_VALUE
+    signal_key: instancegunicorn_page_config_undefined_value
+    level: warning
+    description: CMDB page-config persistence received the literal value undefined where an integer was required.
+    tags: [instancegunicorn, cmdb, validation, frontend_input]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: "Method save_page_config on CMDBController:invalid literal for int() with base 10: 'undefined'"
+        - field: msg
+          op: contains
+          value: "Method save_page_config on CMDBController:invalid literal for int() with base 10: 'undefined'"
+
+  - id: INSTANCEGUNICORN_RABBITMQ_STREAM_LOST
+    signal_key: instancegunicorn_rabbitmq_stream_lost
+    level: critical
+    description: RabbitMQ publishing from instancegunicorn lost the AMQP stream because the peer reset the connection.
+    tags: [instancegunicorn, rabbitmq, dependency, connection, messaging]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: 'Error in send_data on rabbitMQ utils - .*Connection reset by peer'
+        - field: msg
+          op: regex
+          value: 'Error in send_data on rabbitMQ utils - .*Connection reset by peer'
+        - field: message
+          op: regex
+          value: 'pika\.exceptions\.(StreamLostError|AMQPConnectionError|IncompatibleProtocolError)'
+        - field: msg
+          op: regex
+          value: 'pika\.exceptions\.(StreamLostError|AMQPConnectionError|IncompatibleProtocolError)'
+
+  - id: INSTANCEGUNICORN_RABBITMQ_CONNECTION_STATE_ERROR
+    signal_key: instancegunicorn_rabbitmq_connection_state_error
+    level: warning
+    description: RabbitMQ cleanup logic is acting on already-closed channels or connections, indicating broken connection lifecycle handling.
+    tags: [instancegunicorn, rabbitmq, dependency, lifecycle]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: 'Method close_channel on rabbitMQ utils:Channel is closed.'
+        - field: msg
+          op: contains
+          value: 'Method close_channel on rabbitMQ utils:Channel is closed.'
+        - field: message
+          op: contains
+          value: "Method close_connection on rabbitMQ utils:BlockingConnection.close(200, 'Normal shutdown') called on closed connection."
+        - field: msg
+          op: contains
+          value: "Method close_connection on rabbitMQ utils:BlockingConnection.close(200, 'Normal shutdown') called on closed connection."
+
+  - id: INSTANCEGUNICORN_MONGODB_UNREACHABLE
+    signal_key: instancegunicorn_mongodb_unreachable
+    level: critical
+    description: Instancegunicorn cannot reach MongoDB and is hitting server-selection timeouts or connection refusals.
+    tags: [instancegunicorn, mongodb, dependency, connection, outage]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(ServerSelectionTimeoutError|AutoReconnect).*10\.0\.4\.72:27017.*Connection refused'
+        - field: msg
+          op: regex
+          value: '(ServerSelectionTimeoutError|AutoReconnect).*10\.0\.4\.72:27017.*Connection refused'
+        - field: message
+          op: regex
+          value: '10\.0\.4\.72:27017: \[Errno 111\] Connection refused'
+        - field: msg
+          op: regex
+          value: '10\.0\.4\.72:27017: \[Errno 111\] Connection refused'
+
+  - id: INSTANCEGUNICORN_ELASTICSEARCH_TIMEOUT
+    signal_key: instancegunicorn_elasticsearch_timeout
+    level: critical
+    description: Elasticsearch-backed log retrieval is timing out and blocking instancegunicorn log-management operations.
+    tags: [instancegunicorn, elasticsearch, dependency, timeout, logmanagement]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Elasticsearch: Connection timed out|InfraonElasticsearch:Connection timed out|elastic_transport\.ConnectionTimeout)'
+        - field: msg
+          op: regex
+          value: '(Elasticsearch: Connection timed out|InfraonElasticsearch:Connection timed out|elastic_transport\.ConnectionTimeout)'
+
+  - id: INSTANCEGUNICORN_CACHE_UNAVAILABLE
+    signal_key: instancegunicorn_cache_unavailable
+    level: warning
+    description: Local application-parameter cache is unavailable across gunicorn workers, forcing repeated fallback behavior.
+    tags: [instancegunicorn, cache, application_parameters, degraded]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: 'No Local Cache Avaliable !!!'
+        - field: msg
+          op: contains
+          value: 'No Local Cache Avaliable !!!'
+
+  - id: INSTANCEGUNICORN_LANGUAGE_TRANSLATION_KEY_MISSING
+    signal_key: instancegunicorn_language_translation_key_missing
+    level: warning
+    description: Translation lookup is missing the UI language key and causing repeated localization fallback warnings.
+    tags: [instancegunicorn, i18n, localization, missing_key]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: "Language Translation failed: 'UI' - <class 'KeyError'>"
+        - field: msg
+          op: contains
+          value: "Language Translation failed: 'UI' - <class 'KeyError'>"
+
+  - id: INSTANCEGUNICORN_PASSWORD_POLICY_CONFIG_MISSING
+    signal_key: instancegunicorn_password_policy_config_missing
+    level: warning
+    description: Password-policy lookups are falling back because the expected PasswordPolicy document does not exist.
+    tags: [instancegunicorn, auth, policy, configuration]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: '(Password policy not found with the given filter|PasswordPolicy matching query does not exist)'
+        - field: msg
+          op: regex
+          value: '(Password policy not found with the given filter|PasswordPolicy matching query does not exist)'
+
+  - id: INSTANCEGUNICORN_SMTP_CONFIG_MISSING
+    signal_key: instancegunicorn_smtp_config_missing
+    level: warning
+    description: SMTP configuration is missing for the organization and the backend is falling back to default mail settings.
+    tags: [instancegunicorn, smtp, configuration, notifications]
+    condition:
+      or:
+        - field: message
+          op: regex
+          value: 'No SmtpConfig found for org_id: .* Using default values\.'
+        - field: msg
+          op: regex
+          value: 'No SmtpConfig found for org_id: .* Using default values\.'
+
+  - id: INSTANCEGUNICORN_MARKETPLACE_AUTH_REGISTRATION_MISSING
+    signal_key: instancegunicorn_marketplace_auth_registration_missing
+    level: warning
+    description: Marketplace authentication is failing because MarketplaceAppRegister data is missing.
+    tags: [instancegunicorn, marketplace, auth, configuration]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: 'Error in check_marketplace_ad_auth on BaseTokenAuthenticate: MarketplaceAppRegister matching query does not exist'
+        - field: msg
+          op: contains
+          value: 'Error in check_marketplace_ad_auth on BaseTokenAuthenticate: MarketplaceAppRegister matching query does not exist'
+
+  - id: INSTANCEGUNICORN_API_TOKEN_MALFORMED
+    signal_key: instancegunicorn_api_token_malformed
+    level: warning
+    description: API token parsing failed because the expected colon-delimited token format was not present.
+    tags: [instancegunicorn, auth, api_token, parsing]
+    condition:
+      or:
+        - field: message
+          op: contains
+          value: 'Error in check_api_token: No ":" found in value'
+        - field: msg
+          op: contains
+          value: 'Error in check_api_token: No ":" found in value'

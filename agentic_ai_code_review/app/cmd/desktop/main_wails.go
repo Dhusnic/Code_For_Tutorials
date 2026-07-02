@@ -37,6 +37,9 @@ func main() {
 			DisableWindowIcon: false,
 		},
 		OnStartup: func(ctx context.Context) {},
+		OnShutdown: func(ctx context.Context) {
+			app.Shutdown()
+		},
 		Bind: []any{
 			app,
 		},

@@ -44,6 +44,11 @@ EXPECTED_HEADER_ORDER = (
     "closing_balance",
 )
 ISO_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+SPLIT_COUNT_PATTERNS = (
+    re.compile(r"\b(?:split|share|shared|sharing|among)[\s:/_-]*(?:for[\s:/_-]*)?(?:of[\s:/_-]*)?(\d{1,2})\b", re.IGNORECASE),
+    re.compile(r"\bfor[\s:/_-]*(\d{1,2})[\s:/_-]*(?:people|persons|person|ppl|members|friends|heads)\b", re.IGNORECASE),
+    re.compile(r"\b(\d{1,2})[\s:/_-]*(?:people|persons|person|ppl|members|friends|heads)\b", re.IGNORECASE),
+)
 
 
 @dataclass
@@ -444,6 +449,11 @@ def default_config() -> dict[str, Any]:
             "names": [],
             "vpas": [],
             "keywords": ["SELF TRANSFER"],
+        },
+        "shared_expense": {
+            "keywords": [],
+            "debt_category": "",
+            "debt_subcategory": "",
         },
         "accounts": {},
         "transfer_targets": [],
@@ -2036,6 +2046,36 @@ def combine_text_fields(*parts: str) -> str:
     return " | ".join(unique_parts)
 
 
+def quantize_amount(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def extract_split_people_count(*texts: str) -> int | None:
+    for text in texts:
+        cleaned = normalize_text(text)
+        if not cleaned:
+            continue
+        for pattern in SPLIT_COUNT_PATTERNS:
+            match = pattern.search(cleaned)
+            if not match:
+                continue
+            try:
+                people_count = int(match.group(1))
+            except ValueError:
+                continue
+            if people_count >= 2:
+                return people_count
+    return None
+
+
+def split_expense_settings(config: dict[str, Any]) -> tuple[list[str], str, str]:
+    shared_expense = config.get("shared_expense", {}) or {}
+    keywords = [normalize_text(item) for item in (shared_expense.get("keywords", []) or []) if normalize_text(item)]
+    debt_category = normalize_text(shared_expense.get("debt_category", ""))
+    debt_subcategory = normalize_text(shared_expense.get("debt_subcategory", ""))
+    return keywords, debt_category, debt_subcategory
+
+
 def account_config_for(
     config: dict[str, Any],
     account_number: str = "",
@@ -2383,11 +2423,11 @@ def plan_transfer_matches(config: dict[str, Any], statements: list[Statement]) -
     return plan
 
 
-def transaction_to_money_manager_record(
+def transaction_to_money_manager_records(
     config: dict[str, Any],
     transaction: Transaction,
     warnings: list[str],
-) -> MoneyManagerRecord:
+) -> list[MoneyManagerRecord]:
     account_config = account_config_for(
         config,
         account_number=transaction.account_number,
@@ -2494,7 +2534,66 @@ def transaction_to_money_manager_record(
         counterpart_account=counterpart_account,
         currency=currency,
     )
-    return record
+
+    split_keywords, debt_category, debt_subcategory = split_expense_settings(config)
+    split_text_pool = " | ".join(
+        part
+        for part in [note, description, details.note, transaction.narration]
+        if normalize_text(part)
+    )
+    if transaction.direction != "debit" or transaction_type != "Expense" or not split_keywords:
+        return [record]
+    if not contains_any(split_text_pool, split_keywords):
+        return [record]
+
+    people_count = extract_split_people_count(note, details.note, description, transaction.narration)
+    if people_count is None:
+        warnings.append(
+            f"{transaction.statement_path.name} row {transaction.row_number}: split keyword matched but no people count was found, so the full amount was kept in the original category."
+        )
+        return [record]
+    if not debt_category:
+        warnings.append(
+            f"{transaction.statement_path.name} row {transaction.row_number}: split keyword matched for {people_count} people but shared_expense.debt_category is empty, so the full amount was kept in the original category."
+        )
+        return [record]
+
+    own_share = quantize_amount(transaction.amount / Decimal(people_count))
+    debt_share = quantize_amount(transaction.amount - own_share)
+    if own_share <= Decimal("0.00") or debt_share <= Decimal("0.00"):
+        return [record]
+
+    own_record = MoneyManagerRecord(
+        sort_date=record.sort_date,
+        date_text=record.date_text,
+        source_account=record.source_account,
+        category=record.category,
+        subcategory=record.subcategory,
+        note=combine_text_fields(record.note, f"Own share 1/{people_count}"),
+        amount=own_share,
+        transaction_type=record.transaction_type,
+        description=combine_text_fields(record.description, f"Split expense kept as personal share for 1 of {people_count} people"),
+        sub_amount=record.sub_amount,
+        sub_currency=record.sub_currency,
+        counterpart_account=record.counterpart_account,
+        currency=record.currency,
+    )
+    debt_record = MoneyManagerRecord(
+        sort_date=record.sort_date,
+        date_text=record.date_text,
+        source_account=record.source_account,
+        category=debt_category,
+        subcategory=debt_subcategory,
+        note=combine_text_fields(record.note, f"Others share {people_count - 1}/{people_count}"),
+        amount=debt_share,
+        transaction_type="Expense",
+        description=combine_text_fields(record.description, f"Split expense moved to debt given by me for {people_count - 1} other people"),
+        sub_amount=record.sub_amount,
+        sub_currency=record.sub_currency,
+        counterpart_account=record.counterpart_account,
+        currency=record.currency,
+    )
+    return [own_record, debt_record]
 
 
 def read_template_from_xlsx(path: Path) -> OutputTemplate:
@@ -2861,7 +2960,7 @@ def main(argv: list[str] | None = None) -> int:
             if transaction_key(item) in transfer_plan.suppressed_transaction_keys:
                 continue
             try:
-                records.append(transaction_to_money_manager_record(config, item, warnings))
+                records.extend(transaction_to_money_manager_records(config, item, warnings))
             except ConversionError as exc:
                 warnings.append(f"{item.statement_path.name} row {item.row_number}: {exc}")
         records.sort(key=lambda record: (record.sort_date, record.source_account, record.amount, record.description))

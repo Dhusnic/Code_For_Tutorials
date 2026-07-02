@@ -264,6 +264,31 @@ pipeline:
         term:
           event.module: "nginx"
 
+    - name: "instancegunicorn"
+      enabled: true
+      rule_file: "services/instancegunicorn.yml"
+      source_indices:
+        - "linux*"
+      start_time: "now-1m"
+      query:
+        bool:
+          should:
+            - term:
+                service.name: "instancegunicorn"
+            - term:
+                service: "instancegunicorn"
+            - term:
+                event.dataset: "instancegunicorn"
+            - term:
+                data_stream.dataset: "instancegunicorn"
+            - term:
+                fileset.name: "instancegunicorn"
+            - wildcard:
+                log.file.path: "*instancegunicorn*"
+            - wildcard:
+                source: "*instancegunicorn*"
+          minimum_should_match: 1
+
     - name: "rabbitmq"
       enabled: true
       rule_file: "services/rabbitmq.yml"

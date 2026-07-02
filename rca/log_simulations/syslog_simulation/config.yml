@@ -51,9 +51,9 @@ syslog_simulator:
   # - mikrotik-1            (vendor=mikrotik_ros, category=router)
   # - mikrotik-ap-1         (vendor=mikrotik_ros, category=wireless)
   enabled_devices:
-    - "cisco-switch-1"
-    - "cisco-router-1"
-    # - "juniper-srx-1"
+    # - "cisco-switch-1"
+    # - "cisco-router-1"
+    - "juniper-srx-1"
     # - "fortigate-1"
     # - "paloalto-1"
     # - "f5-1"

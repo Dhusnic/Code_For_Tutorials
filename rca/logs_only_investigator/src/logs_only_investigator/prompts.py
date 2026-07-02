@@ -57,14 +57,16 @@ PLANNER_OUTPUT_SCHEMA: dict[str, Any] = {
                 "enum": [
                     "resolve_scope",
                     "retrieve_signal_candidates",
-                    "aggregate_discovery",
-                    "build_initial_anchor",
-                    "first_circle_search",
-                    "topology_walk",
-                    "raw_log_context",
-                    "compose_report",
-                    None,
-                ],
+                "aggregate_discovery",
+                "build_initial_anchor",
+                "first_circle_search",
+                "topology_walk",
+                "raw_log_context",
+                "healthy_window_comparison",
+                "critic_pass",
+                "compose_report",
+                None,
+            ],
             },
             "tool_args": {
                 "type": ["object", "null"],
@@ -93,6 +95,7 @@ Your job is to choose the single best next action for the investigation.
 Operating rules:
 - Use only the supplied state, completed tool results, and available tools.
 - Prefer the smallest next action that most reduces uncertainty.
+- Treat `recommended_next_tool` as the deterministic baseline, but you may choose another available tool when it will improve the investigation more.
 - Do not invent tool names.
 - Do not request a tool that is not listed in available_tools.
 - Prefer `finish` only when the investigation already has enough evidence or no remaining tool is likely to improve the result.
