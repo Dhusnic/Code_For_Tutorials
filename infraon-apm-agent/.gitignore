@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+.env
+logs/
+collector/otel.yaml
+bin/otelcol.exe
+
+# The Linux OpenTelemetry Collector Contrib binary (~342MB) — too large for
+# a normal git push (GitHub rejects files over 100MB without Git LFS). Fetch
+# it yourself: see README.md "Getting bin/otelcol" for the exact release URL
+# and a copy-paste download command.
+bin/otelcol
